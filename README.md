@@ -17,9 +17,9 @@ Works with Claude, Codex, Gemini CLI and every other external agent in [Zed](htt
 
 <br>
 
-[![Watch the 1-minute intro: an agent stops at its limit at 3 AM, and Rewake resumes the thread on its own](site/public/video/rewake-intro-poster.jpg)](site/public/video/rewake-intro-narrated.mp4)
+[![Watch the 1-minute intro: an agent stops at its limit at 3 AM, and Rewake resumes the thread on its own](site/public/video/rewake-intro-poster.jpg)](https://codizelabs.github.io/agent-rewake/#film)
 
-<sub>▶ Watch the 1-minute intro (with narration)</sub>
+<sub>▶ <a href="https://codizelabs.github.io/agent-rewake/#film">Watch the 1-minute intro</a> (with narration and captions)</sub>
 
 </div>
 
