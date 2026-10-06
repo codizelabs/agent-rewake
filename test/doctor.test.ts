@@ -244,6 +244,33 @@ describe("doctor: installed", () => {
   });
 });
 
+describe("doctor: other coding agents", () => {
+  it("names them in one line, and says Rewake doesn't work in them yet", () => {
+    const f = run(zed, {
+      agents: () => [
+        { id: "claude-code", name: "Claude Code", version: "2.1.291", surfaces: ["terminal"] },
+      ],
+    });
+    expect(texts(f, "info")).toContain(
+      "Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with Claude Code used on its own in a terminal, another editor or a desktop app.",
+    );
+    expect(texts(run()).join()).not.toContain("used on their own");
+  });
+
+  it("installed, never started: the specific line replaces the general one", () => {
+    const general = "Rewake works only in Zed's Agent Panel, with external agents";
+    settings({ agent_servers: { "claude-acp": wrapped() } });
+    expect(texts(run()).join()).toContain(general);
+    const f = texts(
+      run(zed, {
+        agents: () => [{ id: "codex", name: "Codex", surfaces: ["terminal"] }],
+      }),
+    ).join();
+    expect(f).not.toContain(general);
+    expect(f).toContain("or with Codex used on its own");
+  });
+});
+
 describe("doctor: sign-in, schedules and recent problems", () => {
   beforeEach(() => settings({ agent_servers: { "claude-acp": wrapped() } }));
 
