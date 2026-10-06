@@ -61,7 +61,7 @@ Automatic resume asks you instead of sending when:
 - you chose *On, except when permissions are bypassed* in **Settings…** and the thread skips permission prompts;
 - the agent gave the same reset time as last time, or never says when it resets and the limit has lasted about a day.
 
-Credit, spend and billing limits are never resumed automatically: waiting doesn't fix them. Rewake never approves permission requests; those wait for you in Zed.
+Credit, spend and billing limits are never resumed: waiting doesn't fix them, and Rewake says so in the thread. If the message gives a reset time, even next to an offer of credits ("buy more credits, or try again at 2:51 PM"), the limit resets, and Rewake resumes the thread then. Rewake never approves permission requests; those wait for you in Zed.
 
 ## Schedule a message
 
@@ -89,12 +89,12 @@ You can also ask the agent ("check the CI run again in 30 minutes"). It proposes
 
 **Rewake → Settings…** applies to every thread:
 
-- **Automatic resume after usage limits:** *Ask when a new thread opens* (default), *On, except when permissions are bypassed*, *On, even when permissions are bypassed*, or *Off*.
+- **Automatic resume after usage limits:** *Ask when a new thread opens* (default), *On, except when permissions are bypassed*, *On, even when permissions are bypassed*, or *Off*. "On" also covers threads Rewake sees for the first time, such as ones you reopen after installing it.
 - **Time format:** 12-hour (default) or 24-hour.
 
 ## Agents
 
-Rewake works the same way in front of every external agent Zed runs: Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and the rest. Claude and Codex say when their limit resets; for other agents Rewake recognises the limit from the error and asks you when to resume if no time is given. Zed's own agent isn't an external agent, so Rewake can't be added to it.
+Rewake works the same way in front of every external agent Zed runs: Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and the rest. Rewake knows how each of them reports a limit: an error, its own error codes, or a last line such as Cursor's "Upgrade your plan to continue". When the agent says when the limit resets, Rewake resumes at that time; otherwise it asks you when. Zed's own agent isn't an external agent, so Rewake can't be added to it.
 
 ## Privacy and security
 

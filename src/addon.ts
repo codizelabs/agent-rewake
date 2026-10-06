@@ -11,15 +11,19 @@ import {
   type Router,
   type RouterHooks,
 } from "./acp/router.js";
-import { type Classification, parseResetText } from "./adapters/claude/limits.js";
+import type { Classification, RateLimitInfo } from "./adapters/claude/limits.js";
 import { claudeAutoContinueDisabled, resetFromTranscript } from "./adapters/claude/sources.js";
 import {
   type AgentProfile,
   classifyLimit,
+  classifyText,
+  classifyTurnEnd,
+  isSessionLost,
   type LimitClassification,
   parseResetHint,
   profileFor,
 } from "./adapters/profiles.js";
+import { normalize } from "./adapters/text.js";
 import { describeCron, nextRun, nextRuns, parseCron, runsPerDay } from "./core/cron.js";
 import { SessionLock } from "./core/lock.js";
 import {
@@ -151,8 +155,22 @@ interface SessionState {
   baseTitle: string | undefined;
   /** The marker currently shown, if any. */
   marker: string | undefined;
-  /** Latest structured reset hint from the SDK's rate_limit_event. */
-  rateHint: { resetAt: number; at: number } | undefined;
+  /** Claude's latest rate_limit_event, and when it arrived. */
+  rateLimit: { info: RateLimitInfo; at: number } | undefined;
+  /** When the current turn (the user's or a scheduled message's) started. */
+  turnStartedAt: number;
+  /**
+   * The start of the agent's last message in the current turn. Several agents end a turn normally
+   * and report a usage limit only as this message.
+   */
+  lastMessage: string;
+  lastMessageId: string | undefined;
+  /** How many chunks that message came in: agents write their own errors in one. */
+  lastMessageChunks: number;
+  /** The store has been checked for a resume left from an earlier limit. */
+  resumesChecked: boolean;
+  /** A limit some agents send as their own session update (Nova's `error`), for this turn. */
+  turnError: { code: string; message: string } | undefined;
   /** The thread's permission mode, from the adapter's "mode" config option. */
   permissionMode: string | undefined;
   /** The current usage-limit episode, if any. */
@@ -343,6 +361,7 @@ export class SchedulingAddon {
     }
     session.userTurn = m.id;
     session.userTurnStartedAt = this.now();
+    this.startTurn(session);
     if (session.needsReattach) {
       void this.reattach(session).then((ok) => this.forwardAfterReattach(session, m, ok));
       return CONSUME;
@@ -442,6 +461,7 @@ export class SchedulingAddon {
     const session =
       typeof params.sessionId === "string" ? this.sessions.get(params.sessionId) : undefined;
     if (session?.suppressReplay) return CONSUME;
+    if (session) this.trackTurn(session, update);
 
     if (update.sessionUpdate === "session_info_update" && typeof update.title === "string") {
       if (!session) return FORWARD;
@@ -478,9 +498,7 @@ export class SchedulingAddon {
     }
     if (update.sessionUpdate === "usage_update" && session) {
       const rate = asObject(asObject(update._meta)["_claude/rateLimit"]);
-      if (rate.status === "rejected" && typeof rate.resetsAt === "number") {
-        session.rateHint = { resetAt: rate.resetsAt * 1000, at: this.now() };
-      }
+      if (rate.status !== undefined) session.rateLimit = { info: rate, at: this.now() };
       return FORWARD;
     }
     if (update.sessionUpdate !== "available_commands_update") return FORWARD;
@@ -498,9 +516,7 @@ export class SchedulingAddon {
       typeof params.sessionId === "string" ? this.sessions.get(params.sessionId) : undefined;
     if (session && message.type === "rate_limit_event") {
       const info = asObject(message.rate_limit_info);
-      if (info.status === "rejected" && typeof info.resetsAt === "number") {
-        session.rateHint = { resetAt: info.resetsAt * 1000, at: this.now() };
-      }
+      if (info.status !== undefined) session.rateLimit = { info, at: this.now() };
     }
     return this.clientWantsRawSdk ? FORWARD : CONSUME;
   }
@@ -575,14 +591,25 @@ export class SchedulingAddon {
       if (sessionId && response.error === undefined) {
         const cwd = typeof p.cwd === "string" ? p.cwd : "";
         if (token) this.links.set(token, sessionId, cwd);
+        // A thread Rewake hasn't seen before, even one Zed reopens rather than creates: the
+        // "on for new threads" setting applies to it as well.
+        const firstSeen = this.threads.get(sessionId) === undefined;
         const session = this.openSession(sessionId, cwd, p, result);
         // Defer until the response itself has been written: Zed drops session updates for a
         // session it hasn't registered yet (zed#59281).
         setImmediate(() => {
-          this.registerSession(session);
+          try {
+            this.registerSession(session);
+          } catch (err) {
+            this.opts.log.error("session.register_failed", {
+              code: (err as NodeJS.ErrnoException).code ?? "error",
+            });
+          }
           if (method === "session/new") {
             this.applyDefaultMode(session);
             void this.offerAutoOnNewThread(session);
+          } else if (firstSeen) {
+            void this.offerAutoOnNewThread(session, true);
           }
         });
         if (this.menuEnabled(session)) {
@@ -623,16 +650,27 @@ export class SchedulingAddon {
         return null;
       }
       session.userTurn = undefined;
-      if (response.error) {
-        const classification = classifyLimit(this.profile, response.error, this.now());
-        if (classification.kind === "usage_limit") {
-          setImmediate(() => this.onUsageLimit(session, classification));
-          return this.cleanError(session, response, classification);
+      const classification = this.classifyTurn(session, response);
+      let answer: JsonRpcMessage | undefined;
+      if (classification?.kind === "usage_limit") {
+        setImmediate(() => this.onUsageLimit(session, classification));
+        if (response.error) {
+          const shown =
+            classification.shown ||
+            (classification.text !== "" &&
+              normalize(session.lastMessage).includes(normalize(classification.text)));
+          answer = this.cleanError(session, response, classification, !shown);
         }
+      } else if (
+        classification?.kind === "not_recoverable" &&
+        classification.reason === "billing"
+      ) {
+        setImmediate(() => this.onNotResumable(session));
       } else if (!response.error) {
         setImmediate(() => this.onUserTurnSucceeded(session));
       }
       setImmediate(() => this.deliverDue(session));
+      return answer;
     }
     return undefined;
   }
@@ -648,16 +686,19 @@ export class SchedulingAddon {
     session: SessionState,
     response: JsonRpcMessage,
     c: Classification,
+    echo = true,
   ): JsonRpcMessage | undefined {
     if (!this.clientIsZed || !response.error) return undefined;
-    this.router?.notifyClient("session/update", {
-      sessionId: session.sessionId,
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        messageId: randomUUID(),
-        content: { type: "text", text: c.text },
-      },
-    });
+    // Agents that already wrote the limit as their last message don't need it twice.
+    if (echo)
+      this.router?.notifyClient("session/update", {
+        sessionId: session.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: randomUUID(),
+          content: { type: "text", text: c.text },
+        },
+      });
     return { jsonrpc: "2.0", id: response.id ?? null, result: { stopReason: "end_turn" } };
   }
 
@@ -729,7 +770,13 @@ export class SchedulingAddon {
       agentCommands: [],
       baseTitle: undefined,
       marker: undefined,
-      rateHint: undefined,
+      rateLimit: undefined,
+      turnStartedAt: 0,
+      lastMessage: "",
+      lastMessageId: undefined,
+      lastMessageChunks: 0,
+      resumesChecked: false,
+      turnError: undefined,
       permissionMode: mode,
       limit: undefined,
       formOpen: false,
@@ -867,6 +914,131 @@ export class SchedulingAddon {
 
   // ---- usage limits -------------------------------------------------------------
 
+  /** A new turn: forget the last turn's closing message and agent-reported error. */
+  private startTurn(session: SessionState): void {
+    session.turnStartedAt = this.now();
+    session.lastMessage = "";
+    session.lastMessageId = undefined;
+    session.lastMessageChunks = 0;
+    session.turnError = undefined;
+  }
+
+  /** Keep the start of the agent's latest message in this turn, and reset it when work follows. */
+  private trackTurn(session: SessionState, update: Record<string, unknown>): void {
+    if (session.userTurn === undefined && session.delivering === undefined) return;
+    const kind = update.sessionUpdate;
+    if (kind === "agent_message_chunk") {
+      const content = asObject(update.content);
+      if (content.type !== "text" || typeof content.text !== "string") return;
+      const id = typeof update.messageId === "string" ? update.messageId : undefined;
+      if (id !== session.lastMessageId) {
+        session.lastMessage = "";
+        session.lastMessageId = id;
+        session.lastMessageChunks = 0;
+      }
+      session.lastMessageChunks += 1;
+      const room = MESSAGE_KEPT - session.lastMessage.length;
+      if (room > 0) {
+        // A slice of a large chunk would keep the whole chunk in memory: copy the part kept.
+        const part =
+          content.text.length > room
+            ? Buffer.from(content.text.slice(0, room)).toString()
+            : content.text;
+        session.lastMessage += part;
+      }
+    } else if (
+      kind === "tool_call" ||
+      kind === "tool_call_update" ||
+      kind === "user_message_chunk" ||
+      kind === "plan"
+    ) {
+      session.lastMessage = "";
+      session.lastMessageId = undefined;
+      session.lastMessageChunks = 0;
+    } else if (kind === "error" && typeof update.errorCode === "string") {
+      session.turnError = {
+        code: update.errorCode,
+        message: typeof update.message === "string" ? update.message : update.errorCode,
+      };
+    }
+  }
+
+  /**
+   * How a turn ended, as far as limits go: from the error if there is one, and otherwise (or when
+   * the error says nothing) from what the agent reported in its last message or its own fields.
+   */
+  private classifyTurn(
+    session: SessionState,
+    response: JsonRpcMessage,
+  ): (LimitClassification & { shown?: boolean }) | undefined {
+    const now = this.now();
+    const rate = session.rateLimit;
+    const rateLimit =
+      this.claudeAgent && rate && rate.at >= session.turnStartedAt - 1000 ? rate.info : undefined;
+    if (response.error) {
+      const c = classifyLimit(this.profile, response.error, now, { rateLimit });
+      if (c.kind !== "other") return c;
+      const shown = classifyTurnEnd(
+        this.profile,
+        session.lastMessage,
+        "error",
+        now,
+        session.lastMessageChunks,
+      );
+      return shown ? { ...shown, shown: true } : c;
+    }
+    const result = asObject(response.result);
+    const fromText = classifyTurnEnd(
+      this.profile,
+      session.lastMessage,
+      result.stopReason,
+      now,
+      session.lastMessageChunks,
+    );
+    if (fromText) return fromText;
+    // Nova reports its token quota as a session update of its own.
+    if (session.turnError?.code === "TOKEN_LIMIT_EXCEEDED")
+      return { kind: "usage_limit", text: session.turnError.message, limitType: "other" };
+    const meta = asObject(result._meta);
+    const acts = (c: LimitClassification) =>
+      c.kind === "usage_limit" || (c.kind === "not_recoverable" && c.reason === "billing");
+    // DimCode ends a failed turn with "refusal" and the error in its result's metadata.
+    const dim = asObject(asObject(meta.dimcode).error);
+    if (result.stopReason === "refusal" && Object.keys(dim).length > 0) {
+      const text = typeof dim.message === "string" ? dim.message : String(dim.reason ?? "");
+      const reason = typeof dim.reason === "string" ? dim.reason : "";
+      if (reason === "window_rate_limit_reached" || reason === "feature_quota_exhausted")
+        return { kind: "usage_limit", text, limitType: "other" };
+      if (/^insufficient_|^member_credit_limit_reached$/.test(reason))
+        return { kind: "not_recoverable", text, reason: "billing" };
+      const c = classifyText(text, now);
+      if (acts(c)) return c;
+    }
+    // Harn's agent loop ends a failed turn normally, with its error class in the metadata.
+    const terminal = asObject(asObject(meta.harn).terminal);
+    if (typeof terminal.terminalClass === "string") {
+      const c = classifyLimit(
+        this.profile,
+        {
+          code: -32603,
+          message: typeof terminal.message === "string" ? terminal.message : "",
+          data: { terminalClass: terminal.terminalClass },
+        },
+        now,
+      );
+      if (acts(c)) return c;
+    }
+    return undefined;
+  }
+
+  /** The agent stopped at a limit that waiting won't fix: say so, rather than nothing. */
+  private onNotResumable(session: SessionState): void {
+    this.status(
+      session,
+      `Rewake: Not resuming. ${capitalize(this.agentName)} stopped at a credit, billing or spending limit, which waiting won't fix.`,
+    );
+  }
+
   private resolveReset(
     session: SessionState,
     text: string,
@@ -879,15 +1051,21 @@ export class SchedulingAddon {
         ? t
         : undefined;
     if (!this.claudeAgent) return sane(hint) ?? sane(parseResetHint(text, now));
-    if (session.rateHint && session.rateHint.at >= since - 1000) {
-      const t = sane(session.rateHint.resetAt);
+    const rate = session.rateLimit;
+    if (
+      rate &&
+      rate.at >= since - 1000 &&
+      rate.info.status === "rejected" &&
+      typeof rate.info.resetsAt === "number"
+    ) {
+      const t = sane(rate.info.resetsAt * 1000);
       if (t !== undefined) return t;
     }
     const fromTranscript = sane(
       resetFromTranscript(this.env, session.cwd, session.sessionId, since)?.resetAt,
     );
     if (fromTranscript !== undefined) return fromTranscript;
-    return sane(parseResetText(text, now)?.resetAt);
+    return sane(hint) ?? sane(parseResetHint(text, now));
   }
 
   private onUsageLimit(
@@ -908,13 +1086,31 @@ export class SchedulingAddon {
       limitType: c.limitType,
       resetKnown: resetAt !== undefined,
     });
-    if (this.pending(session).some((s) => s.kind !== "user" && s.status !== "paused")) {
+    const resumes = this.pending(session).filter((s) => s.kind !== "user");
+    const live = resumes.find((s) => LIVE_RESUME.has(s.status));
+    if (live) {
+      // Another limit with a sooner reset (Sonnet's 5 hours after Opus's week): resume then.
+      const sooner = resetAt === undefined ? undefined : this.resumeAt(resetAt);
+      if (live.status === "scheduled" && sooner !== undefined && sooner < live.dueAt - 60_000) {
+        this.store.update(live.scheduleId, (x) => ({ ...x, dueAt: Math.max(now, sooner) }), now);
+        this.refreshMarker(session);
+        this.status(
+          session,
+          `Rewake: Moved the resume from ${formatWhen(live.dueAt, now, this.opts.locale)} to ${formatWhen(sooner, now, this.opts.locale)}, just after this limit resets.`,
+        );
+        return;
+      }
       this.status(
         session,
         `Rewake: A resume is already scheduled for this thread. ${this.manageHint(session)}`,
       );
       return;
     }
+    // A resume that was missed or is waiting for an answer belongs to an older limit: this one
+    // replaces it.
+    for (const s of resumes)
+      if (s.status === "missed" || s.status === "needs_attention")
+        this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), now);
     const thread = this.threads.get(session.sessionId);
     const gate = this.autoGate(session, resetAt);
     if (thread?.autoResume && resetAt === undefined && gate === undefined) {
@@ -974,7 +1170,22 @@ export class SchedulingAddon {
   /** The "Resume after the limit?" form, or a text fallback if forms aren't supported. */
   private async offerResume(session: SessionState): Promise<void> {
     const limit = session.limit;
-    if (!limit || session.formOpen) return;
+    if (!limit) return;
+    if (session.formOpen) {
+      // Another Rewake question is open; one form at a time, so this one is a line.
+      const how = this.menuEnabled(session)
+        ? 'pick "Resume after the usage limit…" in the Rewake menu under the message box.'
+        : "type /schedule resume.";
+      this.status(
+        session,
+        `Rewake: ${capitalize(this.agentName)} hit its usage limit${
+          limit.resetAt !== undefined
+            ? `; it resets at ${formatWhen(limit.resetAt, this.now(), this.opts.locale)}`
+            : ""
+        }. To resume when it resets, ${how}`,
+      );
+      return;
+    }
     const waiting = this.pending(session).find((s) => s.kind !== "user");
     if (waiting) return this.addAfterResume(session, waiting);
     const now = this.now();
@@ -1175,6 +1386,7 @@ export class SchedulingAddon {
     const jitter = Math.floor(Math.random() * (this.opts.jitterMs ?? 20_000));
     const dueAt = Math.max(now, this.resumeAt(limit.resetAt) + jitter);
     if (kind === "auto_limit_resume") limit.autoAttempts += 1;
+    session.resumesChecked = false;
     this.store.create({
       sessionId: session.sessionId,
       cwd: session.cwd,
@@ -1206,10 +1418,22 @@ export class SchedulingAddon {
   /** The user continued by hand after the reset: drop pending resumes for that limit. */
   private onUserTurnSucceeded(session: SessionState): void {
     const limit = session.limit;
-    if (!limit || limit.resetAt === undefined || this.now() < limit.resetAt) return;
+    // Claude says the limit is lifted before its reset: another account, another model, or bought
+    // usage. The resume scheduled for the old reset would only interrupt the work later. This
+    // holds after a restart too, when Rewake no longer remembers the limit itself.
+    const rate = session.rateLimit;
+    const lifted =
+      this.claudeAgent &&
+      rate !== undefined &&
+      rate.at >= session.turnStartedAt - 1000 &&
+      (rate.info.status === "allowed" || rate.info.status === "allowed_warning");
+    if (!lifted && (!limit || limit.resetAt === undefined || this.now() < limit.resetAt)) return;
+    // Claude says "allowed" on most turns: look for an old resume once, not on every turn.
+    if (!limit && session.resumesChecked) return;
+    session.resumesChecked = true;
     session.limit = undefined;
     const resumes = this.pending(session).filter(
-      (s) => s.kind !== "user" && s.status !== "sending",
+      (s) => s.kind !== "user" && s.status !== "sending" && s.createdAt < session.turnStartedAt,
     );
     for (const s of resumes)
       this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), this.now());
@@ -1899,9 +2123,9 @@ export class SchedulingAddon {
     if (choice !== now)
       changed.push(
         {
-          all: "New threads resume automatically after usage limits, including threads that bypass permissions.",
+          all: "New threads, and threads Rewake sees for the first time, resume automatically after usage limits, including threads that bypass permissions.",
           exceptBypass:
-            "New threads resume automatically after usage limits, except threads that bypass permissions.",
+            "New threads, and threads Rewake sees for the first time, resume automatically after usage limits, except threads that bypass permissions.",
           ask: "Rewake asks about automatic resume when a new thread opens.",
           off: "Rewake won't resume new threads automatically or ask about it.",
         }[choice],
@@ -1965,7 +2189,7 @@ export class SchedulingAddon {
    * limits, or apply the user's standing answer. The question doesn't block Rewake's other forms:
    * the user can ignore it and start typing.
    */
-  async offerAutoOnNewThread(session: SessionState): Promise<void> {
+  async offerAutoOnNewThread(session: SessionState, onlyWhenOn = false): Promise<void> {
     if (
       !this.clientSupportsForms ||
       this.opts.askOnNewThreads === false ||
@@ -1975,6 +2199,8 @@ export class SchedulingAddon {
       return;
     const settings = loadSettings(this.opts.stateDir);
     if (settings.newThreads === "off") return;
+    // An existing thread opened for the first time is never asked, only switched on.
+    if (onlyWhenOn && settings.newThreads !== "on") return;
     const bypassNote =
       isBypassMode(session.permissionMode) && !settings.autoWhenPromptsSkipped
         ? " This thread bypasses permissions, and your setting excludes those threads: at a limit Rewake asks you instead."
@@ -2765,6 +2991,7 @@ export class SchedulingAddon {
     );
     if (!sending) return; // deleted in the meantime
     session.delivering = s.scheduleId;
+    this.startTurn(session);
     const late = now - s.dueAt > 60_000;
     const what = s.kind === "user" ? "message" : "resume message";
     if (s.attempts.length > 0 && this.shown.has(s.scheduleId)) {
@@ -2815,9 +3042,10 @@ export class SchedulingAddon {
     session.delivering = undefined;
     const stopReason = asObject(response.result).stopReason;
     const schedule = this.store.get(scheduleId);
-    const limited: LimitClassification = response.error
-      ? classifyLimit(this.profile, response.error, now)
-      : { kind: "other", text: "" };
+    const limited: LimitClassification = this.classifyTurn(session, response) ?? {
+      kind: "other",
+      text: "",
+    };
 
     if (
       response.error &&
@@ -2933,7 +3161,9 @@ export class SchedulingAddon {
         ({ followUps: _sent, ...x }) => ({ ...x, status: "sent" }),
         now,
       );
-      if (schedule && schedule.kind !== "user") session.limit = undefined; // the limit episode is over
+      if (limited.kind === "not_recoverable" && limited.reason === "billing")
+        this.onNotResumable(session);
+      else if (schedule && schedule.kind !== "user") session.limit = undefined; // the limit episode is over
       // The next waiting message goes now, after this reply, carrying the rest.
       const [next, ...rest] = schedule?.followUps ?? [];
       if (schedule && next)
@@ -2954,12 +3184,13 @@ export class SchedulingAddon {
     this.refreshMarker(session);
     this.opts.log.info("schedule.settled", {
       scheduleId,
-      outcome: response.error ? limited.kind : String(stopReason),
+      outcome: response.error || limited.kind !== "other" ? limited.kind : String(stopReason),
     });
     const held = session.heldPrompts.shift();
     if (held) {
       session.userTurn = held.id ?? undefined;
       session.userTurnStartedAt = this.now();
+      this.startTurn(session);
       this.router?.forwardClientRequest(held);
     } else {
       setImmediate(() => this.deliverDue(session));
@@ -3203,17 +3434,20 @@ const UNKNOWN_RESET_DELAYS: Array<[number, string]> = [
   [5 * 3_600_000, "In 5 hours"],
 ];
 
+/** Resumes that will still run on their own. */
+const LIVE_RESUME: ReadonlySet<Schedule["status"]> = new Set([
+  "scheduled",
+  "queued",
+  "sending",
+  "waiting_for_limit",
+]);
+
+/** How much of the agent's last message is kept: enough for any limit text. */
+const MESSAGE_KEPT = 4000;
+
 /** A mode that skips permission prompts, in any agent's words. */
 function isBypassMode(mode: string | undefined): boolean {
   return !!mode && /bypass|full.?access|yolo|dangerous|skip.?permission/i.test(mode);
-}
-
-function isSessionLost(error: NonNullable<JsonRpcMessage["error"]>): boolean {
-  const details = asObject(error.data).details;
-  return (
-    details === "Session not found" ||
-    /session not found|unknown session|no such session/i.test(error.message)
-  );
 }
 
 const REATTACH_FAILED = {

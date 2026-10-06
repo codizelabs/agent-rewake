@@ -134,6 +134,14 @@ describe("agent-rewake bundle", () => {
     expect(await p.exited).toBe(0);
   });
 
+  it("exits when Zed closes the pipe, even if the agent ignores SIGTERM", async () => {
+    const stubborn = join(root, "test", "fixtures", "stubborn-agent.mjs");
+    const p = start(["--", process.execPath, stubborn]);
+    await new Promise((r) => setTimeout(r, 300));
+    p.child.stdin.end();
+    expect(await p.exited).toBe(1);
+  }, 15_000);
+
   it("creates its log directory lazily with owner-only permissions on a cold start", async () => {
     const p = start(["--", process.execPath, fakeAgent]);
     p.send({ id: 0, method: "initialize", params: { protocolVersion: 1 } });

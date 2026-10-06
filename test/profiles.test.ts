@@ -12,7 +12,8 @@ describe("which profile an agent gets", () => {
     expect(profileFor("gemini", "gemini-cli")).toBe("gemini");
     expect(profileFor("my-codex", "codex-acp")).toBe("codex");
     expect(profileFor(undefined, "@agentclientprotocol/claude-agent-acp")).toBe("claude");
-    expect(profileFor("opencode", "OpenCode")).toBe("generic");
+    expect(profileFor("opencode", "OpenCode")).toBe("opencode");
+    expect(profileFor("some-new-agent", "Some Agent")).toBe("generic");
   });
 });
 

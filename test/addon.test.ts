@@ -1419,7 +1419,7 @@ describe("the Rewake menu in the thread toolbar", () => {
     await answer(h, { autoResume: "exceptBypass", clock: "24h" });
     expect(loadSettings(dir)).toMatchObject({ newThreads: "on", autoWhenPromptsSkipped: false });
     expect(h.texts().at(-1)).toBe(
-      "Rewake: Saved. New threads resume automatically after usage limits, except threads that bypass permissions.",
+      "Rewake: Saved. New threads, and threads Rewake sees for the first time, resume automatically after usage limits, except threads that bypass permissions.",
     );
 
     pick(h, 8, menuOf(latestOptions(h)), "open");
@@ -2290,6 +2290,375 @@ describe("robust with every agent", () => {
       )
       .at(-1)?.params as { update: { availableCommands: Array<{ name: string }> } } | undefined;
     expect(last?.update.availableCommands.map((c) => c.name)).toEqual(["plan", "schedule", "stop"]);
+    h.addon.stop();
+  });
+});
+
+// ---- limits in every agent's words --------------------------------------------------
+
+describe("limits that agents report in their own way", () => {
+  const chunk = (text: string) => ({
+    method: "session/update",
+    params: {
+      sessionId: "s-1",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+    },
+  });
+  const toolCall = {
+    method: "session/update",
+    params: {
+      sessionId: "s-1",
+      update: { sessionUpdate: "tool_call", toolCallId: "t-1", title: "Read file" },
+    },
+  };
+
+  it("Claude: a spend limit whose session limit resets is offered a resume", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent(rateEvent(RESET));
+    h.agent({
+      id: 2,
+      error: {
+        code: -32603,
+        message:
+          "Internal error: You've hit your individual spend limit · run /usage-credits to ask your admin for a higher limit · your session limit resets 5pm",
+        data: { errorKind: "rate_limit" },
+      },
+    });
+    await settle();
+    expect(formMessage(h)).toMatch(/^Claude hit its usage limit\. It resets at 17:00 today\./);
+    h.addon.stop();
+  });
+
+  it("Claude: says why it won't resume when only credits would help", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({
+      id: 2,
+      error: {
+        code: -32603,
+        message: "Internal error: You're out of usage credits",
+        data: { errorKind: "rate_limit" },
+      },
+    });
+    await settle();
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().at(-1)).toBe(
+      "Rewake: Not resuming. Claude stopped at a credit, billing or spending limit, which waiting won't fix.",
+    );
+    h.addon.stop();
+  });
+
+  it("Cursor: the limit line at the end of a normal turn", async () => {
+    const h = await harness(dir, {
+      agentName: "cursor-agent",
+      agentTitle: "Cursor",
+      agentId: "cursor",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent(chunk("Working on it."));
+    h.agent(toolCall);
+    h.agent(chunk("\n\nUpgrade your plan to continue"));
+    h.agent({ id: 2, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(formMessage(h)).toMatch(/^Cursor hit its usage limit\. It didn't say when/);
+    h.addon.stop();
+  });
+
+  it("Copilot: limit words in the middle of a turn are not a limit", async () => {
+    const h = await harness(dir, {
+      agentName: "copilot",
+      agentTitle: "GitHub Copilot",
+      agentId: "github-copilot-cli",
+    });
+    h.prompt(2, "what does the log say?");
+    await settle();
+    h.agent(
+      chunk(
+        "Error: You've hit your session rate limit. Please wait for your limit to reset in 3 hours.",
+      ),
+    );
+    h.agent(toolCall);
+    h.agent(chunk("That line is from yesterday's run; nothing is limited now."));
+    h.agent({ id: 2, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(forms(h)).toHaveLength(0);
+    h.addon.stop();
+  });
+
+  it("Droid: reads the message before its bare error, and doesn't repeat it", async () => {
+    const h = await harness(dir, {
+      agentName: "droid",
+      agentTitle: "Factory Droid",
+      agentId: "factory-droid",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    const limit =
+      'Error: 402 {"detail":"You\'ve reached your 5-hour standard usage limit (resets in 3h 0min).","status":402}';
+    h.agent(chunk(limit));
+    h.agent({
+      id: 2,
+      error: {
+        code: -32603,
+        message: "Internal error",
+        data: { details: "Internal error: Agent error" },
+      },
+    });
+    await settle();
+    expect(formMessage(h)).toMatch(
+      /^Factory Droid hit its usage limit\. It resets at 17:00 today\./,
+    );
+    expect(h.texts().filter((t) => t.includes("5-hour standard usage limit"))).toHaveLength(1);
+    h.addon.stop();
+  });
+});
+
+describe("the limit ends early", () => {
+  const allowed = {
+    method: "_claude/sdkMessage",
+    params: {
+      sessionId: "s-1",
+      message: { type: "rate_limit_event", rate_limit_info: { status: "allowed" } },
+    },
+  };
+
+  it("cancels the resume when Claude answers again before the reset (another account)", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.advance(HOUR); // still before the 17:00 reset
+    h.prompt(3, "carry on");
+    await settle();
+    h.agent(allowed);
+    h.agent({ id: 3, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(/^Rewake: Cancelled the scheduled resume/);
+    h.addon.stop();
+  });
+
+  it("keeps the resume when a turn succeeds without Claude saying the limit lifted", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.advance(HOUR);
+    h.prompt(3, "/context");
+    await settle();
+    h.agent({ id: 3, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.addon.stop();
+  });
+});
+
+describe("the limit text in the thread", () => {
+  it("isn't repeated when Claude already wrote it", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "keep going");
+    await settle();
+    const text = "You've hit your session limit · resets 5pm";
+    h.agent({
+      method: "session/update",
+      params: {
+        sessionId: "s-1",
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+      },
+    });
+    h.agent(rateEvent(RESET));
+    h.agent({ id: 2, error: limitErr });
+    await settle();
+    expect(h.texts().filter((t) => t === text)).toHaveLength(1);
+    h.addon.stop();
+  });
+});
+
+describe("resumes left from an earlier limit", () => {
+  it("cancels an old resume after a restart when Claude answers again (another account)", async () => {
+    const h = await harness(dir, { claude: true });
+    // Scheduled by an earlier process, which remembered the limit; this one doesn't.
+    h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Resume",
+      dueAt: RESET + 60_000,
+      kind: "auto_limit_resume",
+      createdBy: "auto",
+      now: T0,
+    });
+    h.advance(HOUR);
+    h.prompt(2, "carry on");
+    await settle();
+    h.agent({
+      method: "_claude/sdkMessage",
+      params: {
+        sessionId: "s-1",
+        message: { type: "rate_limit_event", rate_limit_info: { status: "allowed" } },
+      },
+    });
+    h.agent({ id: 2, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list()[0]?.status).toBe("cancelled");
+    h.addon.stop();
+  });
+
+  it("replaces a missed resume with this limit's resume", async () => {
+    const h = await harness(dir, { claude: true });
+    const old = h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Resume",
+      dueAt: T0 - HOUR,
+      kind: "auto_limit_resume",
+      createdBy: "auto",
+      now: T0 - 2 * HOUR,
+    });
+    h.store.update(old.scheduleId, (x) => ({ ...x, status: "missed" }), T0);
+    await hitLimit(h, 2);
+    expect(h.store.get(old.scheduleId)?.status).toBe("cancelled");
+    expect(formMessage(h)).toMatch(/^Claude hit its usage limit\. It resets at 17:00 today\./);
+    h.addon.stop();
+  });
+
+  it("moves a resume earlier when a sooner limit resets first (another model)", async () => {
+    const h = await harness(dir, { claude: true });
+    const weekly = h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Resume",
+      dueAt: T0 + 72 * HOUR,
+      kind: "auto_limit_resume",
+      createdBy: "auto",
+      now: T0,
+    });
+    await hitLimit(h, 2);
+    expect(h.store.get(weekly.scheduleId)?.dueAt).toBe(RESET + 60_000);
+    expect(h.texts().at(-1)).toBe(
+      "Rewake: Moved the resume from Wednesday at 14:00 to 17:01 today, just after this limit resets.",
+    );
+    h.addon.stop();
+  });
+
+  it("still offers the resume in a line when another Rewake question is open", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2); // its question stays open
+    h.prompt(3, "try again");
+    await settle();
+    h.agent(rateEvent(RESET));
+    h.agent({ id: 3, error: limitErr });
+    await settle();
+    expect(forms(h)).toHaveLength(1);
+    expect(h.texts().at(-1)).toMatch(
+      /^Rewake: Claude hit its usage limit; it resets at 17:00 today\. To resume when it resets,/,
+    );
+    h.addon.stop();
+  });
+
+  it("turns automatic resume on for a thread it first sees when Zed reopens it", async () => {
+    saveSettings(dir, { ...loadSettings(dir), newThreads: "on" });
+    const h = await harness(dir, { claude: true, askOnNewThreads: true });
+    h.client({
+      id: 7,
+      method: "session/load",
+      params: { sessionId: "s-9", cwd: "/project", mcpServers: [] },
+    });
+    await settle();
+    h.agent({ id: 7, result: {} });
+    await settle();
+    expect(new ThreadStore(dir).get("s-9")?.autoResume).toBe(true);
+    h.addon.stop();
+  });
+});
+
+describe("limits reported in a turn's metadata", () => {
+  it("DimCode: a plan window reached, from the refusal's error reason", async () => {
+    const h = await harness(dir, {
+      agentName: "dimcode",
+      agentTitle: "DimCode",
+      agentId: "dimcode",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({
+      id: 2,
+      result: {
+        stopReason: "refusal",
+        _meta: {
+          dimcode: { error: { type: "provider_error", reason: "window_rate_limit_reached" } },
+        },
+      },
+    });
+    await settle();
+    expect(formMessage(h)).toMatch(/^DimCode hit its usage limit\./);
+    h.addon.stop();
+  });
+
+  it("DimCode: says it won't resume when the balance is spent", async () => {
+    const h = await harness(dir, {
+      agentName: "dimcode",
+      agentTitle: "DimCode",
+      agentId: "dimcode",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({
+      id: 2,
+      result: {
+        stopReason: "refusal",
+        _meta: {
+          dimcode: { error: { reason: "insufficient_balance", message: "Insufficient balance" } },
+        },
+      },
+    });
+    await settle();
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(
+      /^Rewake: Not resuming\. DimCode stopped at a credit, billing or spending limit/,
+    );
+    h.addon.stop();
+  });
+
+  it("Harn: a billing stop at the end of a normal turn", async () => {
+    const h = await harness(dir, { agentName: "harn", agentTitle: "Harn", agentId: "harn" });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({
+      id: 2,
+      result: {
+        stopReason: "end_turn",
+        _meta: {
+          harn: {
+            terminal: {
+              kind: "provider_error",
+              terminalClass: "provider_billing",
+              message: "anthropic HTTP 429 [billing_limit]: credit balance is too low",
+            },
+          },
+        },
+      },
+    });
+    await settle();
+    expect(h.texts().at(-1)).toMatch(
+      /^Rewake: Not resuming\. Harn stopped at a credit, billing or spending limit/,
+    );
+    h.addon.stop();
+  });
+
+  it("an ordinary turn's metadata is not a limit", async () => {
+    const h = await harness(dir, { agentName: "harn", agentTitle: "Harn", agentId: "harn" });
+    h.prompt(2, "hello");
+    await settle();
+    h.agent({
+      id: 2,
+      result: { stopReason: "end_turn", _meta: { harn: { terminal: { kind: "completed" } } } },
+    });
+    await settle();
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().filter((t) => t.startsWith("Rewake:"))).toHaveLength(0);
     h.addon.stop();
   });
 });

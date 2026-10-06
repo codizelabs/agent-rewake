@@ -34,7 +34,7 @@ Coding agents stop at their usage limit: Claude's 5-hour session limit, Codex's 
 <img src="site/public/images/rewake-demo.gif" alt="A Zed agent thread: the agent stops at its usage limit, Rewake asks whether to resume, and at 5:01 PM the thread continues on its own" width="100%">
 
 - **Resumes after a usage limit.** When the agent stops, the thread asks once whether to resume, with your resume message ready to edit. At the reset (plus a minute), Rewake sends it and the agent carries on. If the agent is still limited, Rewake waits for the new reset time.
-- **Automatic, if you want.** Turn it on for a thread, or for every new thread, and Rewake schedules the resume without asking. It asks first when a limit resets more than a day away, never resumes credit or billing limits, and never approves permission prompts for you.
+- **Automatic, if you want.** Turn it on for a thread, or for every new thread, and Rewake schedules the resume without asking. It asks first when a limit resets more than a day away, never resumes credit or billing limits (and says so in the thread), and never approves permission prompts for you.
 - **Queues the next steps.** Add follow-up messages that go one after another once the work resumes.
 - **Also: send messages later.** Schedule a message into a thread for a time, or on a repeat (every weekday at 9, or any cron schedule, read back in plain words before it's saved). Your agent can propose follow-ups too; nothing is scheduled until you approve it.
 - **One place for everything.** A **Rewake** menu under the message box, and a schedules page for every thread and agent.
@@ -101,7 +101,7 @@ Full guide: **[codizelabs.github.io/agent-rewake/docs](https://codizelabs.github
 
 ## Supported agents
 
-Rewake works the same way in front of every external agent Zed runs: **Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose** and the rest, npm-based or binary, plus custom agents. Claude and Codex report when their limit resets; for other agents Rewake recognises the limit from the error and lets you pick when to resume.
+Rewake works the same way in front of every external agent Zed runs: **Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose** and the rest, npm-based or binary, plus custom agents. Rewake knows how each of them reports a limit: an error, its own error codes, or a last line such as Cursor's "Upgrade your plan to continue". When the agent says when the limit resets, in any of the formats agents use, Rewake resumes at that time; otherwise it lets you pick when.
 
 ## Privacy
 
