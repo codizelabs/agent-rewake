@@ -130,6 +130,13 @@ export function runProxy(opts: ProxyOptions): Promise<number> {
       setTimeout(() => {
         if (current.exitCode === null) killTree(current);
       }, 2000).unref();
+      // An agent that ignores SIGTERM (or hangs while cleaning up) must not keep this process,
+      // and the thread locks it holds, alive.
+      setTimeout(() => {
+        if (current.exitCode !== null || current.signalCode !== null) return;
+        killTree(current, undefined, "SIGKILL");
+        finish(1, "agent_killed");
+      }, 5000).unref();
     }
     if (opts.handleSignals)
       for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const)
