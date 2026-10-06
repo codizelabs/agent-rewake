@@ -105,7 +105,7 @@ Rewake works the same way in front of every external agent Zed runs: Claude Agen
 
 ## Troubleshooting
 
-Start with `agent-rewake doctor`, and in Zed `dev: open acp logs`. Then [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+Start with `agent-rewake doctor`. It checks Zed (installed, version, AI features on), your agents and which have Rewake, whether Zed has started it, the version and Node.js Zed uses, settings that override Rewake's, sign-in, your scheduled messages and recent start failures, and gives the fix for each. It works offline and prints no folders, accounts or keys (`--details` adds versions and folders for bug reports). In Zed, `dev: open acp logs` shows the agent connection. Then [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
 - **Installed, but nothing happens (`doctor` says "Not used yet"):** Zed starts Rewake only when you open or start a thread with a Rewake agent in the **Agent Panel**; restarting Zed isn't enough. If you chat with Claude in the Claude desktop app, claude.ai or a terminal, Rewake can't reach it there: see [Is it for you?](#is-it-for-you). To remove it: `agent-rewake uninstall`.
 - **No Rewake menu, or `/schedule` goes to the agent:** quit Zed completely and reopen it after `install`. Check that `install` listed the agent you use. For agents without their own toolbar options, type `/schedule`: it opens the same forms.

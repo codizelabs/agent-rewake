@@ -62,7 +62,7 @@ Then **quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; 
 
 If you have no external agents yet, `install` offers to add **Claude Agent**: pick it in the Agent Panel and sign in with your Claude account.
 
-Check the setup at any time. It says, in plain words, whether Rewake is set up, whether Zed has started it, and what to do next:
+Check the setup at any time. `doctor` looks at Zed, its settings and agents, Rewake, sign-in, your scheduled messages and recent problems, and says in plain words what's left to do. It works offline and prints no folders, accounts or keys:
 
 ```sh
 npx @codizelabs/agent-rewake doctor

@@ -42,6 +42,9 @@ import type { Logger } from "./util/log.js";
 import { ensurePrivateDir } from "./util/paths.js";
 import { REPO_URL, SUPPORT_URL, VERSION } from "./version.js";
 
+/** Sign-in kinds the Claude and Codex adapters report in `_auth/status_update`. */
+const AUTH_KINDS = new Set(["account", "api_key", "external", "gateway", "none"]);
+
 /** The id of Rewake's menu in the thread toolbar. Zed saves the last pick under this key. */
 export const MENU_CONFIG_ID = "rewake";
 
@@ -218,6 +221,8 @@ export class SchedulingAddon {
   private claudeAgent = false;
   /** How this agent reports a usage limit. */
   private profile: AgentProfile = "generic";
+  /** The agent's last reported sign-in kind (`_auth/status_update`), logged when it changes. */
+  private authKind: string | undefined;
   /** The agent refused a session with Rewake's tool server, so it isn't offered again (D1). */
   private toolsRefused = false;
   /**
@@ -421,6 +426,16 @@ export class SchedulingAddon {
 
   private onAgentMessage(m: JsonRpcMessage): Action {
     if (m.method === "_claude/sdkMessage") return this.onRawSdkMessage(m);
+    if (m.method === "_auth/status_update") {
+      // How the agent is signed in, for `doctor`: the kind only, never the account's email,
+      // organisation or plan (claude-agent-acp 0.85.1 and codex-acp send this).
+      const kind = asObject(m.params).kind;
+      if (typeof kind === "string" && AUTH_KINDS.has(kind) && kind !== this.authKind) {
+        this.authKind = kind;
+        this.opts.log.info("agent.auth", { kind });
+      }
+      return FORWARD;
+    }
     if (m.method !== "session/update") return FORWARD;
     const params = asObject(m.params);
     const update = asObject(params.update);
