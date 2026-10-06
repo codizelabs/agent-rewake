@@ -25,6 +25,7 @@ import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
 import { modInstalled } from "./hosts/claude-code/install.js";
 import { pluginInstalled } from "./hosts/codex/plugin.js";
+import { hooksFile } from "./hosts/copilot/install.js";
 import { detectAgents, type Found, otherAgentsNote, withoutInstalled } from "./install/detect.js";
 import { readText, renameWithRetry } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
@@ -710,7 +711,8 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
             const home = opts.env.HOME || opts.env.USERPROFILE || homedir();
             return (
               (id === "codex" && pluginInstalled(opts.env, home)) ||
-              (id === "claude-code" && modInstalled(opts.env, home))
+              (id === "claude-code" && modInstalled(opts.env, home)) ||
+              (id === "copilot-cli" && existsSync(hooksFile(opts.env, home)))
             );
           },
         ),

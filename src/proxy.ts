@@ -80,6 +80,11 @@ export function runProxy(opts: ProxyOptions): Promise<number> {
         ...(run.windowsVerbatimArguments && { windowsVerbatimArguments: true }),
       });
       opts.log.info("agent.spawned", { pid: child.pid, command: opts.agent.command });
+      // A write that reaches an agent that just died fails with EPIPE. Without a listener that
+      // error would end Rewake with status 1; the exit handler below reports the agent's own.
+      child.stdin.on("error", (err) => {
+        opts.log.warn("agent.stdin_error", { code: (err as NodeJS.ErrnoException).code ?? "" });
+      });
       child.on("error", (err) => {
         opts.log.error("agent.spawn_failed", { message: err.message });
         finish(1, "spawn_failed");

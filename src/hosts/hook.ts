@@ -23,8 +23,8 @@ export interface HookContext {
 }
 
 export interface HookHandler {
-  /** The input came from this host (the cross-talk guard). */
-  isMine(input: Record<string, unknown>): boolean;
+  /** The input came from this host (the cross-talk guard). Grok marks its runs in the env. */
+  isMine(input: Record<string, unknown>, env: NodeJS.ProcessEnv): boolean;
   /** The session id Zed's add-on would know it by, when it can be the same. */
   sessionId(input: Record<string, unknown>): string | undefined;
   /** Handle the event; return what to print on stdout, if anything. */
@@ -63,7 +63,7 @@ export async function runHook(
   }
   if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
   const record = input as Record<string, unknown>;
-  if (!handler.isMine(record)) return undefined;
+  if (!handler.isMine(record, env)) return undefined;
   const id = handler.sessionId(record);
   if (id && new ThreadStore(stateDir).get(id)) return undefined;
   return handler.handle({ event, input: record, env, stateDir, now });
