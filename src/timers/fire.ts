@@ -1,9 +1,15 @@
 import { basename } from "node:path";
 import { SessionLock } from "../core/lock.js";
-import { backoffMs, decideFire, type FireDecision, MAX_REARMS } from "../core/resume.js";
+import {
+  backoffMs,
+  decideFire,
+  type FireDecision,
+  MAX_REARMS,
+  RESET_MARGIN_MS,
+} from "../core/resume.js";
 import { loadSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore } from "../core/store.js";
-import { formatWhen } from "../core/time.js";
+import { formatAt, formatWhen } from "../core/time.js";
 import type { HostAdapter, HostFacts } from "../hosts/host.js";
 import type { LogFields } from "../util/log.js";
 import type { Notifier } from "./notify.js";
@@ -61,12 +67,18 @@ export interface NoticeFacts {
   noun: string;
   /** The agent's name for sign-in hints: "Codex". */
   agentName: string;
+  /** How the person gets back to it: "resume the thread in Codex" (default "open the thread"). */
+  reopen?: string;
+  /** How the person asks again (HostAdapter.again). */
+  again?: (at: string | undefined) => string;
   /** When the resume was due (for "late"). */
   dueAt?: number;
-  /** A later reset the agent reported (for "far-reset"). */
+  /** A later reset the agent reported (for "far-reset" and "expired"). */
   resetsAt?: number;
   cause?: FailCause;
 }
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The notification for a resume Rewake won't send on its own. Plain words, no message text. */
 export function notice(
@@ -76,23 +88,32 @@ export function notice(
   f: NoticeFacts,
 ): string {
   const n = f.noun;
+  const reopen = f.reopen ?? `open the ${n}`;
+  // How the person asks again: for the reset the agent reported, else with a time of their own.
+  const later = f.again
+    ? f.again(f.resetsAt ? formatAt(f.resetsAt + RESET_MARGIN_MS, now) : undefined)
+    : f.resetsAt
+      ? `${cap(reopen)} after ${formatWhen(f.resetsAt, now)} to continue.`
+      : `${cap(reopen)} when the limit resets to continue.`;
   switch (why) {
     case "open":
       return `${agent}: the usage limit has reset. The ${n} is open, so Rewake didn't send anything. Continue it there.`;
     case "late":
-      return `${agent}: the usage limit reset${f.dueAt ? ` at ${formatWhen(f.dueAt, now)}` : ""}, but Rewake couldn't run then (the computer may have been off or asleep), so it didn't continue. Open the ${n} to continue.`;
+      return `${agent}: Rewake was due to continue the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but couldn't run then (the computer may have been off or asleep). ${cap(reopen)} to continue.`;
     case "far-reset":
-      return `${agent} is limited again until ${f.resetsAt ? formatWhen(f.resetsAt, now) : "later"}. Rewake won't continue on its own; open the ${n} after that.`;
+      return f.again
+        ? `${agent} hit its usage limit again, so Rewake didn't continue. ${later}`
+        : `${agent} is limited again until ${f.resetsAt ? formatWhen(f.resetsAt, now) : "later"}, so Rewake didn't continue. ${cap(reopen)} after that to continue.`;
     case "expired":
-      return `${agent} is still limited, so Rewake stopped trying. Open the ${n} when the limit resets.`;
+      return `${agent} is still at its usage limit, so Rewake didn't continue. ${later}`;
     case "failed":
       if (f.cause === "signed-out")
-        return `${agent}: Rewake couldn't continue the ${n} because you're signed out of ${f.agentName}. Sign in, then open the ${n}.`;
+        return `${agent}: Rewake couldn't continue the ${n} because you're signed out of ${f.agentName}. Sign in, then ${reopen} to continue.`;
       if (f.cause === "archived")
-        return `${agent}: Rewake couldn't continue the ${n} because it's archived. Unarchive it in ${f.agentName} to continue.`;
+        return `${agent}: Rewake couldn't continue the ${n} because it's archived. Unarchive it, then ${reopen} to continue.`;
       if (f.cause === "deleted")
         return `${agent}: Rewake couldn't continue the ${n} because it no longer exists.`;
-      return `${agent}: Rewake couldn't continue the ${n}. Open it to continue.`;
+      return `${agent}: Rewake couldn't continue the ${n}. ${cap(reopen)} to continue.`;
   }
 }
 
@@ -168,11 +189,16 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       cause?: FailCause,
     ): FireOutcome => {
       settle(status, cause ?? why);
+      // Keep the later reset the agent reported, so asking again ("rewake") continues then.
+      if (facts.newResetsAt !== undefined && (why === "far-reset" || why === "expired"))
+        store.update(id, (x) => ({ ...x, dueAt: (facts.newResetsAt ?? 0) + RESET_MARGIN_MS }), now);
       deps.notify(
         "Agent Rewake",
         notice(why, at, now, {
           noun: host.noun,
           agentName: host.name,
+          ...(host.reopen !== undefined && { reopen: host.reopen }),
+          ...(host.again !== undefined && { again: host.again }),
           dueAt: s.dueAt,
           ...(facts.newResetsAt !== undefined && { resetsAt: facts.newResetsAt }),
           ...(cause && { cause }),

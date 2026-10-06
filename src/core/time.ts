@@ -142,6 +142,12 @@ export function formatWhen(at: number, now: number, locale?: string): string {
   return `${weekday} ${date} at ${time}`;
 }
 
+/** `formatWhen` with its preposition: "at 3:00 PM today", "on Saturday at 3:00 PM". */
+export function formatAt(at: number, now: number, locale?: string): string {
+  const s = formatWhen(at, now, locale);
+  return /^\d/.test(s) ? `at ${s}` : `on ${s}`;
+}
+
 /**
  * An unambiguous time for the agent's tool replies: "Mon 5 Oct 2026, 13:00 (Asia/Karachi, GMT+5)".
  * Relative words like "tomorrow" depend on when they're read; this doesn't.

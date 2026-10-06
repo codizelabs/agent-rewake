@@ -110,7 +110,7 @@ describe("Codex hooks: typing rewake", () => {
     const r = blocked(await h.run("UserPromptSubmit", { prompt: "rewake" }));
     expect(r.decision).toBe("block");
     expect(r.reason).toMatch(
-      /^Rewake will continue this thread at .+\. Sending any other message here cancels that\.$/,
+      /^Rewake will continue this thread (at|on) .+\. Keep this computer on and awake until then\. Sending any other message here cancels that\.$/,
     );
     const [s] = resumes();
     expect(s).toMatchObject({
@@ -171,9 +171,18 @@ describe("Codex hooks: when a session ends at a limit", () => {
     await h.run("SessionEnd", { reason: "other" });
     expect(h.notes).toHaveLength(1);
     expect(h.notes[0]).toMatch(
-      /^Codex in shop hit its usage limit\. It resets at .+\. To continue then, open the thread and type: rewake$/,
+      /^Codex in shop hit its usage limit\. Resume the thread in Codex and type "rewake", and Rewake continues it (at|on) .+, after the limit resets\.$/,
     );
     expect(resumes()).toEqual([]);
+  });
+
+  it("asks for a time in the notification when the reset time isn't known", async () => {
+    writeFileSync(rollout, `${LIMIT_LINES[2]}\n`);
+    const h = hooks();
+    await h.run("SessionEnd", {});
+    expect(h.notes).toEqual([
+      'Codex in shop hit its usage limit. Resume the thread in Codex and type "rewake" with a time, for example "rewake 3:30pm".',
+    ]);
   });
 
   it("arms without asking when automatic resume is on and the reset is within a day", async () => {
@@ -290,6 +299,22 @@ describe("Codex at fire time", () => {
     );
     expect(await fire(s.scheduleId, deps({}))).toBe("skipped");
     expect(calls().filter((c) => c.args[0] === "queue")).toEqual([]);
+  });
+
+  it("after a later limit, asking again continues at the reset Codex reported", async () => {
+    const s = await armed();
+    const later = RESETS + 2 * 86_400_000;
+    expect(
+      await fire(
+        s.scheduleId,
+        deps({ FAKE_CODEX_USAGE: "limited", FAKE_CODEX_RESETS_AT: String(sec(later)) }),
+      ),
+    ).toBe("notified");
+    const h = hooks();
+    const reply = blocked(await h.run("UserPromptSubmit", { prompt: "rewake" })).reason ?? "";
+    const again = resumes().find((r) => r.status === "scheduled");
+    expect(again?.dueAt).toBe(later + 60_000);
+    expect(reply).toMatch(/^Rewake will continue this thread (at|on) /);
   });
 
   it("queues through Codex's daemon when one runs, and reports archived threads", async () => {
@@ -433,7 +458,7 @@ describe("Codex plugin and install", () => {
     expect(r.code).toBe(0);
     expect(r.installed).toEqual([marketplaceDir(state)]);
     expect(r.output).toContain(
-      "Agent Rewake will add its plugin to Codex 0.160.1 (preview), with Codex's own commands:",
+      "Agent Rewake (preview) will add its plugin to Codex 0.160.1, with Codex's own commands:",
     );
     expect(r.output).toContain("choose Review hooks and trust the Agent Rewake hooks");
     expect(r.output).not.toContain("Trust all");

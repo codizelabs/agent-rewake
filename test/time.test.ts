@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatWhen, parseWhen } from "../src/core/time.js";
+import { formatAt, formatWhen, parseWhen } from "../src/core/time.js";
 
 // Local-time fixtures: built with the Date constructor so tests run in any time zone.
 const local = (y: number, mo: number, d: number, h: number, mi: number) =>
@@ -61,5 +61,17 @@ describe("formatWhen", () => {
     expect(formatWhen(local(2026, 10, 5, 9, 0), NOW, "en-GB")).toBe("09:00 tomorrow (Monday)");
     expect(formatWhen(local(2026, 10, 8, 9, 0), NOW, "en-GB")).toBe("Thursday at 09:00");
     expect(formatWhen(local(2026, 10, 20, 9, 0), NOW, "en-GB")).toBe("Tuesday 20 October at 09:00");
+  });
+});
+
+describe("formatAt", () => {
+  it("adds the right preposition to formatWhen", () => {
+    const now = new Date(2026, 9, 7, 12, 0).getTime();
+    expect(formatAt(new Date(2026, 9, 7, 15, 0).getTime(), now)).toMatch(
+      /^at (3:00 PM|15:00) today$/,
+    );
+    expect(formatAt(new Date(2026, 9, 10, 15, 0).getTime(), now)).toMatch(
+      /^on Saturday at (3:00 PM|15:00)$/,
+    );
   });
 });

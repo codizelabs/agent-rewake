@@ -3,7 +3,7 @@ import { decideArm, RESET_MARGIN_MS } from "../../core/resume.js";
 import { loadSettings } from "../../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../../core/threads.js";
-import { formatWhen, parseWhen } from "../../core/time.js";
+import { formatAt, parseWhen } from "../../core/time.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { findCodexLimit, isCodexRollout, readTail, threadIdOf } from "./rollout.js";
 
@@ -113,14 +113,26 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
           );
         if (limit.billing)
           return block(
-            "Rewake can't continue after this limit: it's about credits or spending, which waiting doesn't fix.",
+            "Rewake can't continue after this limit: this limit is about credits or spending, which waiting doesn't fix.",
           );
         let at: number | undefined;
         if (m[1]) {
           const when = parseWhen(m[1], ctx.now);
           if (!when.ok) return block(`Rewake didn't understand "${m[1]}". Try "rewake 3:30pm".`);
           at = when.at;
-        } else if (limit.resetsAt) at = limit.resetsAt + RESET_MARGIN_MS;
+        } else {
+          // The session file's reset, or a later one Codex reported when Rewake last tried.
+          const later = new ScheduleStore(ctx.stateDir)
+            .listForSession(thread.id, "codex")
+            .filter((x) => x.failureReason === "far-reset" || x.failureReason === "expired")
+            .map((x) => x.dueAt)
+            .filter((t) => t > ctx.now);
+          const times = [
+            ...(limit.resetsAt ? [limit.resetsAt + RESET_MARGIN_MS] : []),
+            ...later,
+          ].filter((t) => t > ctx.now);
+          if (times.length > 0) at = Math.max(...times);
+        }
         if (at === undefined)
           return block(
             'Rewake doesn\'t know when this limit resets. Type "rewake" with a time, for example "rewake 3:30pm".',
@@ -128,7 +140,7 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
         cancelPending(ctx, thread.id);
         arm(ctx, thread, at);
         return block(
-          `Rewake will continue this thread at ${formatWhen(at, ctx.now)}. Sending any other message here cancels that.`,
+          `Rewake will continue this thread ${formatAt(at, ctx.now)}. Keep this computer on and awake until then. Sending any other message here cancels that.`,
         );
       }
 
@@ -160,12 +172,12 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
           return undefined;
         }
         if (decision.action === "offer") {
-          const when = limit.resetsAt
-            ? ` It resets at ${formatWhen(limit.resetsAt, ctx.now)}.`
-            : "";
+          const how = limit.resetsAt
+            ? `type "rewake", and Rewake continues it ${formatAt(limit.resetsAt + RESET_MARGIN_MS, ctx.now)}, after the limit resets`
+            : 'type "rewake" with a time, for example "rewake 3:30pm"';
           deps.notify(
             "Agent Rewake",
-            `${where} hit its usage limit.${when} To continue then, open the thread and type: rewake`,
+            `${where} hit its usage limit. Resume the thread in Codex and ${how}.`,
           );
         }
         return undefined;

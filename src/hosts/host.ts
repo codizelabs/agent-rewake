@@ -12,6 +12,13 @@ export interface HostAdapter {
   name: string;
   /** What the agent calls a conversation: "thread" (Codex) or "session" (Copilot, Grok). */
   noun: string;
+  /** How the person gets back to it, when "open the <noun>" isn't enough. */
+  reopen?: string;
+  /**
+   * How the person asks Rewake again: for `at` ("at 3:00 PM today") when the agent reported its
+   * next reset, otherwise with a time of their own.
+   */
+  again?: (at: string | undefined) => string;
   /** Facts at fire time, from the agent's own files or commands. Anything unknown is left out. */
   check(resume: Schedule, now: number): Promise<HostFacts>;
   /**

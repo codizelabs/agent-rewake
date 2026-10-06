@@ -38,6 +38,11 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
     id: "codex",
     name: "Codex",
     noun: "thread",
+    reopen: "resume the thread in Codex",
+    again: (at) =>
+      at
+        ? `Resume the thread in Codex and type "rewake", and Rewake continues it ${at}.`
+        : 'Resume the thread in Codex and type "rewake" with a time, for example "rewake 3:30pm".',
 
     async check(s, now) {
       const facts: HostFacts = {};

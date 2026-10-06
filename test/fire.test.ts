@@ -125,7 +125,7 @@ describe("fire", () => {
     expect(await fire(r.scheduleId, deps)).toBe("notified");
     expect(sent).toEqual([]);
     expect(store.get(r.scheduleId)?.status).toBe("missed");
-    expect(notes[0]).toContain("Rewake couldn't run then");
+    expect(notes[0]).toContain("but couldn't run then (the computer may have been off or asleep)");
   });
 
   it("stops when the person typed after the limit, or the agent continued by itself", async () => {
@@ -157,7 +157,7 @@ describe("fire", () => {
     const { deps, notes } = setup({ facts: { usageAllowed: false } });
     expect(await fire(r.scheduleId, deps)).toBe("failed");
     expect(store.get(r.scheduleId)?.status).toBe("failed");
-    expect(notes[0]).toContain("stopped trying");
+    expect(notes[0]).toContain("is still at its usage limit, so Rewake didn't continue.");
   });
 
   it("tries again later when the agent is limited at send time", async () => {
@@ -222,19 +222,22 @@ describe("notice", () => {
   const f = { noun: "thread", agentName: "Codex" };
   it("says what happened and what to do, with times and the cause when known", () => {
     expect(notice("late", "Codex in shop", NOW, { ...f, dueAt: NOW - 3_600_000 })).toMatch(
-      /^Codex in shop: the usage limit reset at .+ today, but Rewake couldn't run then \(the computer may have been off or asleep\), so it didn't continue\. Open the thread to continue\.$/,
+      /^Codex in shop: Rewake was due to continue the thread at .+ today, but couldn't run then \(the computer may have been off or asleep\)\. Open the thread to continue\.$/,
     );
     expect(notice("far-reset", "Codex", NOW, { ...f, resetsAt: NOW + 3 * 86_400_000 })).toMatch(
-      /^Codex is limited again until \w+ at .+; open the thread after that\.$/,
+      /^Codex is limited again until \w+ at .+, so Rewake didn't continue\. Open the thread after that to continue\.$/,
+    );
+    expect(notice("expired", "Codex in shop", NOW, { ...f, resetsAt: NOW + 3_600_000 })).toMatch(
+      /^Codex in shop is still at its usage limit, so Rewake didn't continue\. Open the thread after .+ today to continue\.$/,
     );
     expect(notice("failed", "Codex in shop", NOW, { ...f, cause: "signed-out" })).toBe(
-      "Codex in shop: Rewake couldn't continue the thread because you're signed out of Codex. Sign in, then open the thread.",
+      "Codex in shop: Rewake couldn't continue the thread because you're signed out of Codex. Sign in, then open the thread to continue.",
     );
     expect(notice("failed", "Codex in shop", NOW, { ...f, cause: "archived" })).toBe(
-      "Codex in shop: Rewake couldn't continue the thread because it's archived. Unarchive it in Codex to continue.",
+      "Codex in shop: Rewake couldn't continue the thread because it's archived. Unarchive it, then open the thread to continue.",
     );
     expect(notice("failed", "Grok Build", NOW, { noun: "session", agentName: "Grok Build" })).toBe(
-      "Grok Build: Rewake couldn't continue the session. Open it to continue.",
+      "Grok Build: Rewake couldn't continue the session. Open the session to continue.",
     );
   });
 });

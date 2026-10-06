@@ -76,7 +76,7 @@ export async function runCodexInstall(o: CodexInstallOptions): Promise<number> {
     }
     o.out(
       [
-        `Agent Rewake will ${installed ? "update its plugin in" : "add its plugin to"} ${label} (preview), with Codex's own commands:`,
+        `Agent Rewake (preview) will ${installed ? "update its plugin in" : "add its plugin to"} ${label}, with Codex's own commands:`,
         `  codex plugin marketplace add "${marketplaceDir(o.stateDir)}"`,
         "  codex plugin add agent-rewake@agent-rewake",
         "",
@@ -123,7 +123,7 @@ export async function runCodexInstall(o: CodexInstallOptions): Promise<number> {
       "",
       "Done.",
       'Next, open Codex. It shows "Hooks need review": choose Review hooks and trust the Agent Rewake hooks.',
-      "Then, when a thread hits its usage limit, type rewake in it. Rewake continues the thread when the limit resets.",
+      'Then, when a thread hits its usage limit, type "rewake" in it. Rewake continues the thread when the limit resets.',
       "",
     ].join("\n"),
   );
