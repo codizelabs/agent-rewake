@@ -1,0 +1,10 @@
+{
+  "name": "rewake",
+  "version": "0.0.0",
+  "description": "Continues this session when your usage limit resets, and sends messages you schedule into it.",
+  "author": { "name": "Codize Labs", "url": "https://github.com/codizelabs" },
+  "homepage": "https://codizelabs.github.io/agent-rewake/",
+  "repository": "https://github.com/codizelabs/agent-rewake",
+  "license": "Apache-2.0",
+  "keywords": ["usage-limit", "resume", "schedule"]
+}
