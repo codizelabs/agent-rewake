@@ -196,6 +196,12 @@ export class SchedulingAddon {
   private readonly threads: ThreadStore;
   private readonly lock: SessionLock;
   private readonly requests: RequestStore;
+  /**
+   * Scheduled messages whose text this process already showed in their thread. A retry within the
+   * same run (for example after a usage limit, which also moves the due time) doesn't show the
+   * same text again; a repeating message's next run starts with no attempts and is shown.
+   */
+  private readonly shown = new Set<string>();
   private readonly links: LinkStore;
   /** session/new request id → the token given to that session's tool server. */
   private readonly pendingLinks = new Map<string, string>();
@@ -2745,18 +2751,28 @@ export class SchedulingAddon {
     if (!sending) return; // deleted in the meantime
     session.delivering = s.scheduleId;
     const late = now - s.dueAt > 60_000;
-    this.status(
-      session,
-      `Rewake: Sending your scheduled ${s.kind === "user" ? "message" : "resume message"}${late ? ` (it was due at ${formatWhen(s.dueAt, now, this.opts.locale)})` : ""}. ${this.stopHint(session)}`,
-    );
-    router.notifyClient("session/update", {
-      sessionId: session.sessionId,
-      update: {
-        sessionUpdate: "user_message_chunk",
-        messageId: randomUUID(),
-        content: { type: "text", text: s.text },
-      },
-    });
+    const what = s.kind === "user" ? "message" : "resume message";
+    if (s.attempts.length > 0 && this.shown.has(s.scheduleId)) {
+      // Already in the thread from an earlier attempt: say it's going again, don't repeat it.
+      this.status(
+        session,
+        `Rewake: Sending your scheduled ${what} again (shown above). ${this.stopHint(session)}`,
+      );
+    } else {
+      this.shown.add(s.scheduleId);
+      this.status(
+        session,
+        `Rewake: Sending your scheduled ${what}${late ? ` (it was due at ${formatWhen(s.dueAt, now, this.opts.locale)})` : ""}. ${this.stopHint(session)}`,
+      );
+      router.notifyClient("session/update", {
+        sessionId: session.sessionId,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          messageId: randomUUID(),
+          content: { type: "text", text: s.text },
+        },
+      });
+    }
     // An automatic resume tells Claude that no human typed it.
     const textForAgent =
       s.kind === "auto_limit_resume"

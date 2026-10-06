@@ -771,6 +771,38 @@ describe("resume after a usage limit", () => {
     h.addon.stop();
   });
 
+  it("shows a message once when it's sent again after a usage limit", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "/schedule in 1h Run the tests");
+    await settle();
+    const echoes = () =>
+      h.toClient.filter(
+        (m) =>
+          (m.params as { update?: { sessionUpdate?: string; content?: { text?: string } } })?.update
+            ?.sessionUpdate === "user_message_chunk",
+      ).length;
+
+    h.advance(HOUR);
+    h.addon.tick();
+    await settle();
+    expect(echoes()).toBe(1);
+    const first = h.toAgent.filter((m) => m.method === "session/prompt").at(-1);
+    h.agent(rateEvent(T0 + 3 * HOUR));
+    h.agent({ id: first?.id, error: limitErr });
+    await settle();
+    expect(h.store.list()[0]).toMatchObject({ status: "scheduled", attempts: [{ n: 1 }] });
+
+    h.advance(2 * HOUR + 60_000); // after the reset
+    h.addon.tick();
+    await settle();
+    expect(h.toAgent.filter((m) => m.method === "session/prompt").length).toBe(2);
+    expect(echoes()).toBe(1); // not shown a second time
+    expect(h.texts()).toContain(
+      'Rewake: Sending your scheduled message again (shown above). To stop the reply, pick "Stop the scheduled reply" in the Rewake menu, or type /stop.',
+    );
+    h.addon.stop();
+  });
+
   it("cancels a pending resume when the user continues by hand after the reset", async () => {
     const h = await harness(dir, { claude: true });
     await hitLimit(h, 2);
