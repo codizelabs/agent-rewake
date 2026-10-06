@@ -85,7 +85,13 @@ export interface Schedule {
  * newer Rewake (for example before a rollback) and is skipped like an invalid file, so this
  * version never sends, changes or deletes it.
  */
-export const KNOWN_HOSTS: ReadonlySet<string> = new Set(["acp"]);
+const knownHosts = new Set(["acp"]);
+export const KNOWN_HOSTS: ReadonlySet<string> = knownHosts;
+
+/** Called by each integration this version ships (src/hosts/), so its records are read. */
+export function registerHost(id: string): void {
+  knownHosts.add(id);
+}
 /** Bounds on `sessionRef`, so a hand-edited or hostile file stays small. */
 const MAX_SESSION_REF_KEYS = 8;
 const MAX_SESSION_REF_BYTES = 4096;

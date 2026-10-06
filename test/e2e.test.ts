@@ -33,7 +33,8 @@ let home: string;
 beforeAll(() => {
   home = mkdtempSync(join(tmpdir(), "rewake-e2e-"));
 });
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+// Retries: an agent process from the last test may still be writing its log as the folder goes.
+afterAll(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
 
 /**
  * An empty home and no credentials, like the ACP Registry's CI check. On
