@@ -41,8 +41,18 @@ The docs site lives in `site/` (Astro Starlight): `cd site && npm ci && npm run 
 
 - Keep each pull request to one concern, with a clear title: it becomes the commit message.
 - Add tests for behaviour changes, and update the docs (`README.md`, `site/src/content/docs/docs.mdx`, `CHANGELOG.md`) when something users see changes.
+- Open pull requests against `develop` (the default branch). `main` holds released code only.
 - Branch names: `<type>/<description>`, for example `fix/missed-repeat-runs`. Types: `feat`, `fix`, `docs`, `chore`, `ci`, `refactor`, `test`, `perf`, `release`.
 - All checks must pass: tests on macOS, Linux and Windows, lint, docs and the site build.
+
+## Releasing
+
+Publishing is automatic, from GitHub Actions with [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/): there is no npm token to manage ([`publish.yml`](.github/workflows/publish.yml)).
+
+- **Every merge into `develop`** that changes the package stages a prerelease on npm, `X.Y.Z-next.<run>` with the dist-tag `next`. It isn't installable until a maintainer approves it on npmjs.com with 2FA; approved, it installs with `npx @codizelabs/agent-rewake@next`. Reject the ones you don't need.
+- **A release:** on `develop`, set the new version in `package.json` (`npm version <x.y.z> --no-git-tag-version`) and add its section to `CHANGELOG.md`. Then open a pull request from `develop` into `main` and merge it with a merge commit. The workflow publishes that version as `latest`, tags the commit `vX.Y.Z` and creates the GitHub release from the changelog. A merge into `main` without a new version publishes nothing.
+
+Maintainers set this up once: on npmjs.com, the package's **Settings → Trusted Publisher** has two GitHub Actions entries for `codizelabs/agent-rewake` and `publish.yml`: environment `npm-stage` (staged publishing only) and environment `npm` (with `npm publish` allowed). `node scripts/apply-github-settings.mjs` limits those GitHub environments to `develop` and `main`.
 
 ## Security
 
