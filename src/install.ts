@@ -23,6 +23,7 @@ import {
 } from "jsonc-parser";
 import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
+import { pluginDir as antigravityPluginDir } from "./hosts/antigravity/install.js";
 import { modInstalled } from "./hosts/claude-code/install.js";
 import { pluginInstalled } from "./hosts/codex/plugin.js";
 import { hooksFile } from "./hosts/copilot/install.js";
@@ -714,7 +715,8 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
               (id === "codex" && pluginInstalled(opts.env, home)) ||
               (id === "claude-code" && modInstalled(opts.env, home)) ||
               (id === "copilot-cli" && existsSync(hooksFile(opts.env, home))) ||
-              (id === "grok" && existsSync(grokHooksFile(opts.env, home)))
+              (id === "grok" && existsSync(grokHooksFile(opts.env, home))) ||
+              (id === "antigravity" && existsSync(antigravityPluginDir(opts.env, home)))
             );
           },
         ),
