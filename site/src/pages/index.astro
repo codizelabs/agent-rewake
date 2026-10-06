@@ -65,6 +65,12 @@ const faq: Array<{ q: string; a: string[] }> = [
     ],
   },
   {
+    q: "Does it work with the Claude desktop app, Claude Code in a terminal, or Zed's own agent?",
+    a: [
+      "No. Rewake works in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI. Zed doesn't let add-ons into its own agent, and the Claude desktop app, claude.ai and Claude Code in a terminal run outside the Agent Panel. Claude Code and the desktop app each have their own setting to continue after a usage limit.",
+    ],
+  },
+  {
     q: "Is it a Zed extension?",
     a: [
       "No. Zed extensions can't add this, so Rewake is an add-on on the Agent Client Protocol (ACP) connection between Zed and your agent. `agent-rewake install` puts it in front of the agents you already have, and `agent-rewake uninstall` takes it out.",
@@ -164,7 +170,7 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
               <code id="install-cmd">npx @codizelabs/agent-rewake install</code>
               <button type="button" class="copy" data-copy="install-cmd" aria-label="Copy the install command">Copy</button>
             </div>
-            <p class="install-after">Then restart Zed. That's it: the Rewake menu appears in every agent thread.</p>
+            <p class="install-after">Then restart Zed and open a thread in its Agent Panel. That's it: the Rewake menu appears under the message box.</p>
             <div class="ctas">
               <a class="btn primary" href={href("docs/#install")}>Get started</a>
               <a class="btn" href="#film"><span aria-hidden="true">▶</span> Watch the 1-minute intro</a>
@@ -210,11 +216,11 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
             </li>
             <li>
               <span class="num" aria-hidden="true">3</span>
-              <h3>Open any thread</h3>
-              <p>The <b>Rewake</b> menu sits under the message box. When the agent hits its limit, Rewake offers to resume it.</p>
+              <h3>Open a thread in the Agent Panel</h3>
+              <p>Open the <b>Agent Panel</b> and a thread with Claude Agent, Codex or another external agent. The <b>Rewake</b> menu sits under the message box; at a usage limit, Rewake offers to resume.</p>
             </li>
           </ol>
-          <p class="install-meta">Needs Node.js 22+ and Zed 1.22+ · macOS, Linux and Windows · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
+          <p class="install-meta">For Zed's Agent Panel with an external agent (<a href={href("docs/#is-it-for-you")}>is it for you?</a>) · Needs Node.js 22+ and Zed 1.22+ · macOS, Linux and Windows · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
         </div>
       </section>
 
