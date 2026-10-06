@@ -115,7 +115,7 @@ describe("fire", () => {
     expect(sent).toEqual([]);
     expect(store.get(r.scheduleId)?.status).toBe("needs_attention");
     expect(notes).toEqual([
-      "Codex in shop: the usage limit has reset. The thread is open, so Rewake didn't send anything. Continue it there.",
+      'Codex in the "shop" folder: the usage limit has reset. The thread is open, so Rewake didn\'t send anything. Continue it there.',
     ]);
   });
 
