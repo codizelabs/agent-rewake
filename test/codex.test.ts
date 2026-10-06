@@ -171,7 +171,7 @@ describe("Codex hooks: when a session ends at a limit", () => {
     await h.run("SessionEnd", { reason: "other" });
     expect(h.notes).toHaveLength(1);
     expect(h.notes[0]).toMatch(
-      /^Codex in shop hit its usage limit\. Resume the thread in Codex and type "rewake", and Rewake continues it (at|on) .+, after the limit resets\.$/,
+      /^Codex in the "shop" folder hit its usage limit\. Resume the thread in Codex and type "rewake", and Rewake continues it (at|on) .+, after the limit resets\.$/,
     );
     expect(resumes()).toEqual([]);
   });
@@ -181,7 +181,7 @@ describe("Codex hooks: when a session ends at a limit", () => {
     const h = hooks();
     await h.run("SessionEnd", {});
     expect(h.notes).toEqual([
-      'Codex in shop hit its usage limit. Resume the thread in Codex and type "rewake" with a time, for example "rewake 3:30pm".',
+      'Codex in the "shop" folder hit its usage limit. Resume the thread in Codex and type "rewake" with a time, for example "rewake 3:30pm".',
     ]);
   });
 

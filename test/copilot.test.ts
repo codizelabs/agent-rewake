@@ -125,7 +125,7 @@ describe("Copilot's hooks", () => {
     expect(JSON.stringify(r)).not.toContain("fix the build");
     expect(h.notes).toEqual([
       expect.stringMatching(
-        /^GitHub Copilot CLI in shop hit its usage limit\. Run "agent-rewake continue" to continue it at (3:01 PM|15:01) today, after the limit resets\.$/,
+        /^GitHub Copilot CLI in the "shop" folder hit its usage limit\. Run "agent-rewake continue" to continue it at (3:01 PM|15:01) today, after the limit resets\.$/,
       ),
     ]);
     expect(h.armed).toEqual([]);
@@ -138,7 +138,7 @@ describe("Copilot's hooks", () => {
     expect(h.armed.map(([, at]) => at)).toEqual([new Date(2026, 9, 7, 15, 1).getTime()]);
     expect(h.notes).toEqual([
       expect.stringMatching(
-        /^Rewake will continue GitHub Copilot CLI in shop at (3:01 PM|15:01) today\. Keep this computer on and awake until then\./,
+        /^Rewake will continue GitHub Copilot CLI in the "shop" folder at (3:01 PM|15:01) today\. Keep this computer on and awake until then\./,
       ),
     ]);
   });
@@ -199,7 +199,7 @@ describe("agent-rewake continue", () => {
     expect(r.code).toBe(0);
     expect(r.output).toContain("agent-rewake continue --always");
     expect(r.output).toMatch(
-      /^Rewake will continue GitHub Copilot CLI in shop at (3:01 PM|15:01) today\. Keep this computer on and awake until then\./,
+      /^Rewake will continue GitHub Copilot CLI in the "shop" folder at (3:01 PM|15:01) today\. Keep this computer on and awake until then\./,
     );
     expect(h.armed).toHaveLength(1);
     expect(new ScheduleStore(state).list()[0]).toMatchObject({
@@ -227,7 +227,7 @@ describe("agent-rewake continue", () => {
       },
       ask: async () => "",
     });
-    expect(output).toMatch(/^Cancelled: GitHub Copilot CLI in shop at /);
+    expect(output).toMatch(/^Cancelled: GitHub Copilot CLI in the "shop" folder at /);
     expect(new ScheduleStore(state).list()[0]?.status).toBe("cancelled");
   });
 

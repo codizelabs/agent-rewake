@@ -166,7 +166,7 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
                 : "ask",
         });
         const cwd = typeof ctx.input.cwd === "string" ? basename(ctx.input.cwd) : "";
-        const where = cwd ? `Codex in ${cwd}` : "Codex";
+        const where = cwd ? `Codex in the "${cwd}" folder` : "Codex";
         if (decision.action === "arm") {
           arm(ctx, thread, decision.fireAt);
           return undefined;

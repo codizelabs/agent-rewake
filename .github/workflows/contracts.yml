@@ -92,3 +92,38 @@ jobs:
         env:
           REWAKE_CLAUDE_BIN: ${{ github.workspace }}/test/agents/node_modules/.bin/claude
         run: npx vitest run test/claude-contract.test.ts
+
+  grok:
+    name: grok (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # Grok's package installs its program into $HOME/.grok/bin: a scratch home keeps it there.
+      - name: Install the pinned agent CLIs
+        working-directory: test/agents
+        run: HOME="$RUNNER_TEMP/grokhome" npm ci --no-audit --no-fund
+
+      - name: Grok loads Rewake's hooks
+        env:
+          REWAKE_GROK_BIN: ${{ runner.temp }}/grokhome/.grok/bin/grok
+        run: npx vitest run test/grok-contract.test.ts

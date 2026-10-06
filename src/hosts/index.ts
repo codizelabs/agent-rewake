@@ -3,6 +3,7 @@ import { type ClosedDeps, type ClosedHost, closedAdapter } from "./closed.js";
 import { codexAdapter } from "./codex/adapter.js";
 import { type CodexHookDeps, codexHooks } from "./codex/hooks.js";
 import { COPILOT_ID, copilotHooks, copilotHost } from "./copilot/host.js";
+import { GROK_ID, grokHooks, grokHost } from "./grok/host.js";
 import type { HookContext, HookHandler } from "./hook.js";
 import type { HostAdapter } from "./host.js";
 
@@ -12,9 +13,10 @@ import type { HostAdapter } from "./host.js";
  */
 registerHost("codex");
 registerHost(COPILOT_ID);
+registerHost(GROK_ID);
 
 /** The hosts whose closed sessions Rewake continues (`agent-rewake continue`). */
-export const CLOSED_HOSTS: ClosedHost[] = [copilotHost];
+export const CLOSED_HOSTS: ClosedHost[] = [copilotHost, grokHost(process.env)];
 
 /** The adapters `fire` uses, built for this run's environment. */
 export function hostAdapters(
@@ -40,6 +42,8 @@ export function hookHandler(host: string, deps: HookDeps): HookHandler | undefin
   if (host === "codex") return codexHooks(deps);
   if (host === COPILOT_ID)
     return copilotHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
+  if (host === GROK_ID)
+    return grokHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   return undefined;
 }
 
