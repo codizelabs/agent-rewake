@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-const host = { id: "test", name: "Test" } as HostAdapter;
+const host = { id: "test", name: "Test", noun: "session" } as HostAdapter;
 
 function deps(live: Set<string> = new Set()) {
   const fired: string[] = [];

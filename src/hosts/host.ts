@@ -10,9 +10,21 @@ export interface HostAdapter {
   id: string;
   /** As people know it, for notifications: "Codex". */
   name: string;
+  /** What the agent calls a conversation: "thread" (Codex) or "session" (Copilot, Grok). */
+  noun: string;
+  /** How the person gets back to it, when "open the <noun>" isn't enough. */
+  reopen?: string;
+  /**
+   * How the person asks Rewake again: for `at` ("at 3:00 PM today") when the agent reported its
+   * next reset, otherwise with a time of their own.
+   */
+  again?: (at: string | undefined) => string;
   /** Facts at fire time, from the agent's own files or commands. Anything unknown is left out. */
   check(resume: Schedule, now: number): Promise<HostFacts>;
-  /** Deliver the message into the same session, once. */
+  /**
+   * Deliver the message into the same session, once. On failure, `detail` may name a cause the
+   * person can fix: "signed-out", "archived" or "deleted".
+   */
   send(resume: Schedule, idempotencyKey: string): Promise<SendResult>;
 }
 

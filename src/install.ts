@@ -23,7 +23,8 @@ import {
 } from "jsonc-parser";
 import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
-import { detectAgents, type Found, otherAgentsNote } from "./install/detect.js";
+import { pluginInstalled } from "./hosts/codex/plugin.js";
+import { detectAgents, type Found, otherAgentsNote, withoutInstalled } from "./install/detect.js";
 import { readText, renameWithRetry } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
 import { findOnWindows, npmScript } from "./util/spawn.js";
@@ -698,11 +699,16 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
   if (!opts.uninstall) {
     note = otherAgentsNote(
       opts.agents ??
-        detectAgents({
-          env: opts.env,
-          home: opts.env.HOME || opts.env.USERPROFILE || homedir(),
-          platform: platform(),
-        }),
+        withoutInstalled(
+          detectAgents({
+            env: opts.env,
+            home: opts.env.HOME || opts.env.USERPROFILE || homedir(),
+            platform: platform(),
+          }),
+          (id) =>
+            id === "codex" &&
+            pluginInstalled(opts.env, opts.env.HOME || opts.env.USERPROFILE || homedir()),
+        ),
     );
     if (note) out(`\n${note}\n`);
   }

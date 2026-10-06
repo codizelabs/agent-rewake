@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SessionLock } from "../src/core/lock.js";
-import { MAX_TEXT_BYTES, ScheduleStore } from "../src/core/store.js";
+import { MAX_TEXT_BYTES, registerHost, ScheduleStore } from "../src/core/store.js";
 
 let dir: string;
 beforeEach(() => {
@@ -70,7 +70,7 @@ describe("ScheduleStore", () => {
     const newer = "00000000-0000-0000-0000-000000000002";
     write(acp, { host: "acp", sessionRef: { cwd: "/p" }, rearms: 2 });
     // Written by a newer Rewake for an integration this version can't deliver for.
-    write(newer, { host: "codex", sessionRef: { threadId: "t-1" } });
+    write(newer, { host: "some-future-host", sessionRef: { threadId: "t-1" } });
     expect(store.get(acp)?.rearms).toBe(2);
     expect(store.get(newer)).toBeUndefined();
     expect(
@@ -83,6 +83,19 @@ describe("ScheduleStore", () => {
     expect(store.update(newer, (x) => ({ ...x, status: "cancelled" }), 2000)).toBeUndefined();
     expect(store.remove(newer)).toBe(false);
     expect(readdirSync(store.dir)).toContain(`${newer}.json`);
+  });
+
+  it("lists a session's schedules for their owner only, so Zed and Codex never both deliver one", () => {
+    registerHost("codex");
+    const store = new ScheduleStore(dir);
+    const zed = store.create({ ...base, text: "zed", dueAt: 5000 });
+    const codex = store.create({ ...base, text: "codex", dueAt: 6000 });
+    store.put({ ...codex, host: "codex" });
+    expect(store.listForSession("s-1").map((s) => s.scheduleId)).toEqual([zed.scheduleId]);
+    expect(store.listForSession("s-1", "codex").map((s) => s.scheduleId)).toEqual([
+      codex.scheduleId,
+    ]);
+    expect(store.list()).toHaveLength(2);
   });
 
   it("rejects malformed host fields", () => {

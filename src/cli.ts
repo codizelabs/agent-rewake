@@ -1,13 +1,22 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
 import { SchedulingAddon } from "./addon.js";
 import { applySettings } from "./core/settings.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
-import { HOSTS, OWNER_ENV } from "./hosts/index.js";
-import { detectAgents } from "./install/detect.js";
+import { runCodexInstall } from "./hosts/codex/install.js";
+import { pluginInstalled } from "./hosts/codex/plugin.js";
+import { readStdin, runHook } from "./hosts/hook.js";
+import { hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
+import {
+  codexPrograms,
+  compareVersions,
+  detectAgents,
+  withoutInstalled,
+} from "./install/detect.js";
 import {
   keyChord,
   launchCommand,
@@ -25,7 +34,8 @@ import { agentName } from "./setup.js";
 import { fire } from "./timers/fire.js";
 import { launcherPath } from "./timers/launcher.js";
 import { osNotifier } from "./timers/notify.js";
-import { defaultTimerHost } from "./timers/timers.js";
+import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
+import { cancelTimer, defaultTimerHost } from "./timers/timers.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { Logger } from "./util/log.js";
@@ -51,6 +61,9 @@ function agentIdentity(
   const name = registryAgent(id, env)?.name;
   return { agentId: id, ...(name && { agentName: name }) };
 }
+
+/** Places `install --only` takes: Zed (the default) and the previews being tested. */
+const INSTALL_PLACES = new Set(["zed", "codex"]);
 
 const USAGE = `agent-rewake ${VERSION}
 
@@ -127,27 +140,75 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   if (first === "install" || first === "uninstall") {
     const known = new Set(["--yes", "-y", "--dry-run", "--keybinding"]);
     const only: string[] = [];
+    const places: string[] = [];
     const unknown: string[] = [];
     const rest = argv.slice(1);
     for (let i = 0; i < rest.length; i++) {
       const a = rest[i] ?? "";
       if (a === "--agent" && first === "install" && rest[i + 1]) only.push(rest[++i] ?? "");
+      else if (a === "--only" && rest[i + 1])
+        places.push(
+          ...(rest[++i] ?? "")
+            .split(",")
+            .map((p) => p.trim())
+            .filter(Boolean),
+        );
       else if (!known.has(a) || (first === "uninstall" && a === "--keybinding")) unknown.push(a);
     }
     if (unknown.length > 0) {
       process.stderr.write(`agent-rewake: unknown option for ${first}: ${unknown.join(" ")}\n`);
       return 2;
     }
-    return runInstall({
-      uninstall: first === "uninstall",
-      ...(only.length > 0 && { only }),
-      yes: argv.includes("--yes") || argv.includes("-y"),
-      dryRun: argv.includes("--dry-run"),
-      keybinding: argv.includes("--keybinding"),
-      env,
-    });
+    const chosen = places.length > 0 ? [...new Set(places)] : ["zed"];
+    const bad = chosen.filter((p) => !INSTALL_PLACES.has(p));
+    if (bad.length > 0) {
+      process.stderr.write(
+        `agent-rewake: ${bad.join(", ")}: not a place Rewake can ${first === "install" ? "install into" : "remove from"}. Choose from: ${[...INSTALL_PLACES].join(", ")}.\n`,
+      );
+      return 2;
+    }
+    const yes = argv.includes("--yes") || argv.includes("-y");
+    const dryRun = argv.includes("--dry-run");
+    let code = 0;
+    if (chosen.includes("zed"))
+      code = Math.max(
+        code,
+        await runInstall({
+          uninstall: first === "uninstall",
+          ...(only.length > 0 && { only }),
+          yes,
+          dryRun,
+          keybinding: argv.includes("--keybinding"),
+          env,
+        }),
+      );
+    if (chosen.includes("codex"))
+      code = Math.max(
+        code,
+        await runCodexInstall({
+          uninstall: first === "uninstall",
+          yes,
+          dryRun,
+          env,
+          stateDir: stateDir(env),
+          node: stableNode(),
+          bundle: process.argv[1] ?? "",
+          interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+          out: (t) => process.stdout.write(t),
+          ask: async (q) => {
+            const rl = createInterface({ input: process.stdin, output: process.stdout });
+            try {
+              return /^y(es)?$/i.test((await rl.question(q)).trim());
+            } finally {
+              rl.close();
+            }
+          },
+        }),
+      );
+    return code;
   }
   if (first === "fire") return runFire(argv[1] ?? "", env);
+  if (first === "hook") return runHookCommand(argv[1] ?? "", argv[2] ?? "", env);
   if (first === "setup") {
     if (argv[1] !== "zed") {
       process.stderr.write("agent-rewake: usage: agent-rewake setup zed\n");
@@ -230,7 +291,11 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
     platform: process.platform,
     home: homedir(),
     zedApps: () => findZedApps(process.platform, homedir(), env),
-    agents: () => detectAgents({ env, home: homedir(), platform: process.platform }),
+    agents: () =>
+      withoutInstalled(
+        detectAgents({ env, home: homedir(), platform: process.platform }),
+        (id) => id === "codex" && pluginInstalled(env, homedir()),
+      ),
     launch: launchCommand(),
     version: VERSION,
     nodeVersion: process.versions.node,
@@ -320,6 +385,32 @@ function runInTerminal(cmd: AgentCommand): number {
   return r.status ?? 1;
 }
 
+/** The Rewake that timers and detached runs start: the stable copy, or this script from source. */
+function rewakeCli(state: string): string {
+  const stable = launcherPath(state);
+  return existsSync(stable) ? stable : (process.argv[1] ?? stable);
+}
+
+/** Timers, the sweep and a detached `fire`, for this run. */
+function timerDeps(env: NodeJS.ProcessEnv) {
+  const state = stateDir(env);
+  const node = stableNode();
+  const cli = rewakeCli(state);
+  const timers = defaultTimerHost(state, node, cli);
+  return {
+    state,
+    node,
+    timers,
+    sweepDeps: (now: number): SweepDeps => ({
+      stateDir: state,
+      now,
+      hosts: hostAdapters(env, node),
+      timers,
+      fireDetached: (id) => timers.detached(node, [cli, "fire", id]),
+    }),
+  };
+}
+
 /**
  * `agent-rewake fire <id>`: run by a resume's OS timer (src/timers/). Exit status 0 unless the
  * id is malformed; what happened is in the schedule and the log.
@@ -329,17 +420,56 @@ async function runFire(id: string, env: NodeJS.ProcessEnv): Promise<number> {
     process.stderr.write("agent-rewake: usage: agent-rewake fire <id>\n");
     return 2;
   }
-  const state = stateDir(env);
+  const { state, node, timers } = timerDeps(env);
   const log = new Logger(env);
   const outcome = await fire(id, {
     stateDir: state,
     now: Date.now,
-    hosts: HOSTS,
-    timers: defaultTimerHost(state, stableNode(), launcherPath(state)),
+    hosts: hostAdapters(env, node),
+    timers,
     notify: osNotifier(),
     log: (event, fields) => log.info(event, fields),
     fromTimer: true,
   });
   log.info("fire.done", { outcome });
+  return 0;
+}
+
+/**
+ * `agent-rewake hook <host> <event>`: run by an agent's hook (src/hosts/hook.ts). Always exits 0
+ * so a problem in Rewake never breaks the agent; it prints only the reply the agent expects.
+ */
+async function runHookCommand(
+  host: string,
+  event: string,
+  env: NodeJS.ProcessEnv,
+): Promise<number> {
+  const log = new Logger(env);
+  try {
+    const { state, timers, sweepDeps } = timerDeps(env);
+    const notify = osNotifier();
+    const handler = hookHandler(host, {
+      arm: (id, at) => {
+        const r = scheduleFire(id, at, sweepDeps(Date.now()));
+        log.info("hook.arm", { host, via: r === "fired" ? "now" : r.ok ? r.via : r.reason });
+      },
+      disarm: (id) => cancelTimer(id, timers),
+      notify: (title, body) => {
+        notify(title, body);
+      },
+      codexPath: () => {
+        const programs = codexPrograms({ env, home: homedir(), platform: process.platform });
+        const cli = programs.filter((p) => p.surface === "terminal");
+        const pool = cli.length > 0 ? cli : programs;
+        return pool.sort((a, b) => compareVersions(b.version ?? "0", a.version ?? "0"))[0]?.path;
+      },
+    });
+    const reply = await runHook(handler, event, await readStdin(), env, state, Date.now());
+    if (reply) process.stdout.write(`${reply}\n`);
+    const swept = sweep(sweepDeps(Date.now()));
+    log.info("hook", { host, event, fired: swept.fired, armed: swept.armed });
+  } catch (err) {
+    log.error("hook.failed", { host, event, message: (err as Error).message });
+  }
   return 0;
 }
