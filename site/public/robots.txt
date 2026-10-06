@@ -1,0 +1,19 @@
+# Agent Rewake documentation. Everything is public and may be indexed and cited, including by AI
+# search and assistants (docs/seo-plan.md; research/site-content-2026-10-04.md §4).
+User-agent: *
+Allow: /
+
+# Named so that no default block applies to them.
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: GPTBot
+User-agent: Claude-SearchBot
+User-agent: Claude-User
+User-agent: ClaudeBot
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Bingbot
+Allow: /
+
+Sitemap: https://codizelabs.github.io/agent-rewake/sitemap-index.xml

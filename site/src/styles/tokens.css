@@ -1,0 +1,101 @@
+/*
+ * Agent Rewake design tokens: one source for the landing page and the docs.
+ * One primary colour (dawn amber, "rewake"), neutrals, and Zed's own One Dark / One Light colours
+ * for the illustrations of Zed (taken from Zed v1.22.0 assets/themes/one/one.json).
+ * Motion: calm and short; everything non-essential stops under prefers-reduced-motion.
+ */
+@import "@fontsource-variable/fraunces/opsz.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+
+:root {
+  --rw-font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+  --rw-font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --rw-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Light: paper and ink. */
+  --rw-bg: #f8f5ef;
+  --rw-bg-alt: #f1ece3;
+  --rw-surface: #ffffff;
+  --rw-ink: #1b1e24;
+  --rw-muted: #5b6370;
+  --rw-line: #e2dbcf;
+  --rw-dawn: #b45f06; /* primary: text and buttons on paper (AA) */
+  --rw-dawn-soft: #f4a949; /* glows and the logo */
+  --rw-on-dawn: #ffffff;
+  --rw-focus: #1d5fd1;
+
+  /* Zed One Light, for illustrations of Zed. */
+  --zed-bg: #fafafa;
+  --zed-panel: #ebebec;
+  --zed-elevated: #ffffff;
+  --zed-border: #c9c9ca;
+  --zed-text: #242529;
+  --zed-muted: #58585a;
+  --zed-accent: #5c78e2;
+  --zed-warn: #a48819;
+  --zed-error: #d36151;
+  --zed-ok: #387a40;
+
+  /* Motion (team design tokens: fast 150 ms, base 250 ms, one easing). */
+  --rw-fast: 150ms;
+  --rw-base: 250ms;
+  --rw-slow: 600ms;
+  --rw-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  --rw-radius: 14px;
+  --rw-radius-sm: 8px;
+  --rw-shadow: 0 1px 2px rgb(20 16 10 / 6%), 0 12px 32px -12px rgb(20 16 10 / 18%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --rw-bg: #0e1116;
+    --rw-bg-alt: #12161c;
+    --rw-surface: #161a21;
+    --rw-ink: #ece7df;
+    --rw-muted: #a3abb6;
+    --rw-line: #262b34;
+    --rw-dawn: #f4a949;
+    --rw-dawn-soft: #f4a949;
+    --rw-on-dawn: #1b1306;
+    --rw-focus: #8ab4ff;
+    --zed-bg: #282c33;
+    --zed-panel: #2f343e;
+    --zed-elevated: #2f343e;
+    --zed-border: #464b57;
+    --zed-text: #dce0e5;
+    --zed-muted: #a9afbc;
+    --zed-accent: #74ade8;
+    --zed-warn: #dec184;
+    --zed-error: #d07277;
+    --zed-ok: #a1c181;
+    --rw-shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 18px 40px -16px rgb(0 0 0 / 60%);
+  }
+}
+
+:root[data-theme="dark"] {
+  --rw-bg: #0e1116;
+  --rw-bg-alt: #12161c;
+  --rw-surface: #161a21;
+  --rw-ink: #ece7df;
+  --rw-muted: #a3abb6;
+  --rw-line: #262b34;
+  --rw-dawn: #f4a949;
+  --rw-dawn-soft: #f4a949;
+  --rw-on-dawn: #1b1306;
+  --rw-focus: #8ab4ff;
+  --zed-bg: #282c33;
+  --zed-panel: #2f343e;
+  --zed-elevated: #2f343e;
+  --zed-border: #464b57;
+  --zed-text: #dce0e5;
+  --zed-muted: #a9afbc;
+  --zed-accent: #74ade8;
+  --zed-warn: #dec184;
+  --zed-error: #d07277;
+  --zed-ok: #a1c181;
+  --rw-shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 18px 40px -16px rgb(0 0 0 / 60%);
+}

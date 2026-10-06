@@ -1,0 +1,37 @@
+# Keeps pinned GitHub Actions and npm dependencies current. Review updates to the Claude adapter
+# (@agentclientprotocol/claude-agent-acp) by hand: it is pinned on purpose.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      dev-dependencies:
+        dependency-type: development
+    commit-message:
+      prefix: deps
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      site:
+        patterns: ["*"]
+    commit-message:
+      prefix: docs

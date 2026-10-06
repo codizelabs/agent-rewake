@@ -1,0 +1,7 @@
+# URLs the online link check can't verify: local addresses, examples, and pages that need
+# sign-in or only exist once the repository is public.
+^https?://localhost
+^https?://127\.0\.0\.1
+example\.(com|org)
+^https://github\.com/codizelabs/agent-rewake/(security/advisories/new|discussions)
+^https://www\.npmjs\.com/package/agent-rewake

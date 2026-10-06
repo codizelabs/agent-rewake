@@ -1,0 +1,23 @@
+# Categories for GitHub's generated release notes, by label. Contributors are listed, and
+# first-time contributors are credited, automatically. CHANGELOG.md stays the curated record.
+changelog:
+  exclude:
+    labels: [duplicate, invalid, wontfix]
+    authors: [dependabot]
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+    - title: Security
+      labels: [security]
+    - title: New features
+      labels: [enhancement]
+    - title: Bug fixes
+      labels: [bug]
+    - title: Accessibility
+      labels: [accessibility]
+    - title: Documentation
+      labels: [documentation]
+    - title: Dependencies
+      labels: [dependencies]
+    - title: Other changes
+      labels: ["*"]

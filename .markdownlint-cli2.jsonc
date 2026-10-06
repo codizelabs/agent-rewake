@@ -1,0 +1,24 @@
+// markdownlint-cli2 configuration. https://github.com/DavidAnson/markdownlint-cli2
+// Policy: enforce rules that catch broken rendering or broken links. Pure-style
+// rules are off because this repository is prose- and table-heavy.
+{
+  // No <!-- markdownlint-disable --> comments: fix the Markdown instead (same rule as lint in code).
+  "noInlineConfig": true,
+  "config": {
+    "default": true,
+    "MD004": false,  // list marker style
+    "MD013": false,  // line length
+    "MD029": false,  // ordered-list numbering style
+    "MD032": false,  // blank lines around lists (GitHub renders lists after a paragraph line correctly)
+    "MD033": false,  // inline HTML (HTML comments in templates)
+    "MD034": false,  // bare URLs (research notes cite many)
+    "MD036": false,  // emphasis used as heading
+    "MD041": false,  // first line heading (the PR template starts at H2 by design)
+    "MD049": false,  // emphasis style
+    "MD060": false,  // table column spacing style
+    "MD024": { "siblings_only": true }
+  },
+  "ignores": [
+    "**/node_modules/**"
+  ]
+}

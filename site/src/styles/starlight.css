@@ -1,0 +1,48 @@
+/* The docs (Starlight) in Rewake's look: the same tokens, fonts and dawn accent as the landing
+   page (tokens.css). Starlight's own light/dark switch sets data-theme on <html>. */
+:root {
+  --sl-font: var(--rw-font-body);
+  --sl-font-mono: var(--rw-font-mono);
+  --sl-color-accent-low: #3b2a12;
+  --sl-color-accent: #c77a1c;
+  --sl-color-accent-high: #f6c37f;
+  --sl-color-white: #ece7df;
+  --sl-color-gray-1: #e0dbd2;
+  --sl-color-gray-2: #c3bfb8;
+  --sl-color-gray-3: #a3abb6;
+  --sl-color-gray-4: #5f6672;
+  --sl-color-gray-5: #3a3f48;
+  --sl-color-gray-6: #1b1f26;
+  --sl-color-black: #0e1116;
+}
+:root[data-theme="light"] {
+  --sl-color-accent-low: #f6e3c8;
+  --sl-color-accent: #b45f06;
+  --sl-color-accent-high: #5a3003;
+  --sl-color-white: #1b1e24;
+  --sl-color-gray-1: #262a31;
+  --sl-color-gray-2: #3a3f48;
+  --sl-color-gray-3: #5b6370;
+  --sl-color-gray-4: #8a8f98;
+  --sl-color-gray-5: #d8d2c7;
+  --sl-color-gray-6: #f1ece3;
+  --sl-color-gray-7: #f8f5ef;
+  --sl-color-black: #fdfbf7;
+}
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+h1#_top {
+  font-family: var(--rw-font-display);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.sl-markdown-content .scene {
+  margin-block: 1.75rem;
+}
+.sl-markdown-content .scene figcaption {
+  font-size: 0.875rem;
+}
+.sl-markdown-content .scene button {
+  color: var(--sl-color-accent);
+}

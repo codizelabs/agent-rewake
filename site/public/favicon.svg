@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Agent Rewake">
+  <style>.s{fill:none;stroke:#b45f06;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}@media (prefers-color-scheme:dark){.s{stroke:#f4a949}}</style>
+  <path class="s" d="M27 16a11 11 0 1 1-3.2-7.8"/>
+  <path class="s" d="M27 5v6h-6"/>
+  <path class="s" d="M16 10v6l4 2.5"/>
+</svg>

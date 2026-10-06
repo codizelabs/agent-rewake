@@ -1,0 +1,75 @@
+{
+  "name": "@codizelabs/agent-rewake",
+  "version": "0.1.0",
+  "description": "Resume Claude, Codex or any Zed agent automatically when its usage limit resets, and schedule messages into your agent threads. An add-on for Zed's External Agents.",
+  "keywords": [
+    "zed",
+    "zed-editor",
+    "zed-extension",
+    "acp",
+    "agent-client-protocol",
+    "claude",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "ai-agents",
+    "usage-limit",
+    "rate-limit",
+    "auto-resume",
+    "resume",
+    "schedule",
+    "scheduler",
+    "cron"
+  ],
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codizelabs/agent-rewake.git"
+  },
+  "homepage": "https://codizelabs.github.io/agent-rewake/",
+  "bugs": {
+    "url": "https://github.com/codizelabs/agent-rewake/issues"
+  },
+  "funding": {
+    "type": "ko-fi",
+    "url": "https://ko-fi.com/R5R31N7TP"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "agent-rewake": "dist/agent-rewake.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "check:pack": "node scripts/check-pack.mjs"
+  },
+  "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.85.1"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "1.7.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.286",
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^26",
+    "esbuild": "0.28.2",
+    "jsonc-parser": "3.3.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  },
+  "author": "KASHAN HAIDER (https://github.com/SMKH-PRO)"
+}

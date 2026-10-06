@@ -1,0 +1,48 @@
+---
+/** Rewake menu → Schedule a message… → pick a time → Submit. */
+import ZedWindow from "../zed/ZedWindow.astro";
+import Caption from "./Caption.astro";
+import Pointer from "./Pointer.astro";
+---
+
+<figure class="scene not-content" data-scene data-steps="1400,1500,1900,2400,1200,3600">
+  <ZedWindow title="Fix flaky CI" label="Rewake" label2="Rewake (1)" labelAt={5} height={400}>
+    <div class="zed-agent"><p>The flaky test is fixed. CI takes about an hour on this repo.</p></div>
+    <div class="zed-form" data-at={2} data-until={3}>
+      <header>Input Requested by Claude Agent</header>
+      <div class="q">What would you like to schedule?</div>
+      <div class="f">
+        <div class="radio on">A message, at a time you pick</div>
+        <div class="radio">Resume this thread when the usage limit resets</div>
+      </div>
+      <div class="actions"><span class="zed-btn ok"><i>✓</i> Submit</span><span class="zed-btn no"><i>✕</i> Decline</span><span class="zed-btn">Cancel</span></div>
+    </div>
+    <div class="zed-form" data-at={3} data-until={5}>
+      <header>Input Requested by Claude Agent</header>
+      <div class="q">Schedule a message. Rewake sends it at that time, as if you typed it.</div>
+      <div class="f"><span>Message</span><div class="input">Check whether CI passed on main and fix any failures</div></div>
+      <div class="f">
+        <span>When</span>
+        <div class="radio">In 30 minutes (2:42 PM today)</div>
+        <div class="radio on">In 1 hour (3:12 PM today)</div>
+        <div class="radio">In 3 hours (5:12 PM today)</div>
+        <div class="radio">Tomorrow morning (9:00 AM tomorrow (Tuesday))</div>
+        <div class="radio">Custom time…</div>
+      </div>
+      <div class="actions"><span class="zed-btn ok accept"><i>✓</i> Submit</span><span class="zed-btn no"><i>✕</i> Decline</span><span class="zed-btn">Cancel</span></div>
+    </div>
+    <div class="zed-status" data-at={5}>Rewake: Scheduled for 3:12 PM today. To change it, use the Rewake menu under the message box.</div>
+    <div slot="cover">
+      <div class="zed-menu ov" data-only="1" aria-hidden="true">
+        <div class="head">Rewake</div>
+        <div>Schedules</div>
+        <div class="hl">Schedule a message…</div>
+        <div>Turn on auto-resume after limits…</div>
+        <div>Settings…</div>
+      </div>
+      <Pointer at="0" style="right: 150px; bottom: 16px" />
+      <Pointer at="4" style="right: 150px; bottom: 92px" />
+    </div>
+  </ZedWindow>
+  <Caption>Pick <b>Schedule a message…</b> in the Rewake menu, choose a time, press Submit. The message goes into this thread then, as if you typed it.</Caption>
+</figure>

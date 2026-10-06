@@ -1,0 +1,189 @@
+---
+title: "Agent Rewake docs"
+description: "Resume Claude, Codex or any Zed agent automatically when its usage limit resets. Install, use, settings, troubleshooting and reference, on one page."
+tableOfContents:
+  maxHeadingLevel: 2
+banner:
+  content: 'Early release (v0.1): <code>npx @codizelabs/agent-rewake install</code> · <a href="#status">Status</a>'
+---
+
+import ResumeScene from "../../components/scenes/ResumeScene.astro";
+
+Agent Rewake picks your Zed agent threads back up **when a usage limit resets**, so the work continues while you're away. It can also send a message into a thread later, once or on a repeat. It runs on your machine, in the threads you already have; there's no new agent to pick.
+
+## Install
+
+You need Zed 1.22 or newer with at least one external agent set up (for example Claude Agent, signed in) and Node.js 22 or newer. It works on macOS, Linux and Windows.
+
+```sh
+npx @codizelabs/agent-rewake install
+```
+
+`install` lists the agents it will add Rewake to and asks before writing anything. Rewake goes in front of each agent under the agent's own name, so your existing threads keep working. Each file is backed up first; comments and settings are kept.
+
+**Then quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window). Zed keeps agents it already started, so Rewake takes over only when Zed starts them afresh. `npx @codizelabs/agent-rewake doctor` confirms it: "Zed last started Rewake: …".
+
+The commands below are written as `agent-rewake …`; run them with `npx @codizelabs/agent-rewake …`, or install it once with `npm install -g @codizelabs/agent-rewake`.
+
+A **Rewake** menu now appears under the message box, next to the model picker.
+
+## Resume after a usage limit
+
+When an agent stops at its usage limit, Rewake adds a form to the thread with your resume message, ready to edit.
+
+<ResumeScene />
+
+- **Submit** sends the message about a minute after the limit resets. If the agent is still limited then, Rewake waits for the new reset time and tries again.
+- **Decline** schedules nothing.
+- If the agent doesn't say when the limit resets (Gemini CLI, for example), the form asks when: in 30 minutes, 1, 3 or 5 hours, or a custom time.
+
+**More work after the resume:** while a resume is scheduled, **Rewake → Add a message after the resume…** queues follow-ups (up to 20). Each goes when the reply before it finishes.
+
+**Change the resume message** in the form, or with `/schedule prompt <text>`. If you continue the thread yourself after the reset, the pending resume is cancelled.
+
+### Make it automatic
+
+When you open a new thread, Rewake asks once whether to resume it automatically. Choose *every new thread*, *this thread only*, or *don't ask again*. For a thread that's already open, use **Rewake → Turn on auto-resume after limits…** (or `/schedule auto on`).
+
+Automatic resume asks you instead of sending when:
+
+- with Claude, your Claude setting "Continue automatically at usage limit" is off;
+- the limit resets more than 24 hours from now (a weekly limit, for example);
+- you chose *On, except when permissions are bypassed* in **Settings…** and the thread skips permission prompts;
+- the agent gave the same reset time as last time, or never says when it resets and the limit has lasted about a day.
+
+Credit, spend and billing limits are never resumed automatically: waiting doesn't fix them. Rewake never approves permission requests; those wait for you in Zed.
+
+## Schedule a message
+
+**Rewake → Schedule a message…**: type the message, pick a time (in 30 minutes, 1 or 3 hours, tomorrow morning, when the usage limit resets, or a custom time), and press **Submit**. Or type it:
+
+```text
+/schedule 09:00 Check the build
+/schedule in 3h Run the tests
+/schedule every weekday 09:00 Summarise yesterday's commits
+```
+
+To repeat on any schedule, pick **Custom time…** and type a cron expression such as `0 9 * * 1-5`; Rewake shows what it understood and the next runs before saving.
+
+You can also ask the agent ("check the CI run again in 30 minutes"). It proposes the message, and you approve or edit it in the thread.
+
+**When it's sent:** the message appears in the thread as yours and the agent replies there. If the agent is busy, it waits for the reply to finish. If Zed or your computer wasn't running and it's more than 15 minutes late, it's marked **Missed** and Rewake asks whether to send it now.
+
+## See and change scheduled messages
+
+- **Rewake → Schedules** shows this thread's messages.
+- **Rewake → Change a scheduled message…** changes the time or text, sends it now, pauses or deletes it.
+- **Every thread at once:** run the Zed task **Agent Rewake: schedules** (command palette → *task: spawn*), or `agent-rewake ui` in any terminal. Add `--keybinding` to `install` for ⌘⌥R (Ctrl+Alt+R elsewhere; on Windows, Ctrl+Alt can be AltGr, so change it in Zed's `keymap.json` if it types a character).
+
+## Settings
+
+**Rewake → Settings…** applies to every thread:
+
+- **Automatic resume after usage limits:** *Ask when a new thread opens* (default), *On, except when permissions are bypassed*, *On, even when permissions are bypassed*, or *Off*.
+- **Time format:** 12-hour (default) or 24-hour.
+
+## Agents
+
+Rewake works the same way in front of every external agent Zed runs: Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and the rest. Claude and Codex say when their limit resets; for other agents Rewake recognises the limit from the error and asks you when to resume if no time is given. Zed's own agent isn't an external agent, so Rewake can't be added to it.
+
+## Privacy and security
+
+- Everything runs on your machine. Rewake makes no network calls of its own and never sees your credentials; sign-in goes through the agent's own flow.
+- It sends only what you scheduled, what you approved, or the resume message you turned on.
+- It stores scheduled messages, per-thread settings and metadata-only logs (never message content) in its state directory, with owner-only permissions. `doctor` prints where.
+- Anything it sends runs with your account and the thread's permission settings while you may be away. Report vulnerabilities privately: [SECURITY.md](https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md).
+
+## Troubleshooting
+
+Start with `agent-rewake doctor`, and in Zed `dev: open acp logs`. Then [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+
+- **No Rewake menu, or `/schedule` goes to the agent:** quit Zed completely and reopen it after `install`. Check that `install` listed the agent you use. For agents without their own toolbar options, type `/schedule`: it opens the same forms.
+- **Will it send while Zed is closed?** No: Rewake runs inside Zed. After a restart, open the thread once. Late messages ask before sending.
+- **The resume form didn't appear:** it appears only for limits that a wait fixes. Use **Rewake → Resume after the usage limit…** or `/schedule resume`.
+- **The thread stopped responding after a limit:** a known Zed issue ([#55501](https://github.com/zed-industries/zed/issues/55501)). Rewake reconnects a thread whose session the agent lost; without Rewake, reload the agent in Zed.
+- **"Another Zed window owns this thread":** the thread is open in two windows; only one sends.
+
+## Uninstall
+
+`agent-rewake uninstall` puts every agent back the way it was and removes Rewake's task and keybinding, after showing you the list. Then delete the state directory that `doctor` prints. Pending messages aren't sent after removal.
+
+## Status
+
+Early release (0.1). Tested on macOS, Linux and Windows with Node.js 22 and 24. Changes: [CHANGELOG](https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md). The site aims for WCAG 2.2 AA; Zed's agent panel itself has limited screen-reader support. Report barriers as [issues](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+
+## Reference
+
+<details>
+<summary>Commands in a thread</summary>
+
+Everything here is also in the Rewake menu.
+
+| Command | What it does |
+|---|---|
+| `/schedule` | Open the "Schedule a message" form |
+| `/schedule <when> <message>` | Schedule a message. When: `09:00`, `9pm`, `tomorrow 09:00`, `in 90m`, `2026-10-06 09:00` (local time, up to 30 days ahead) |
+| `/schedule every hour\|day\|weekday\|week\|monday… [HH:MM] <message>` | Repeat a message |
+| `/schedule cron <expression> <message>` | Repeat on a cron expression, e.g. `"0 9 * * 1-5"` |
+| `/schedule list` | This thread's scheduled messages |
+| `/schedule rm N`, `/schedule now N`, `/schedule pause N`, `/schedule resume N` | Delete, send now, pause, or resume a paused message |
+| `/schedule move N <when>`, `/schedule edit N <text>` | Change the time or the text |
+| `/schedule resume` | Schedule the resume message after the current usage limit |
+| `/schedule auto on`, `/schedule auto off` | Automatic resume for this thread |
+| `/schedule prompt <text>` | Set this thread's resume message |
+| `/schedule page` | Open an overview of every scheduled message |
+| `/stop` | Stop a scheduled reply that is running |
+
+</details>
+
+<details>
+<summary>Command line</summary>
+
+| Command | What it does |
+|---|---|
+| `agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]…` | Add Rewake to your Zed agents (shows the changes and asks first) |
+| `agent-rewake uninstall [--yes] [--dry-run]` | Put every agent back the way it was |
+| `agent-rewake doctor` | Check the installation; prints Rewake's and Zed's folders |
+| `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |
+| `agent-rewake schedules [--all] [--json]` | List scheduled messages |
+| `agent-rewake setup zed` | Print the Zed entries, to add by hand |
+| `agent-rewake --version`, `--help` | |
+| `agent-rewake --wrap-registry <id>`, `--wrap-command <json>`, `-- <cmd>`, `mcp` | Started by Zed or the agent, not by you |
+
+</details>
+
+<details>
+<summary>Scheduled-message states</summary>
+
+| State | Meaning |
+|---|---|
+| Scheduled | Waiting for its time |
+| Paused | Kept, not sent until resumed |
+| Queued | Due, waiting for the agent's current reply |
+| Sending | Sent; reply in progress |
+| Sent | The agent replied |
+| Failed | The agent returned an error |
+| Missed | Due while Zed or the computer wasn't running |
+| Stopped | Stopped with `/stop` |
+| Cancelled | Cancelled, for example because you continued by hand |
+| Needs you | Waiting for you to confirm, for example a reset more than a day away |
+| Waiting for limit | Reserved; a resume waiting for its reset shows as *Scheduled* |
+
+</details>
+
+<details>
+<summary>Environment variables</summary>
+
+| Variable | Effect |
+|---|---|
+| `AGENT_REWAKE_STATE_DIR` | Where schedules and settings are stored (default: macOS `~/Library/Application Support/agent-rewake`, Linux `~/.local/state/agent-rewake`, Windows `%LOCALAPPDATA%\agent-rewake`) |
+| `AGENT_REWAKE_ZED_CONFIG_DIR` | Which Zed settings `install` edits (default: where Zed keeps them, including a Flatpak Zed's) |
+| `AGENT_REWAKE_ZED_DATA_DIR` | Where Zed keeps its registry cache and installed agents |
+| `AGENT_REWAKE_ALLOW_AUTO=0` | Turn off automatic resume everywhere |
+| `AGENT_REWAKE_AGENT_TOOLS=0` | Don't give the agent Rewake's tools |
+| `AGENT_REWAKE_KEEP_API_KEY=1` | Pass `ANTHROPIC_API_KEY` to the Claude adapter instead of blanking it |
+| `AGENT_REWAKE_TITLE_MARKERS=1` | Add markers such as `Scheduled 09:00 ·` to thread titles |
+| `AGENT_REWAKE_PLATFORM` | Which build of a binary agent to run (testing) |
+| `AGENT_REWAKE_LINK` | Internal: links the agent's tool server to its thread |
+
+</details>
