@@ -29,7 +29,8 @@
           { "context": "ci-ok" },
           { "context": "docs" },
           { "context": "build site" },
-          { "context": "branch-name" }
+          { "context": "branch-name" },
+          { "context": "release-gate" }
         ]
       }
     }
