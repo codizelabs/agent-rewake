@@ -2,7 +2,7 @@
 
 All notable changes to Agent Rewake are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the version is `0.x`, a minor release may contain breaking changes, always called out below.
 
-## [Unreleased]
+## [0.1.1] - 2026-10-06
 
 ### Fixed
 
@@ -23,4 +23,5 @@ First release.
 - Works with Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and every other external agent Zed runs, npm-based or binary, plus custom agents.
 - macOS, Linux (including Flatpak Zed) and Windows.
 
+[0.1.1]: https://github.com/codizelabs/agent-rewake/releases/tag/v0.1.1
 [0.1.0]: https://github.com/codizelabs/agent-rewake/releases/tag/v0.1.0
