@@ -9,7 +9,7 @@ import { claudeRunner, modInstalled, runClaudeInstall } from "../src/hosts/claud
  * Against a real Claude Code CLI (plan §9.1.5): the mod passes `claude plugin validate --strict`
  * and its own `claude plugin test` cases, and Rewake's install and uninstall work with Claude
  * Code's plugin commands in a temporary config folder. Runs only with REWAKE_CLAUDE_BIN set (the
- * `contracts` CI job installs the pinned version, CLAUDE_CODE_VERSION) and after a build.
+ * `contracts` CI job installs the version pinned in test/agents/package.json) and after a build.
  */
 const bin = process.env.REWAKE_CLAUDE_BIN;
 const root = fileURLToPath(new URL("..", import.meta.url));

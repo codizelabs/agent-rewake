@@ -84,14 +84,11 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Claude Code's licence isn't one Rewake may ship with, so it isn't declared in the
-      # repository: the job installs the pinned version into a scratch folder.
-      - name: Install the pinned Claude Code
-        run: npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/claude" "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-        env:
-          CLAUDE_CODE_VERSION: "2.1.292"
+      - name: Install the pinned agent CLIs
+        working-directory: test/agents
+        run: npm ci --no-audit --no-fund
 
       - name: Claude Code accepts and runs Rewake's mod
         env:
-          REWAKE_CLAUDE_BIN: ${{ runner.temp }}/claude/node_modules/.bin/claude
+          REWAKE_CLAUDE_BIN: ${{ github.workspace }}/test/agents/node_modules/.bin/claude
         run: npx vitest run test/claude-contract.test.ts
