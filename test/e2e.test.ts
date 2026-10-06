@@ -212,7 +212,8 @@ describe("agent-rewake bundle", () => {
     expect(doctor.status).toBe(0);
     expect(doctor.stdout).toContain("Rewake is on for: Claude Agent.");
     expect(doctor.stdout).toContain("Installed, but Zed hasn't started Rewake yet.");
-    expect(doctor.stdout).toContain("Rewake works only in Zed's Agent Panel");
+    // The general line, or the specific one when other coding agents are on this computer.
+    expect(doctor.stdout).toMatch(/Rewake works (only )?in Zed's Agent Panel/);
     expect(doctor.stdout).not.toContain(home);
     expect(doctor.stdout).not.toContain("ANTHROPIC");
     expect(cli("doctor", "--details").stdout).toContain("Details (for bug reports)");

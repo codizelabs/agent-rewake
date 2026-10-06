@@ -10,7 +10,7 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
-import { platform } from "node:os";
+import { homedir, platform } from "node:os";
 import { basename, delimiter, dirname, join, posix, win32 } from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
@@ -23,6 +23,7 @@ import {
 } from "jsonc-parser";
 import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
+import { detectAgents, type Found, otherAgentsNote } from "./install/detect.js";
 import { readText, renameWithRetry } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
 import { findOnWindows, npmScript } from "./util/spawn.js";
@@ -673,6 +674,8 @@ export interface RunInstallOptions {
   interactive?: boolean;
   out?: (text: string) => void;
   ask?: (question: string) => Promise<boolean>;
+  /** Other coding agents on this computer (default: detected now). */
+  agents?: Found[];
 }
 
 /** `agent-rewake install` and `agent-rewake uninstall`. */
@@ -691,8 +694,20 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
       });
 
   out(describe(plan, opts.uninstall ? "remove these entries from Zed" : "set up Zed"));
+  let note: string | undefined;
+  if (!opts.uninstall) {
+    note = otherAgentsNote(
+      opts.agents ??
+        detectAgents({
+          env: opts.env,
+          home: opts.env.HOME || opts.env.USERPROFILE || homedir(),
+          platform: platform(),
+        }),
+    );
+    if (note) out(`\n${note}\n`);
+  }
   if (plan.changes.length === 0) {
-    if (!opts.uninstall) out(nextSteps());
+    if (!opts.uninstall) out(nextSteps(note !== undefined));
     return 0;
   }
   if (opts.dryRun) {
@@ -718,7 +733,7 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
   out(
     opts.uninstall
       ? "Rewake is out of your agents. Your threads are untouched, and your scheduled messages are kept; `agent-rewake doctor` shows where.\n"
-      : nextSteps(),
+      : nextSteps(note !== undefined),
   );
   return 0;
 }
@@ -737,7 +752,8 @@ export function quitZed(p: NodeJS.Platform = platform()): string {
   return "quit Zed completely (Ctrl+Q)";
 }
 
-function nextSteps(): string {
+/** What to do next. `reachShown`: the specific "works only in Zed" line was shown already. */
+function nextSteps(reachShown = false): string {
   return [
     "",
     `Now ${quitZed()} and open it again.`,
@@ -749,9 +765,13 @@ function nextSteps(): string {
     "When the agent hits a usage limit, Rewake asks you in the thread with Yes/No buttons.",
     `All threads: command palette, task: spawn, then "${TASK_LABEL}".`,
     "",
-    "Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI.",
-    "It can't reach Zed's own agent, Claude Code in a terminal, or the Claude desktop app.",
-    "",
+    ...(reachShown
+      ? []
+      : [
+          "Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI.",
+          "It can't reach Zed's own agent, Claude Code in a terminal, or the Claude desktop app.",
+          "",
+        ]),
     `Agent Rewake is open source: ${REPO_URL}. If it saves you time, a star there helps others find it.`,
     "",
   ].join("\n");

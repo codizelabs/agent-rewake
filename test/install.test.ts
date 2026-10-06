@@ -102,6 +102,7 @@ const run = (args: Partial<Parameters<typeof runInstall>[0]>) => {
     dryRun: false,
     keybinding: false,
     env,
+    agents: [],
     out: (t) => {
       output += t;
     },
@@ -302,6 +303,48 @@ describe("agent-rewake install", () => {
     expect(yes.output).toContain("Backup:");
     expect(yes.output).toContain('"Rewake" menu');
     expect(json("settings.json").agent_servers["claude-acp"].type).toBe("custom");
+  });
+
+  it("names other coding agents on this computer before asking, and says Rewake doesn't reach them", async () => {
+    writeFileSync(file("settings.json"), SETTINGS);
+    const agents = [
+      { id: "codex" as const, name: "Codex", version: "0.160.1", surfaces: ["terminal"] },
+    ];
+    let output = "";
+    let beforeQuestion = "";
+    await run({
+      yes: false,
+      interactive: true,
+      agents,
+      out: (t) => {
+        output += t;
+      },
+      ask: async () => {
+        beforeQuestion = output;
+        return false;
+      },
+    });
+    expect(beforeQuestion).toContain(
+      "Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with Codex used on its own in a terminal, another editor or a desktop app.",
+    );
+    // Without other agents, nothing is added.
+    expect((await run({ dryRun: true })).output).not.toContain("used on their own");
+    // Not when taking Rewake out.
+    expect((await run({ uninstall: true, dryRun: true, agents })).output).not.toContain(
+      "used on their own",
+    );
+  });
+
+  it("says where Rewake works once: the next steps leave out the general line after the specific one", async () => {
+    writeFileSync(file("settings.json"), SETTINGS);
+    const agents = [
+      { id: "codex" as const, name: "Codex", version: "0.160.1", surfaces: ["terminal"] },
+    ];
+    const specific = await run({ agents });
+    expect(specific.output).toContain("or with Codex used on its own");
+    expect(specific.output).not.toContain("It can't reach Zed's own agent");
+    writeFileSync(file("settings.json"), SETTINGS);
+    expect((await run({})).output).toContain("It can't reach Zed's own agent");
   });
 });
 
