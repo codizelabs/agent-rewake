@@ -11,9 +11,18 @@ import ResumeScene from "../../components/scenes/ResumeScene.astro";
 
 Agent Rewake picks your Zed agent threads back up **when a usage limit resets**, so the work continues while you're away. It can also send a message into a thread later, once or on a repeat. It runs on your machine, in the threads you already have; there's no new agent to pick.
 
+## Is it for you?
+
+Rewake works in **Zed's Agent Panel** (⌘? on macOS, Ctrl+? on Linux, Ctrl+Shift+/ on Windows), with an **external agent** such as Claude Agent, Codex or Gemini CLI. If that's where you chat with your agent, it's for you.
+
+It can't reach:
+
+- **Zed's own agent** (the panel's built-in one): Zed doesn't let add-ons into it. Start the thread with Claude Agent in the same panel instead.
+- **Claude outside the Agent Panel**: the Claude desktop app, claude.ai, or Claude Code in a terminal (Zed's included). Claude Code and the desktop app each have their own setting to continue after a usage limit.
+
 ## Install
 
-You need Zed 1.22 or newer with at least one external agent set up (for example Claude Agent, signed in) and Node.js 22 or newer. It works on macOS, Linux and Windows.
+You need Zed 1.22 or newer with its AI features on, an external agent in the Agent Panel (for example Claude Agent, signed in; `install` can add it for you) and Node.js 22 or newer. It works on macOS, Linux and Windows.
 
 ```sh
 npx @codizelabs/agent-rewake install
@@ -21,7 +30,7 @@ npx @codizelabs/agent-rewake install
 
 `install` lists the agents it will add Rewake to and asks before writing anything. Rewake goes in front of each agent under the agent's own name, so your existing threads keep working. Each file is backed up first; comments and settings are kept.
 
-**Then quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window). Zed keeps agents it already started, so Rewake takes over only when Zed starts them afresh. `npx @codizelabs/agent-rewake doctor` confirms it: "Zed last started Rewake: …".
+**Then quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window), open the **Agent Panel**, and open or start a thread with one of your agents. Zed starts Rewake with that thread, not when Zed itself starts. `npx @codizelabs/agent-rewake doctor` confirms it: "Working: Zed last started it …".
 
 The commands below are written as `agent-rewake …`; run them with `npx @codizelabs/agent-rewake …`, or install it once with `npm install -g @codizelabs/agent-rewake`.
 
@@ -91,13 +100,14 @@ Rewake works the same way in front of every external agent Zed runs: Claude Agen
 
 - Everything runs on your machine. Rewake makes no network calls of its own and never sees your credentials; sign-in goes through the agent's own flow.
 - It sends only what you scheduled, what you approved, or the resume message you turned on.
-- It stores scheduled messages, per-thread settings and metadata-only logs (never message content) in its state directory, with owner-only permissions. `doctor` prints where.
+- It stores scheduled messages, per-thread settings and metadata-only logs (never message content) in its state directory, with owner-only permissions. `doctor --details` prints where. Plain `doctor` names no folders, accounts or keys, so you can paste its output anywhere.
 - Anything it sends runs with your account and the thread's permission settings while you may be away. Report vulnerabilities privately: [SECURITY.md](https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md).
 
 ## Troubleshooting
 
 Start with `agent-rewake doctor`, and in Zed `dev: open acp logs`. Then [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
+- **Installed, but nothing happens (`doctor` says "Not used yet"):** Zed starts Rewake only when you open or start a thread with a Rewake agent in the **Agent Panel**; restarting Zed isn't enough. If you chat with Claude in the Claude desktop app, claude.ai or a terminal, Rewake can't reach it there: see [Is it for you?](#is-it-for-you). To remove it: `agent-rewake uninstall`.
 - **No Rewake menu, or `/schedule` goes to the agent:** quit Zed completely and reopen it after `install`. Check that `install` listed the agent you use. For agents without their own toolbar options, type `/schedule`: it opens the same forms.
 - **Will it send while Zed is closed?** No: Rewake runs inside Zed. After a restart, open the thread once. Late messages ask before sending.
 - **The resume form didn't appear:** it appears only for limits that a wait fixes. Use **Rewake → Resume after the usage limit…** or `/schedule resume`.
@@ -143,7 +153,7 @@ Everything here is also in the Rewake menu.
 |---|---|
 | `agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]…` | Add Rewake to your Zed agents (shows the changes and asks first) |
 | `agent-rewake uninstall [--yes] [--dry-run]` | Put every agent back the way it was |
-| `agent-rewake doctor` | Check the installation; prints Rewake's and Zed's folders |
+| `agent-rewake doctor [--details]` | Whether Rewake can work in your Zed, and what to do next; `--details` adds versions and folders for bug reports |
 | `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |
 | `agent-rewake schedules [--all] [--json]` | List scheduled messages |
 | `agent-rewake setup zed` | Print the Zed entries, to add by hand |

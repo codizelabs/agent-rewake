@@ -41,6 +41,15 @@ Coding agents stop at their usage limit: Claude's 5-hour session limit, Codex's 
 
 No new agent to pick: Rewake sits in front of the agents you already use, under their own names, so your existing threads keep working.
 
+## Is it for you?
+
+Rewake works in **Zed's Agent Panel** (⌘? on macOS, Ctrl+? on Linux, Ctrl+Shift+/ on Windows), with an **external agent** such as Claude Agent, Codex or Gemini CLI. If that's where you chat with your agent, it's for you.
+
+It can't reach:
+
+- **Zed's own agent** (the panel's built-in one): Zed doesn't let add-ons into it. Start the thread with Claude Agent in the same panel instead.
+- **Claude outside the Agent Panel**: the Claude desktop app, claude.ai, or Claude Code in a terminal (Zed's included). Claude Code and the desktop app each have their own setting to continue after a usage limit.
+
 ## Quick start
 
 ```sh
@@ -49,9 +58,11 @@ npx @codizelabs/agent-rewake install
 
 `install` lists the agents it will add Rewake to and asks before changing anything. Each settings file is backed up first, and your comments and settings are kept.
 
-Then **quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window). Open any agent thread: a **Rewake** menu now sits under the message box, next to the model picker.
+Then **quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window), open the **Agent Panel**, and open or start a thread with one of your agents. Zed starts Rewake with that thread, not when Zed itself starts. A **Rewake** menu now sits under the message box, next to the model picker.
 
-Check the setup at any time:
+If you have no external agents yet, `install` offers to add **Claude Agent**: pick it in the Agent Panel and sign in with your Claude account.
+
+Check the setup at any time. It says, in plain words, whether Rewake is set up, whether Zed has started it, and what to do next:
 
 ```sh
 npx @codizelabs/agent-rewake doctor
@@ -59,7 +70,7 @@ npx @codizelabs/agent-rewake doctor
 
 ### Requirements
 
-- [Zed](https://zed.dev) 1.22 or newer, with at least one external agent set up (for example Claude Agent, signed in)
+- [Zed](https://zed.dev) 1.22 or newer, with its AI features on, and an external agent in the Agent Panel (for example Claude Agent, signed in). `install` can add Claude Agent for you
 - [Node.js](https://nodejs.org) 22 or newer
 - macOS, Linux (including Flatpak Zed) or Windows
 

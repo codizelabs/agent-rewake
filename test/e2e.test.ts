@@ -206,10 +206,18 @@ describe("agent-rewake bundle", () => {
     expect(settings).not.toContain('"Agent Rewake"');
     expect(readFileSync(join(zed, "tasks.json"), "utf8")).toContain("Agent Rewake: schedules");
 
-    // doctor shows which agents have Rewake, and that Zed must be restarted to start it.
-    const doctor = cli("doctor").stdout;
-    expect(doctor).toContain("Zed agents with Rewake: claude-acp");
-    expect(doctor).toContain("Zed hasn't started Rewake yet. To start it, ");
+    // doctor says which agents have Rewake, and that Zed starts it with a thread in the Agent Panel.
+    // Its default output names no folders or keys.
+    const doctor = cli("doctor");
+    expect(doctor.status).toBe(0);
+    expect(doctor.stdout).toContain("Rewake is on for: Claude Agent.");
+    expect(doctor.stdout).toContain(
+      "Not used yet. Zed starts Rewake when you open or start a thread",
+    );
+    expect(doctor.stdout).toContain("Installed, not used yet.");
+    expect(doctor.stdout).not.toContain(home);
+    expect(doctor.stdout).not.toContain("ANTHROPIC");
+    expect(cli("doctor", "--details").stdout).toContain("Details (for bug reports):");
 
     // An agent that refused Rewake's tool server is named.
     mkdirSync(join(home, "doctor-state", "logs"), { recursive: true });
