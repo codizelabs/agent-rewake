@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   compareVersions,
@@ -335,7 +335,7 @@ describe("doctor: output", () => {
       version: "0.1.2",
       nodeVersion: "24.1.0",
     }).join("\n");
-    expect(lines).toContain("Zed settings folder: ~/zed");
+    expect(lines).toContain(`Zed settings folder: ~${sep}zed`);
     expect(lines).toContain("Anthropic API key in this shell: not passed on");
     expect(lines).toContain("A proxy is set in this shell.");
     expect(lines).not.toContain("sk-SECRET");
