@@ -57,6 +57,54 @@ describe("ScheduleStore", () => {
     writeFileSync(join(store.dir, "garbage.json"), "not json");
     expect(store.list().map((s) => s.text)).toEqual(["real"]);
   });
+
+  it("keeps records with the optional host fields, and ignores hosts it doesn't know", () => {
+    const store = new ScheduleStore(dir);
+    const s = store.create({ ...base, text: "resume", dueAt: 5000 });
+    const write = (id: string, extra: Record<string, unknown>) =>
+      writeFileSync(
+        join(store.dir, `${id}.json`),
+        JSON.stringify({ ...s, scheduleId: id, ...extra }),
+      );
+    const acp = "00000000-0000-0000-0000-000000000001";
+    const newer = "00000000-0000-0000-0000-000000000002";
+    write(acp, { host: "acp", sessionRef: { cwd: "/p" }, rearms: 2 });
+    // Written by a newer Rewake for an integration this version can't deliver for.
+    write(newer, { host: "codex", sessionRef: { threadId: "t-1" } });
+    expect(store.get(acp)?.rearms).toBe(2);
+    expect(store.get(newer)).toBeUndefined();
+    expect(
+      store
+        .listForSession("s-1")
+        .map((x) => x.scheduleId)
+        .sort(),
+    ).toEqual([acp, s.scheduleId].sort());
+    // Never changed or deleted by this version either.
+    expect(store.update(newer, (x) => ({ ...x, status: "cancelled" }), 2000)).toBeUndefined();
+    expect(store.remove(newer)).toBe(false);
+    expect(readdirSync(store.dir)).toContain(`${newer}.json`);
+  });
+
+  it("rejects malformed host fields", () => {
+    const store = new ScheduleStore(dir);
+    const s = store.create({ ...base, text: "resume", dueAt: 5000 });
+    const id = "00000000-0000-0000-0000-000000000003";
+    for (const extra of [
+      { host: 1 },
+      { sessionRef: "t-1" },
+      { sessionRef: ["t-1"] },
+      { sessionRef: { threadId: 1 } },
+      { sessionRef: { big: "x".repeat(5000) } },
+      { rearms: -1 },
+      { rearms: 1.5 },
+    ]) {
+      writeFileSync(
+        join(store.dir, `${id}.json`),
+        JSON.stringify({ ...s, scheduleId: id, ...extra }),
+      );
+      expect(store.get(id), JSON.stringify(extra).slice(0, 40)).toBeUndefined();
+    }
+  });
 });
 
 describe("SessionLock", () => {

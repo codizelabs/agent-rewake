@@ -51,7 +51,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.core.json",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
