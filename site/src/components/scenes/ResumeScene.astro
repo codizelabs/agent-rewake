@@ -1,0 +1,60 @@
+---
+/** Hero: Claude stops at its usage limit, Rewake asks, and the thread resumes at the reset. */
+import ZedWindow from "../zed/ZedWindow.astro";
+import Pointer from "./Pointer.astro";
+interface Props {
+  height?: number;
+  caption?: boolean;
+}
+const { height = 470, caption = true } = Astro.props;
+const prompt =
+  "Resume the work from where you were interrupted. Agent Rewake sent this message after a usage limit reset, and nobody is here to answer questions…";
+---
+
+<figure class="scene not-content" data-scene data-steps="1600,1700,1500,2600,1100,1900,2300,2000,2400,4200">
+  <ZedWindow title="Split the scheduler" label="Rewake" label2="Rewake (1)" labelAt={5} height={height} clock="5:01 PM">
+    <span slot="clock" class="ov" data-until={6}>2:14 PM</span>
+    <span slot="clock" class="ov" data-at={6}>5:01 PM</span>
+
+    <div class="zed-user" data-until={7}>Split the scheduler into a store and a delivery loop, then add tests.</div>
+    <div class="zed-agent" data-until={8}>
+      <p>I'll move the storage code first, then write the tests.</p>
+    </div>
+    <div class="zed-tool" data-until={8}><span class="ok">✓</span> Edited <span class="zed-code">src/core/store.ts</span></div>
+    <div class="zed-tool" data-at={1} data-until={8}><span class="ok">✓</span> Edited <span class="zed-code">src/delivery.ts</span></div>
+    <div class="zed-limit" data-at={2} data-until={8}>You've hit your session limit · resets 5pm</div>
+
+    <div class="zed-form" data-at={3} data-until={5}>
+      <header>Input Requested by Claude Agent</header>
+      <div class="q">Claude hit its usage limit. It resets at 5:00 PM today. Resume this thread when it resets?</div>
+      <div class="f"><span>Message to send</span><div class="input">{prompt}</div></div>
+      <div class="actions"><span class="zed-btn ok accept"><i>✓</i> Submit</span><span class="zed-btn no"><i>✕</i> Decline</span><span class="zed-btn">Cancel</span></div>
+    </div>
+
+    <div class="zed-status" data-at={5} data-until={9}>Rewake: This thread will resume when the limit resets (5:00 PM today). To change or cancel it, use the Rewake menu under the message box.</div>
+
+    <div class="zed-status" data-at={7}>Rewake: Sending your scheduled resume message. To stop the reply, pick "Stop the scheduled reply" in the Rewake menu, or type /stop.</div>
+    <div class="zed-user" data-at={7}>{prompt}</div>
+    <div class="zed-agent" data-at={8}><p>Picking up from the last completed step: the store is split; now the tests for the delivery loop.</p></div>
+    <div class="zed-tool" data-at={9}><span class="ok">✓</span> Ran <span class="zed-code">npm test</span> · 24 passed</div>
+
+    <div slot="cover">
+      <Pointer at="4" style="right: 150px; bottom: 128px" />
+      <div class="rw-later ov" data-only="6" aria-hidden="true">
+        <div><div class="sun"></div>Later · 5:01 PM<small>The limit reset at 5:00. Rewake sends your message.</small></div>
+      </div>
+    </div>
+  </ZedWindow>
+  {
+    caption && (
+      <figcaption>
+        <span>Claude stops at its usage limit. Rewake asks once whether to resume, and the thread continues when the limit resets.</span>
+        <span class="rw-cap-end"><button type="button" data-pause aria-pressed="false" hidden>Pause</button><span class="rw-tag">Illustration</span></span>
+      </figcaption>
+    )
+  }
+</figure>
+
+<script>
+  import "../../scripts/scenes.ts";
+</script>

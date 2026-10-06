@@ -1,0 +1,17 @@
+---
+/** The schedules page in a terminal: the real output of src/ui/page.ts (scripts/site-demos.mjs). */
+import frame from "../../generated/schedules-page.html?raw";
+import Caption from "./Caption.astro";
+const body = frame.replace(/^<!--.*?-->\n/, "");
+---
+
+<figure class="scene not-content">
+  <div class="term">
+    <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i><span>agent-rewake ui</span></div>
+    <div class="term-body" set:html={body} />
+  </div>
+  <figcaption>
+    <span>Every scheduled message, across threads and agents, in Zed's terminal: run <code>agent-rewake ui</code>. Mouse and keyboard; <code>*</code> marks a resume. This is the page's real output, with sample data.</span>
+    <span class="rw-tag">Real output</span>
+  </figcaption>
+</figure>

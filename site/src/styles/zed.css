@@ -1,0 +1,520 @@
+/* Illustrations of Zed's agent panel, and the scene states (scenes.ts). */
+
+.scene {
+  position: relative;
+  margin: 0;
+}
+.scene figcaption {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--rw-muted);
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.scene .rw-tag {
+  font: 500 0.6875rem/1 var(--rw-font-body);
+  color: var(--rw-muted);
+  border: 1px solid var(--rw-line);
+  border-radius: 999px;
+  padding: 0.3rem 0.55rem;
+  white-space: nowrap;
+}
+.scene [data-pause] {
+  font: inherit;
+  color: var(--rw-dawn);
+  background: none;
+  border: 0;
+  padding: 0.25rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene [data-pause] {
+    display: none;
+  }
+}
+
+/* Static (no JavaScript, reduced motion): the final state. */
+.scene:not(.is-live) [data-until],
+.scene:not(.is-live) [data-only]:not([data-final]) {
+  display: none;
+}
+
+/* Live: items move in and out calmly. */
+.scene.is-live [data-at],
+.scene.is-live [data-only],
+.scene.is-live [data-until] {
+  transition:
+    opacity var(--rw-base) var(--rw-ease),
+    transform var(--rw-base) var(--rw-ease),
+    max-height var(--rw-slow) var(--rw-ease),
+    margin var(--rw-slow) var(--rw-ease),
+    padding var(--rw-slow) var(--rw-ease);
+  max-height: var(--mh, 640px);
+}
+.scene.is-live .rw-off {
+  opacity: 0;
+  transform: translateY(6px);
+  max-height: 0;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border-width: 0 !important;
+  overflow: hidden;
+  pointer-events: none;
+}
+.scene.is-live span.rw-off,
+.scene.is-live .ov.rw-off {
+  max-height: none;
+}
+.scene.is-live span.rw-off:not(.ov) {
+  display: none;
+}
+
+/* ---- the Zed window ------------------------------------------------------------------------ */
+
+.zed {
+  --zed-font: var(--rw-font-body);
+  font: 400 13px/1.5 var(--zed-font);
+  color: var(--zed-text);
+  background: var(--zed-bg);
+  border: 1px solid var(--zed-border);
+  border-radius: 12px;
+  box-shadow: var(--rw-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: var(--zed-h, 460px);
+  text-align: left;
+  position: relative;
+}
+.zed svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+.zed-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 34px;
+  padding: 0 12px;
+  background: var(--zed-panel);
+  border-bottom: 1px solid var(--zed-border);
+  color: var(--zed-muted);
+  font-size: 12px;
+  flex: none;
+}
+.zed-dots {
+  display: inline-flex;
+  gap: 6px;
+}
+.zed-dots i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--zed-border);
+}
+.zed-project {
+  color: var(--zed-text);
+  font-weight: 500;
+}
+.zed-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zed-clock {
+  margin-left: auto;
+  font-family: var(--rw-font-mono);
+  font-size: 11.5px;
+  color: var(--zed-text);
+  position: relative;
+  display: inline-grid;
+}
+.zed-clock > * {
+  grid-area: 1 / 1;
+  justify-self: end;
+}
+.zed-thread {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  /* fade the oldest lines out at the top */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 36px);
+}
+.zed-user {
+  align-self: stretch;
+  border: 1px solid var(--zed-border);
+  background: var(--zed-elevated);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.zed-agent {
+  color: var(--zed-text);
+}
+.zed-agent p {
+  margin: 0;
+}
+.zed-agent p + p {
+  margin-top: 4px;
+}
+.zed-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--zed-muted);
+  font-size: 12px;
+}
+.zed-tool .ok {
+  color: var(--zed-ok);
+}
+.zed-limit {
+  color: var(--zed-text);
+}
+.zed-status {
+  color: var(--zed-text);
+}
+.zed-line {
+  color: var(--zed-text);
+}
+.zed-line b {
+  font-weight: 600;
+}
+.zed-code {
+  font-family: var(--rw-font-mono);
+  font-size: 12px;
+}
+.zed-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+.zed-table th,
+.zed-table td {
+  border: 1px solid var(--zed-border);
+  padding: 4px 8px;
+  text-align: left;
+}
+.zed-table th {
+  background: var(--zed-panel);
+  font-weight: 600;
+}
+
+/* Zed's form for an elicitation ("Input requested"). */
+.zed-form {
+  border: 1px solid var(--zed-border);
+  background: var(--zed-elevated);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.zed-form header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--zed-border);
+  color: var(--zed-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.zed-form .q {
+  padding: 8px 10px 4px;
+}
+.zed-form .f {
+  padding: 4px 10px;
+}
+.zed-form .f > span {
+  display: block;
+  color: var(--zed-muted);
+  font-size: 11.5px;
+  margin-bottom: 3px;
+}
+.zed-form .input {
+  border: 1px solid var(--zed-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--zed-bg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zed-form .radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.zed-form .radio::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--zed-muted);
+  flex: none;
+}
+.zed-form .radio.on::before {
+  border-color: var(--zed-accent);
+  background: radial-gradient(circle, var(--zed-accent) 0 3px, transparent 3.5px);
+}
+.zed-form .actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  padding: 4px;
+  margin-top: 6px;
+  border-top: 1px solid var(--zed-border);
+}
+.zed-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  position: relative;
+}
+.zed-btn i {
+  font-style: normal;
+  font-size: 10px;
+}
+.zed-btn.ok i {
+  color: var(--zed-ok);
+}
+.zed-btn.no i {
+  color: var(--zed-error);
+}
+.scene.is-live[data-step="4"] .zed-btn.accept {
+  background: var(--zed-panel);
+  animation: rw-press 520ms var(--rw-ease) 300ms 1;
+}
+@keyframes rw-press {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.94);
+  }
+}
+
+/* The message box and the toolbar under it. */
+.zed-composer {
+  position: relative;
+  border-top: 1px solid var(--zed-border);
+  background: var(--zed-panel);
+  padding: 8px 10px;
+  flex: none;
+}
+.zed-editor {
+  background: var(--zed-bg);
+  border: 1px solid var(--zed-border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  min-height: 34px;
+  color: var(--zed-text);
+}
+.zed-placeholder {
+  color: var(--zed-muted);
+}
+.zed-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  color: var(--zed-muted);
+  font-size: 12px;
+}
+.zed-icons {
+  display: inline-flex;
+  gap: 10px;
+}
+.zed-spacer {
+  flex: 1;
+}
+.zed-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.zed-select svg {
+  width: 11px;
+  height: 11px;
+}
+.zed-rewake {
+  color: var(--zed-text);
+  background: var(--zed-bg);
+  border: 1px solid var(--zed-border);
+  position: relative;
+}
+.zed-send {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--zed-bg);
+  border: 1px solid var(--zed-border);
+}
+
+/* The open Rewake menu (a dropdown above the toolbar). */
+.zed-menu {
+  position: absolute;
+  right: 92px;
+  bottom: 40px;
+  min-width: 248px;
+  background: var(--zed-elevated);
+  border: 1px solid var(--zed-border);
+  border-radius: 8px;
+  box-shadow: var(--rw-shadow);
+  padding: 4px;
+  font-size: 12.5px;
+  z-index: 2;
+}
+.zed-menu div {
+  padding: 4px 8px;
+  border-radius: 5px;
+}
+.zed-menu .hl {
+  background: color-mix(in srgb, var(--zed-accent) 22%, transparent);
+}
+.zed-menu .head {
+  color: var(--zed-muted);
+}
+
+/* A pointer that "clicks". */
+.rw-pointer {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  z-index: 3;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 35%));
+}
+.rw-pointer path {
+  fill: #fff;
+  stroke: #111;
+  stroke-width: 1.2;
+}
+.scene.is-live .rw-pointer:not(.rw-off)::after {
+  content: "";
+}
+
+/* A short "later" interstitial: the clock moves forward. */
+.rw-later {
+  position: absolute;
+  inset: 34px 0 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--zed-bg) 82%, transparent);
+  backdrop-filter: blur(2px);
+  z-index: 4;
+  font: 500 15px/1.4 var(--rw-font-body);
+  color: var(--zed-text);
+  text-align: center;
+}
+.rw-later small {
+  display: block;
+  color: var(--zed-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.rw-later .sun {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 60%, var(--rw-dawn-soft), transparent 70%);
+}
+.scene.is-live .rw-later:not(.rw-off) .sun {
+  animation: rw-rise 1.6s var(--rw-ease) both;
+}
+@keyframes rw-rise {
+  from {
+    transform: translateY(14px) scale(0.85);
+    opacity: 0.2;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* A terminal (the schedules page). */
+.term {
+  font: 400 12.5px/1.55 var(--rw-font-mono);
+  background: #1b1e24;
+  color: #dce0e5;
+  border-radius: 12px;
+  border: 1px solid #2c313b;
+  box-shadow: var(--rw-shadow);
+  overflow: hidden;
+}
+.term-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  background: #23272e;
+  color: #a9afbc;
+  font-family: var(--rw-font-body);
+  font-size: 12px;
+}
+.term-bar i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3b414d;
+}
+.term-body {
+  padding: 12px 14px;
+  white-space: pre;
+  overflow-x: auto;
+}
+.term .hl {
+  background: #3a4b66;
+}
+.term .dim {
+  color: #8b93a1;
+}
+.term .acc {
+  color: #f4a949;
+}
+.term .ok {
+  color: #a1c181;
+}
+.term .key {
+  color: #74ade8;
+}
+
+@media (max-width: 560px) {
+  .zed {
+    font-size: 12px;
+  }
+  .zed-select:not(.zed-rewake) {
+    display: none;
+  }
+  .zed-menu {
+    right: 8px;
+  }
+  .term-body {
+    font-size: 10.5px;
+  }
+}

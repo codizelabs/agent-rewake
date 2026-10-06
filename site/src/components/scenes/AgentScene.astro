@@ -1,0 +1,22 @@
+---
+/** The agent schedules its own follow-up, and the user approves it in the thread. */
+import ZedWindow from "../zed/ZedWindow.astro";
+import Caption from "./Caption.astro";
+---
+
+<figure class="scene not-content" data-scene data-steps="1600,1600,3000,1800,3800">
+  <ZedWindow title="Fix flaky CI" agent="Claude Agent" label="Rewake" label2="Rewake (1)" labelAt={3} height={400}>
+    <div class="zed-user">Push the fix, then check back on CI when it's done.</div>
+    <div class="zed-agent" data-at={1}><p>Pushed. CI takes about 25 minutes, so I'll ask Rewake to bring me back then.</p></div>
+    <div class="zed-tool" data-at={1}><span>⚙</span> schedule_message <span class="zed-code">agent-rewake</span></div>
+    <div class="zed-form" data-at={2} data-until={3}>
+      <header>Input Requested by Claude Agent</header>
+      <div class="q">Claude wants to schedule a message in this thread for 2:42 PM today. Reason: "CI takes about 25 minutes". You can edit the message. Submit schedules it; Decline refuses.</div>
+      <div class="f"><span>Message</span><div class="input">Check whether the CI run passed and fix any failures</div></div>
+      <div class="actions"><span class="zed-btn ok"><i>✓</i> Submit</span><span class="zed-btn no"><i>✕</i> Decline</span><span class="zed-btn">Cancel</span></div>
+    </div>
+    <div class="zed-status" data-at={3}>Rewake: Scheduled for 2:42 PM today. To change it, use the Rewake menu under the message box.</div>
+    <div class="zed-agent" data-at={4}><p>Done: you approved it for 2:42 PM. I'll pick this up then.</p></div>
+  </ZedWindow>
+  <Caption>Your agent can schedule, change or cancel messages in its own thread, but only after you accept. You can edit the message first.</Caption>
+</figure>

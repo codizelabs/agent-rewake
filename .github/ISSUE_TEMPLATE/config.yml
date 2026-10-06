@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md
+    about: Report security problems privately. Never in a public issue.
+  - name: Problem in Zed itself
+    url: https://github.com/zed-industries/zed/issues
+    about: Problems with Zed's agent panel that happen without Agent Rewake belong in Zed's tracker.
+  - name: Docs and troubleshooting
+    url: https://codizelabs.github.io/agent-rewake/docs/#troubleshooting
+    about: Common problems and how to collect diagnostics.

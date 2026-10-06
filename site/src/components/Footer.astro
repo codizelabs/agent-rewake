@@ -1,0 +1,41 @@
+---
+// Starlight's footer plus a support link. A plain link, not Ko-fi's widget script: the site loads
+// no third-party JavaScript.
+import Default from "@astrojs/starlight/components/Footer.astro";
+---
+
+<Default {...Astro.props}><slot /></Default>
+<p class="support">
+  <a href="https://ko-fi.com/R5R31N7TP" rel="noopener">
+    <span aria-hidden="true">☕</span> Support Agent Rewake on Ko-fi
+  </a>
+</p>
+
+<style>
+  .support {
+    margin: 2rem 0 0.5rem;
+    text-align: center;
+  }
+  .support a {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    /* Ko-fi blue; dark text gives 6.9:1 contrast (WCAG AA needs 4.5:1; white text would be 2.5:1). */
+    background: #72a4f2;
+    color: #0b1a33;
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .support a span {
+    margin-inline-end: 0.4em;
+  }
+  .support a:hover,
+  .support a:focus-visible {
+    background: #8db6f5;
+  }
+  .support a:focus-visible {
+    outline: 2px solid var(--sl-color-text-accent);
+    outline-offset: 2px;
+  }
+</style>

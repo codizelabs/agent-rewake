@@ -1,0 +1,19 @@
+name: Question
+description: Ask how Agent Rewake works.
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [README](https://github.com/codizelabs/agent-rewake/blob/main/README.md) and the [docs](https://codizelabs.github.io/agent-rewake/docs/) first. Questions about Zed, the Claude adapter or Claude Code themselves belong in those projects.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What you're trying to do, and what you've already read or tried.

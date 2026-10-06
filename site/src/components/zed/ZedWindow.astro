@@ -1,0 +1,68 @@
+---
+/**
+ * An illustration of a thread in Zed's agent panel (not a screenshot): Zed's One theme colours,
+ * the toolbar under the message box with the agent's options and the Rewake menu. The thread's
+ * contents go in the default slot; they may carry data-at / data-only / data-until (scenes.ts).
+ */
+interface Props {
+  title: string;
+  agent?: string;
+  /** The Rewake menu's label; `label2` replaces it from step `labelAt` (e.g. "Rewake (1)"). */
+  label?: string;
+  label2?: string;
+  labelAt?: number;
+  /** Text typed in the message box. */
+  draft?: string;
+  clock?: string;
+  height?: number;
+}
+const {
+  title,
+  agent = "Claude Agent",
+  label = "Rewake",
+  label2,
+  labelAt,
+  draft,
+  clock,
+  height = 460,
+} = Astro.props;
+---
+
+<div class="zed" style={`--zed-h:${height}px`}>
+  <div class="zed-titlebar" aria-hidden="true">
+    <span class="zed-dots"><i></i><i></i><i></i></span>
+    <span class="zed-project">agent-rewake</span>
+    <span class="zed-title">{title}</span>
+    {clock && <span class="zed-clock"><slot name="clock">{clock}</slot></span>}
+  </div>
+  <div class="zed-thread">
+    <slot />
+  </div>
+  <div class="zed-composer">
+    <div class="zed-editor">
+      {draft ? <span class="zed-draft"><slot name="draft">{draft}</slot></span> : <span class="zed-placeholder">Message the {agent} — @ to include context</span>}
+    </div>
+    <div class="zed-toolbar">
+      <span class="zed-icons" aria-hidden="true">
+        <svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></svg>
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" /></svg>
+      </span>
+      <span class="zed-spacer"></span>
+      <span class="zed-select zed-rewake">
+        {label2 && labelAt !== undefined ? (
+          <>
+            <span data-until={labelAt} data-final-hide>{label}</span>
+            <span data-at={labelAt}>{label2}</span>
+          </>
+        ) : (
+          label
+        )}
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+      </span>
+      <span class="zed-select">Default<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg></span>
+      <span class="zed-select">Sonnet<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg></span>
+      <span class="zed-send" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4" /></svg></span>
+    </div>
+  </div>
+  <slot name="cover" />
+</div>

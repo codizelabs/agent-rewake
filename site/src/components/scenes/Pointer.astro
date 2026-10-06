@@ -1,0 +1,12 @@
+---
+/** A mouse pointer that appears at one step of a scene, and "clicks". Decoration only. */
+interface Props {
+  at: string;
+  style: string;
+}
+const { at, style } = Astro.props;
+---
+
+<svg class="rw-pointer ov" data-only={at} style={style} viewBox="0 0 18 18" aria-hidden="true">
+  <path d="M3 1.5v13l3.6-3.4 2.5 5.6 2.2-1-2.5-5.4h5z" />
+</svg>

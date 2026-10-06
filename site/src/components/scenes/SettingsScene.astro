@@ -1,0 +1,30 @@
+---
+/** Settings: one question for automatic resume, and the time format. */
+import ZedWindow from "../zed/ZedWindow.astro";
+---
+
+<figure class="scene not-content">
+  <ZedWindow title="Split the scheduler" height={380}>
+    <div class="zed-form">
+      <header>Input Requested by Claude Agent</header>
+      <div class="q">Rewake settings.</div>
+      <div class="f">
+        <span>Automatic resume after usage limits</span>
+        <div class="radio">On, even when permissions are bypassed</div>
+        <div class="radio">On, except when permissions are bypassed</div>
+        <div class="radio on">Ask when a new thread opens</div>
+        <div class="radio">Off</div>
+      </div>
+      <div class="f">
+        <span>Time format</span>
+        <div class="radio on">12-hour (3:19 PM)</div>
+        <div class="radio">24-hour (15:19)</div>
+      </div>
+      <div class="actions"><span class="zed-btn ok"><i>✓</i> Submit</span><span class="zed-btn no"><i>✕</i> Decline</span><span class="zed-btn">Cancel</span></div>
+    </div>
+  </ZedWindow>
+  <figcaption>
+    <span><b>Rewake → Settings…</b>: one question for automatic resume (what new threads do, and whether threads that bypass permissions are included), and the time format.</span>
+    <span class="rw-tag">Illustration</span>
+  </figcaption>
+</figure>

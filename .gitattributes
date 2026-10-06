@@ -1,0 +1,9 @@
+# Text files are stored and checked out with LF on every OS, so Windows checkouts match the
+# formatter (biome.json) and the tests (plan-cross-platform.md C2).
+* text=auto eol=lf
+
+# Binary files.
+*.png binary
+*.ico binary
+*.jpg binary
+*.woff2 binary

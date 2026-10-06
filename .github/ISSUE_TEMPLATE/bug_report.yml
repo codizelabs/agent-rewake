@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in Agent Rewake behaves differently from its documentation.
+labels: ["bug", "status: needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Run `npx @codizelabs/agent-rewake doctor` and include its output below.
+
+        **Don't paste credentials, tokens, conversation content or file contents.** Agent Rewake's logs hold metadata only; check before pasting anything else.
+  - type: input
+    id: version
+    attributes:
+      label: Agent Rewake version or commit
+      placeholder: "0.1.0, or a commit SHA"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and version, Node version, and how Agent Rewake was installed.
+      placeholder: |
+        OS: macOS 26.5
+        Node: 24.14.1
+        Install: npx agent-rewake@0.1.0 (Zed custom agent)
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Editor / ACP client and version
+      placeholder: "Zed 1.22.0"
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and adapter version
+      placeholder: "Claude Agent via @agentclientprotocol/claude-agent-acp 0.85.1"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that shows the problem.
+      placeholder: |
+        1. Schedule a message for 09:00 in a thread
+        2. Close the laptop lid until 09:20
+        3. Open it again
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you expected to happen, ideally with a link to the docs.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: state
+    attributes:
+      label: Scheduled-message or limit state (optional)
+      description: The output of the status command for the affected thread, if available. Remove message text you don't want to share.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostics (optional)
+      description: "Relevant lines from Agent Rewake's log or Zed's `dev: open acp logs`. Check them for private content first."
+      render: text

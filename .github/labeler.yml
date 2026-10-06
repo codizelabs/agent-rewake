@@ -1,0 +1,23 @@
+# Labels pull requests by the files they change (actions/labeler v5+ format). Label names must
+# exist in .github/labels.json.
+"area: scheduling":
+  - changed-files:
+      - any-glob-to-any-file: ["src/core/store.ts", "src/core/cron.ts", "src/core/time.ts", "src/core/lock.ts"]
+"area: usage limits":
+  - changed-files:
+      - any-glob-to-any-file: ["src/adapters/*/limits.ts", "src/adapters/*/sources.ts"]
+"area: agent tools":
+  - changed-files:
+      - any-glob-to-any-file: ["src/mcp.ts", "src/core/requests.ts"]
+"area: schedules page":
+  - changed-files:
+      - any-glob-to-any-file: ["src/ui/**"]
+"area: install":
+  - changed-files:
+      - any-glob-to-any-file: ["src/install.ts", "src/cli.ts", "src/wrap.ts", "src/adapters/*/spawn.ts"]
+"area: ci":
+  - changed-files:
+      - any-glob-to-any-file: [".github/**", "scripts/**"]
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.md", "site/**", "docs/**"]

@@ -1,0 +1,42 @@
+{
+  "$comment": "Every label in the repository, applied by scripts/apply-github-settings.mjs. Edit here, not in GitHub's UI. Families: type (GitHub's defaults), status:, area:, priority:.",
+  "labels": [
+    { "name": "bug", "color": "d73a4a", "description": "Something isn't working" },
+    { "name": "enhancement", "color": "a2eeef", "description": "New feature or request" },
+    { "name": "documentation", "color": "0075ca", "description": "Docs, site or planning documents" },
+    { "name": "question", "color": "d876e3", "description": "A question about using Agent Rewake" },
+    { "name": "accessibility", "color": "f143ab", "description": "Barrier affecting people with disabilities" },
+    { "name": "security", "color": "b60205", "description": "Security hardening (report vulnerabilities privately: SECURITY.md)" },
+    { "name": "breaking", "color": "b60205", "description": "Changes behaviour, configuration or stored data incompatibly" },
+
+    { "name": "status: needs triage", "color": "fbca04", "description": "Not yet looked at by a maintainer" },
+    { "name": "status: needs reproduction", "color": "fef2c0", "description": "Waiting for steps, versions or logs; closed after 14 days without them" },
+    { "name": "status: needs info", "color": "fef2c0", "description": "Waiting for an answer from the reporter" },
+    { "name": "status: confirmed", "color": "0e8a16", "description": "Reproduced or agreed; ready to work on" },
+    { "name": "status: proposal", "color": "c5def5", "description": "Needs a written proposal before code (docs/proposals)" },
+    { "name": "status: blocked upstream", "color": "e99695", "description": "Waits on Zed, ACP, an agent adapter or Anthropic" },
+
+    { "name": "area: scheduling", "color": "1d76db", "description": "Scheduled and repeating messages, delivery, the store" },
+    { "name": "area: usage limits", "color": "1d76db", "description": "Limit detection, resume after a limit, automatic resume" },
+    { "name": "area: agent tools", "color": "1d76db", "description": "The MCP tools the agent uses to schedule (src/mcp.ts)" },
+    { "name": "area: thread UI", "color": "1d76db", "description": "The Rewake menu, forms and status lines in a thread" },
+    { "name": "area: schedules page", "color": "1d76db", "description": "The schedules page and CLI listing (src/ui)" },
+    { "name": "area: install", "color": "1d76db", "description": "install, uninstall, doctor and launching agents" },
+    { "name": "area: agents", "color": "1d76db", "description": "Support for a specific agent (Claude, Codex, Gemini…)" },
+    { "name": "area: ci", "color": "1d76db", "description": "Workflows, checks and repository settings" },
+
+    { "name": "priority: high", "color": "d93f0b", "description": "Breaks a main flow or loses data; fix next" },
+    { "name": "priority: medium", "color": "fbca04", "description": "Real problem with a workaround" },
+    { "name": "priority: low", "color": "c2e0c6", "description": "Minor; welcome if someone picks it up" },
+
+    { "name": "good first issue", "color": "7057ff", "description": "Small, well-described, good for a first contribution" },
+    { "name": "help wanted", "color": "008672", "description": "A maintainer would welcome a pull request" },
+    { "name": "duplicate", "color": "cfd3d7", "description": "This issue or pull request already exists" },
+    { "name": "invalid", "color": "e4e669", "description": "Not a problem with Agent Rewake" },
+    { "name": "wontfix", "color": "ffffff", "description": "Won't be worked on; the issue says why" },
+
+    { "name": "dependencies", "color": "0366d6", "description": "Updates a dependency (Dependabot)" },
+    { "name": "javascript", "color": "168700", "description": "Updates npm dependencies (Dependabot)" },
+    { "name": "github_actions", "color": "000000", "description": "Updates GitHub Actions (Dependabot)" }
+  ]
+}

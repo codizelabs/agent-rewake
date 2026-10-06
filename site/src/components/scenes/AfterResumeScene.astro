@@ -1,0 +1,35 @@
+---
+/** A resume is scheduled; add messages to send after it, one after another. */
+import ZedWindow from "../zed/ZedWindow.astro";
+import Caption from "./Caption.astro";
+---
+
+<figure class="scene not-content" data-scene data-steps="1500,1600,2600,2200,1800,2000,3600">
+  <ZedWindow title="Split the scheduler" label="Rewake (1)" height={400}>
+    <div class="zed-status" data-until={4}>Rewake: This thread will resume when the limit resets (5:00 PM today). To change or cancel it, use the Rewake menu under the message box.</div>
+    <div class="zed-form" data-at={2} data-until={3}>
+      <header>Input Requested by Claude Agent</header>
+      <div class="q">A resume is already scheduled for 5:01 PM today: "Resume the work from where you were interrupted. Agent Re…". Add a message to send after it? Each is sent when the reply before it finishes.</div>
+      <div class="f"><span>Message to send next</span><div class="input">Then run the full test suite and open a PR</div></div>
+      <div class="actions"><span class="zed-btn ok"><i>✓</i> Submit</span><span class="zed-btn no"><i>✕</i> Decline</span><span class="zed-btn">Cancel</span></div>
+    </div>
+    <div class="zed-status" data-at={3} data-until={4}>Rewake: Added. Rewake sends it when the resume's reply finishes.</div>
+    <div class="zed-user" data-at={4}>Resume the work from where you were interrupted…</div>
+    <div class="zed-agent" data-at={4}><p>Continuing: the delivery loop tests are done.</p></div>
+    <div class="zed-tool" data-at={5}><span class="ok">✓</span> Reply finished</div>
+    <div class="zed-user" data-at={5}>Then run the full test suite and open a PR</div>
+    <div class="zed-agent" data-at={6}><p>All 24 tests pass. Opening the pull request now.</p></div>
+    <div slot="cover">
+      <div class="zed-menu ov" data-only="1" aria-hidden="true">
+        <div class="head">Rewake (1)</div>
+        <div class="hl">Add a message after the resume…</div>
+        <div>Schedules</div>
+        <div>Schedule a message…</div>
+        <div>Change a scheduled message…</div>
+        <div>Turn on auto-resume after limits…</div>
+        <div>Settings…</div>
+      </div>
+    </div>
+  </ZedWindow>
+  <Caption>Once a resume is scheduled, add more messages after it. At the reset each one goes when the reply before it finishes, the way Zed sends messages you queue while the agent is busy.</Caption>
+</figure>
