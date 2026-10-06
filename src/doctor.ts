@@ -12,6 +12,7 @@ import {
   agentPanelKey,
   type LaunchCommand,
   missingLaunchFiles,
+  pinnedVersion,
   planInstall,
   quitZed,
   unwrappedEntry,
@@ -222,6 +223,8 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   const state = stateDir(env);
   const panel = `Zed's Agent Panel (${agentPanelKey(platform)})`;
   const install = `npx ${"@codizelabs/agent-rewake"} install`;
+  // Updating: `@latest`, because a bare `npx <package>` may run a copy npx cached earlier.
+  const update = `npx ${"@codizelabs/agent-rewake"}@latest install`;
 
   // ---- Zed ------------------------------------------------------------------------------------
   const apps = ctx.zedApps();
@@ -373,17 +376,15 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       area: "Rewake",
       level: "problem",
       text: "Zed would start Rewake with a Node.js or a Rewake copy that has moved or been removed (after a Node.js upgrade, for example), so those agents won't start.",
-      fix: `Run the install command again to update Zed's settings: ${install}`,
+      fix: `Run the install command again to update Zed's settings: ${update}`,
     });
 
   // Which version Zed starts, from the pinned `@codizelabs/agent-rewake@<version>` argument.
   const pins = new Set<string>();
   for (const entry of Object.values(servers)) {
     if (!isRecord(entry) || unwrappedEntry(entry) === undefined) continue;
-    for (const a of Array.isArray(entry.args) ? entry.args : []) {
-      const m = typeof a === "string" ? /@codizelabs\/agent-rewake@(.+)$/.exec(a) : null;
-      if (m?.[1]) pins.add(m[1]);
-    }
+    const pin = pinnedVersion(entry);
+    if (pin) pins.add(pin);
   }
   for (const pin of pins) {
     if (compareVersions(pin, ctx.version) < 0)
@@ -391,7 +392,13 @@ export function diagnose(ctx: DoctorContext): Finding[] {
         area: "Rewake",
         level: "todo",
         text: `Zed starts Rewake ${pin}; this is Rewake ${ctx.version}.`,
-        fix: `To update Zed to ${ctx.version}, run: ${install}`,
+        fix: `To update, run: ${update}  Then quit Zed completely and open it again.`,
+      });
+    else if (compareVersions(pin, ctx.version) > 0)
+      add({
+        area: "Rewake",
+        level: "info",
+        text: `Zed starts Rewake ${pin}, newer than this check (${ctx.version}). For an up-to-date check, run: npx @codizelabs/agent-rewake@latest doctor`,
       });
   }
 
