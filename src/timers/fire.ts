@@ -56,7 +56,7 @@ const LIVE = new Set<Schedule["status"]>(["scheduled", "waiting_for_limit", "can
 /** "Codex in agent-rewake": the agent and the project folder's name, so the person knows which. */
 function where(host: HostAdapter, s: Schedule): string {
   const folder = s.cwd ? basename(s.cwd) : "";
-  return folder ? `${host.name} in ${folder}` : host.name;
+  return folder ? `${host.name} in the "${folder}" folder` : host.name;
 }
 
 /** Why a send failed, when the host knows: named so the person can fix it. */

@@ -49,7 +49,7 @@ export interface ClosedDeps {
 /** "GitHub Copilot CLI in shop": the agent and the project folder's name. */
 export function placeOf(host: Pick<ClosedHost, "name">, cwd: string): string {
   const folder = cwd ? basename(cwd) : "";
-  return folder ? `${host.name} in ${folder}` : host.name;
+  return folder ? `${host.name} in the "${folder}" folder` : host.name;
 }
 
 export function pendingFor(stateDir: string, host: string, sessionId: string): Schedule[] {

@@ -12,6 +12,7 @@ import { modInstalled, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { pluginInstalled } from "./hosts/codex/plugin.js";
 import { hooksFile, runCopilotInstall } from "./hosts/copilot/install.js";
+import { grokHooksFile, runGrokInstall } from "./hosts/grok/install.js";
 import { readStdin, runHook } from "./hosts/hook.js";
 import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
 import {
@@ -19,6 +20,7 @@ import {
   compareVersions,
   copilotPrograms,
   detectAgents,
+  grokPrograms,
   withoutInstalled,
 } from "./install/detect.js";
 import {
@@ -67,7 +69,7 @@ function agentIdentity(
 }
 
 /** Places `install --only` takes: Zed (the default) and the previews being tested. */
-const INSTALL_PLACES = new Set(["zed", "claude-code", "codex", "copilot-cli"]);
+const INSTALL_PLACES = new Set(["zed", "claude-code", "codex", "copilot-cli", "grok"]);
 
 const USAGE = `agent-rewake ${VERSION}
 
@@ -247,6 +249,22 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           ask: async (q) => /^y(es)?$/i.test((await prompt(q)).trim()),
         }),
       );
+    if (chosen.includes("grok"))
+      code = Math.max(
+        code,
+        await runGrokInstall({
+          uninstall: first === "uninstall",
+          yes,
+          dryRun,
+          env,
+          stateDir: stateDir(env),
+          node: stableNode(),
+          bundle: process.argv[1] ?? "",
+          interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+          out: (t) => process.stdout.write(t),
+          ask: async (q) => /^y(es)?$/i.test((await prompt(q)).trim()),
+        }),
+      );
     return code;
   }
   if (first === "continue") {
@@ -357,7 +375,8 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
         (id) =>
           (id === "codex" && pluginInstalled(env, homedir())) ||
           (id === "claude-code" && modInstalled(env, homedir())) ||
-          (id === "copilot-cli" && existsSync(hooksFile(env, homedir()))),
+          (id === "copilot-cli" && existsSync(hooksFile(env, homedir()))) ||
+          (id === "grok" && existsSync(grokHooksFile(env, homedir()))),
       ),
     launch: launchCommand(),
     version: VERSION,
@@ -533,10 +552,12 @@ async function runHookCommand(
           notify(title, body);
         },
       }),
-      program: (h, e) =>
-        h === "copilot-cli"
-          ? copilotPrograms({ env: e, home: homedir(), platform: process.platform })[0]?.path
-          : undefined,
+      program: (h, e) => {
+        const host = { env: e, home: homedir(), platform: process.platform };
+        if (h === "copilot-cli") return copilotPrograms(host)[0]?.path;
+        if (h === "grok") return grokPrograms(host)[0]?.path;
+        return undefined;
+      },
       codexPath: () => {
         const programs = codexPrograms({ env, home: homedir(), platform: process.platform });
         const cli = programs.filter((p) => p.surface === "terminal");
