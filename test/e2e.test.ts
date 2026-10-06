@@ -211,13 +211,11 @@ describe("agent-rewake bundle", () => {
     const doctor = cli("doctor");
     expect(doctor.status).toBe(0);
     expect(doctor.stdout).toContain("Rewake is on for: Claude Agent.");
-    expect(doctor.stdout).toContain(
-      "Not used yet. Zed starts Rewake when you open or start a thread",
-    );
-    expect(doctor.stdout).toContain("Installed, not used yet.");
+    expect(doctor.stdout).toContain("Installed, but Zed hasn't started Rewake yet.");
+    expect(doctor.stdout).toContain("Rewake works only in Zed's Agent Panel");
     expect(doctor.stdout).not.toContain(home);
     expect(doctor.stdout).not.toContain("ANTHROPIC");
-    expect(cli("doctor", "--details").stdout).toContain("Details (for bug reports):");
+    expect(cli("doctor", "--details").stdout).toContain("Details (for bug reports)");
 
     // An agent that refused Rewake's tool server is named.
     mkdirSync(join(home, "doctor-state", "logs"), { recursive: true });
