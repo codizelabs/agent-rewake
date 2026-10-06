@@ -57,7 +57,10 @@ export default defineConfig({
         { tag: "meta", attrs: { name: "twitter:image:alt", content: SOCIAL_ALT } },
         ...verification,
       ],
-      social: [{ icon: "github", label: "GitHub", href: "https://github.com/codizelabs/agent-rewake" }],
+      social: [
+        { icon: "github", label: "GitHub", href: "https://github.com/codizelabs/agent-rewake" },
+        { icon: "npm", label: "npm", href: "https://www.npmjs.com/package/@codizelabs/agent-rewake" },
+      ],
       components: { Footer: "./src/components/Footer.astro" },
       editLink: { baseUrl: "https://github.com/codizelabs/agent-rewake/edit/main/site/" },
       lastUpdated: true,
