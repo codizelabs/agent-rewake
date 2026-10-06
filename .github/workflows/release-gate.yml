@@ -1,0 +1,74 @@
+# Release pull requests (develop into main) may merge only when the code being released has
+# already been staged on npm from develop, and the release is ready:
+#   - a successful publish.yml run on develop (the stage job) for this commit, or for an earlier
+#     develop commit with the same package files;
+#   - a package.json version that isn't on npm yet, with its section in CHANGELOG.md.
+# Required by the main ruleset (.github/rulesets/main.json) as the "release-gate" check.
+name: release-gate
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-gate:
+    name: release-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read # read publish.yml runs
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The version is new and in the changelog
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if [ -n "$(npm view "$name@$version" version 2>/dev/null || true)" ]; then
+            echo "::error::$name@$version is already on npm. Set the new version on develop first: npm version <x.y.z> --no-git-tag-version (CONTRIBUTING.md, Releasing)."
+            exit 1
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for $version. Add '## [$version] - <date>' on develop."
+            exit 1
+          fi
+          echo "Releasing $name@$version"
+
+      # The files that make the package (publish.yml's paths). Same files = same package.
+      - name: This code was staged from develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          files=(package.json package-lock.json src scripts/build.mjs tsconfig.json README.md LICENSE .github/workflows/publish.yml)
+          runs="repos/$REPO/actions/workflows/publish.yml/runs?branch=develop&per_page=100"
+          # A staging run for this commit may still be going (it starts with the push to develop).
+          sleep 20
+          for _ in $(seq 1 40); do
+            pending=$(gh api "$runs&head_sha=$HEAD_SHA" --jq '[.workflow_runs[] | select(.status != "completed")] | length')
+            [ "$pending" = "0" ] && break
+            echo "Waiting for the staging run of $HEAD_SHA…"
+            sleep 30
+          done
+          for sha in $(gh api "$runs&status=success" --jq '.workflow_runs[].head_sha'); do
+            if git merge-base --is-ancestor "$sha" "$HEAD_SHA" 2>/dev/null &&
+              git diff --quiet "$sha" "$HEAD_SHA" -- "${files[@]}"; then
+              echo "Staged from develop at $sha, with the same package files as $HEAD_SHA."
+              exit 0
+            fi
+          done
+          echo "::error::This code hasn't been staged on npm from develop: no successful publish run on develop has these package files. Merge into develop and let the publish workflow stage it (or rerun it: Actions → publish → Run workflow on develop), then rerun this check."
+          exit 1
