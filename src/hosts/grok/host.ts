@@ -167,7 +167,6 @@ export function grokHost(env: NodeJS.ProcessEnv): ClosedHost {
   return {
     id: GROK_ID,
     name: "Grok Build",
-    reopen: 'resume the session with "grok -r"',
     resume: (r, text, e) => resumeGrok(r, text, e),
     isOpen: (r) => grokSessionOpen(grokHome(env), r.sessionId),
   };

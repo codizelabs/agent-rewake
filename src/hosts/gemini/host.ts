@@ -1,0 +1,182 @@
+import { spawn } from "node:child_process";
+import {
+  type ClosedDeps,
+  type ClosedHost,
+  onLimit,
+  onPrompt,
+  onSessionEnd,
+  onSessionStart,
+} from "../closed.js";
+import { codexProgram as nodeAware } from "../codex/cli.js";
+import { readTail } from "../codex/rollout.js";
+import type { HookContext, HookHandler } from "../hook.js";
+import type { SendResult } from "../host.js";
+import { type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
+
+/**
+ * Google's Gemini CLI in a terminal (plan §9.5; Gemini CLI v0.62.0 sources, research note §B):
+ *
+ *   - A linked Gemini CLI extension with hooks: SessionStart / SessionEnd (open or closed),
+ *     BeforeAgent (the person sent a prompt), AfterAgent (a turn ended; it carries no error, so the
+ *     hook reads the newest `{type: "error"}` record at the end of the session file).
+ *   - The reset time comes from the error text ("reset after 1h2m3s", "Resets in …", an ISO time);
+ *     Gemini CLI never stores a structured one. Otherwise the person picks a time.
+ *   - Fire: `gemini --resume <uuid> -p "<message>" --approval-mode default -o json` in the
+ *     session's folder, only when it's closed (Gemini has no session lock). `--approval-mode
+ *     default` never widens the person's mode; `--skip-trust` is never passed.
+ *   - Gemini's hook env has GEMINI_SESSION_ID (and CLAUDE_PROJECT_DIR "for compatibility", which is
+ *     why the guard doesn't look at that).
+ */
+
+export const GEMINI_ID = "gemini-cli";
+
+const LIMIT =
+  /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|Usage limit reached|exhausted your (daily quota|capacity)|Individual quota reached|quota will reset/i;
+
+/** "1h2m3s", "16h39m20s", "0s" → milliseconds. */
+export function durationMs(d: string): number | undefined {
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$/.exec(d);
+  if (!m || !d) return undefined;
+  return ((Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60 + Number(m[3] ?? 0)) * 1000;
+}
+
+/** A usage limit in Gemini's error text, with its reset when the text says. */
+export function classifyGeminiError(
+  text: string,
+  now: number,
+): Omit<SessionLimit, "seenAt"> | undefined {
+  if (!LIMIT.test(text)) return undefined;
+  if (/billing|credits|spend/i.test(text)) return { kind: "billing", billing: true };
+  const after = /(?:reset after|resets in)\s+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)/i.exec(text);
+  const ms = after?.[1] ? durationMs(after[1]) : undefined;
+  let resetsAt = ms !== undefined ? now + ms : undefined;
+  if (resetsAt === undefined) {
+    const iso = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})/.exec(
+      text,
+    );
+    const t = iso ? Date.parse(iso[0]) : Number.NaN;
+    if (Number.isFinite(t) && t > now) resetsAt = t;
+  }
+  return {
+    kind: /daily/i.test(text) ? "daily" : "other",
+    billing: false,
+    ...(resetsAt && { resetsAt }),
+  };
+}
+
+/** The text of the session file's newest record when that record is an error (a later turn means
+ * the person carried on). */
+export function lastErrorText(transcript: string): string | undefined {
+  let tail: string;
+  try {
+    tail = readTail(transcript, 16 * 1024);
+  } catch {
+    return undefined;
+  }
+  for (const line of tail.trim().split("\n").reverse()) {
+    let r: { type?: string; content?: unknown };
+    try {
+      r = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (r.type !== "error") return undefined;
+    const c = r.content;
+    if (typeof c === "string") return c;
+    if (Array.isArray(c))
+      return c
+        .map((p) => (typeof p === "string" ? p : ((p as { text?: string }).text ?? "")))
+        .join("");
+    if (c && typeof c === "object") return (c as { text?: string }).text;
+    return undefined;
+  }
+  return undefined;
+}
+
+export function resumeGemini(
+  r: SessionRecord,
+  text: string,
+  env: NodeJS.ProcessEnv,
+  node: string = process.execPath,
+): Promise<SendResult> {
+  if (!r.program)
+    return Promise.resolve({ ok: false, reason: "unsupported", detail: "no Gemini CLI found" });
+  const program = nodeAware(r.program, node);
+  return new Promise((resolve) => {
+    let out = "";
+    const child = spawn(
+      program.command,
+      [
+        ...program.args,
+        "--resume",
+        r.sessionId,
+        "-p",
+        text,
+        "--approval-mode",
+        "default",
+        "-o",
+        "json",
+      ],
+      { cwd: r.cwd || undefined, env, stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
+    );
+    child.stdout.on("data", (d: Buffer) => {
+      if (out.length < 1 << 20) out += d.toString("utf8");
+    });
+    child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
+    child.on("exit", (code) => {
+      if (code === 41) return resolve({ ok: false, reason: "failed", detail: "signed-out" });
+      if (LIMIT.test(out)) return resolve({ ok: false, reason: "limited" });
+      if (code === 0) return resolve({ ok: true });
+      resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
+    });
+  });
+}
+
+export const geminiHost: ClosedHost = {
+  id: GEMINI_ID,
+  name: "Gemini CLI",
+  resume: (r, text, env) => resumeGemini(r, text, env),
+};
+
+const isGeminiTranscript = (p: unknown) =>
+  typeof p === "string" && /[\\/]\.gemini[\\/]tmp[\\/]/.test(p);
+
+export interface GeminiHookDeps {
+  closed: (ctx: HookContext) => ClosedDeps;
+  program: (env: NodeJS.ProcessEnv) => string | undefined;
+}
+
+export function geminiHooks(deps: GeminiHookDeps): HookHandler {
+  return {
+    isMine: (input, env) =>
+      !env.GROK_HOOK_EVENT &&
+      safeSessionId(input.session_id) &&
+      (typeof env.GEMINI_SESSION_ID === "string" || isGeminiTranscript(input.transcript_path)),
+    sessionId: (input) => (safeSessionId(input.session_id) ? input.session_id : undefined),
+    async handle(ctx) {
+      const id = ctx.input.session_id as string;
+      const cwd = typeof ctx.input.cwd === "string" ? ctx.input.cwd : (ctx.env.GEMINI_CWD ?? "");
+      const d = deps.closed(ctx);
+      switch (ctx.event) {
+        case "SessionStart":
+          onSessionStart(geminiHost, id, cwd, d, deps.program(ctx.env));
+          break;
+        case "BeforeAgent":
+          onPrompt(geminiHost, id, cwd, d);
+          break;
+        case "AfterAgent": {
+          if (ctx.input.stop_hook_active) break;
+          const t = ctx.input.transcript_path;
+          const text = typeof t === "string" ? lastErrorText(t) : undefined;
+          const limit = text ? classifyGeminiError(text, ctx.now) : undefined;
+          if (limit) onLimit(geminiHost, id, cwd, limit, d);
+          break;
+        }
+        case "SessionEnd":
+          onSessionEnd(geminiHost, id, cwd, d);
+          break;
+      }
+      return undefined;
+    },
+  };
+}
