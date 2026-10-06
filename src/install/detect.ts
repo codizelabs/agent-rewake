@@ -261,6 +261,29 @@ function codex(h: DetectHost): Found | undefined {
   };
 }
 
+/** Every GitHub Copilot CLI program, with versions where a file records them. */
+export function copilotPrograms(h: DetectHost): Program[] {
+  const appData = h.env.APPDATA;
+  const extra = [
+    join(h.home, ".local", "bin", "copilot"),
+    ...(h.platform === "win32" && appData ? [join(appData, "npm", "copilot")] : []),
+  ];
+  return programs("copilot", h, extra).map((path) => {
+    const version = npmVersion(path, "@github/copilot");
+    return { path, surface: "terminal", ...(version && { version }) };
+  });
+}
+
+/** Every Grok Build program: `${GROK_BIN_DIR:-~/.grok/bin}/grok`, npm's launcher, or PATH. */
+export function grokPrograms(h: DetectHost): Program[] {
+  const grokBin = h.env.GROK_BIN_DIR || join(h.home, ".grok", "bin");
+  return programs("grok", h, [join(grokBin, "grok")]).map((path) => {
+    const version =
+      npmVersion(path, "@xai-official/grok") ?? versionInPath(path, /[\\/]grok-(\d+\.\d+\.\d+)/);
+    return { path, surface: "terminal", ...(version && { version }) };
+  });
+}
+
 function simpleCli(
   h: DetectHost,
   id: PlaceId,

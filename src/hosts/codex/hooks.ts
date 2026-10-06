@@ -86,7 +86,7 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
   };
 
   return {
-    isMine: (input) => isCodexRollout(input.transcript_path),
+    isMine: (input, env) => !env.GROK_HOOK_EVENT && isCodexRollout(input.transcript_path),
     sessionId: (input) => threadOf(input)?.id,
 
     async handle(ctx) {

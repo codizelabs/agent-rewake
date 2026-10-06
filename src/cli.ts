@@ -5,16 +5,19 @@ import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
 import { SchedulingAddon } from "./addon.js";
+import { runContinue } from "./continue.js";
 import { applySettings } from "./core/settings.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
 import { modInstalled, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { pluginInstalled } from "./hosts/codex/plugin.js";
+import { hooksFile, runCopilotInstall } from "./hosts/copilot/install.js";
 import { readStdin, runHook } from "./hosts/hook.js";
-import { hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
+import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
 import {
   codexPrograms,
   compareVersions,
+  copilotPrograms,
   detectAgents,
   withoutInstalled,
 } from "./install/detect.js";
@@ -64,7 +67,7 @@ function agentIdentity(
 }
 
 /** Places `install --only` takes: Zed (the default) and the previews being tested. */
-const INSTALL_PLACES = new Set(["zed", "claude-code", "codex"]);
+const INSTALL_PLACES = new Set(["zed", "claude-code", "codex", "copilot-cli"]);
 
 const USAGE = `agent-rewake ${VERSION}
 
@@ -84,6 +87,11 @@ Usage:
   agent-rewake uninstall [--yes] [--dry-run]
                                    Take Rewake out of your agents and remove its Zed entries
   agent-rewake setup zed           Print the Zed settings, task and keybinding (to add by hand)
+  agent-rewake continue [--always | --ask | --cancel]
+                                   Continue a closed agent session after its usage limit resets.
+                                   --always: continue sessions by itself from now on.
+                                   --ask: go back to asking each time.
+                                   --cancel: cancel every planned resume.
   agent-rewake fire <id>           Run by Rewake's timers at a resume's time (safe to run any time)
   agent-rewake --version
   agent-rewake --help
@@ -223,7 +231,41 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           ask,
         }),
       );
+    if (chosen.includes("copilot-cli"))
+      code = Math.max(
+        code,
+        await runCopilotInstall({
+          uninstall: first === "uninstall",
+          yes,
+          dryRun,
+          env,
+          stateDir: stateDir(env),
+          node: stableNode(),
+          bundle: process.argv[1] ?? "",
+          interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+          out: (t) => process.stdout.write(t),
+          ask: async (q) => /^y(es)?$/i.test((await prompt(q)).trim()),
+        }),
+      );
     return code;
+  }
+  if (first === "continue") {
+    const flag = argv[1];
+    const mode =
+      flag === "--always"
+        ? "always"
+        : flag === "--ask"
+          ? "ask"
+          : flag === "--cancel"
+            ? "cancel"
+            : undefined;
+    if (flag !== undefined && mode === undefined) {
+      process.stderr.write(
+        "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel]\n",
+      );
+      return 2;
+    }
+    return runContinueCommand(env, mode);
   }
   if (first === "fire") return runFire(argv[1] ?? "", env);
   if (first === "hook") return runHookCommand(argv[1] ?? "", argv[2] ?? "", env);
@@ -314,7 +356,8 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
         detectAgents({ env, home: homedir(), platform: process.platform }),
         (id) =>
           (id === "codex" && pluginInstalled(env, homedir())) ||
-          (id === "claude-code" && modInstalled(env, homedir())),
+          (id === "claude-code" && modInstalled(env, homedir())) ||
+          (id === "copilot-cli" && existsSync(hooksFile(env, homedir()))),
       ),
     launch: launchCommand(),
     version: VERSION,
@@ -424,7 +467,7 @@ function timerDeps(env: NodeJS.ProcessEnv) {
     sweepDeps: (now: number): SweepDeps => ({
       stateDir: state,
       now,
-      hosts: hostAdapters(env, node),
+      hosts: hostAdapters(env, node, state),
       timers,
       fireDetached: (id) => timers.detached(node, [cli, "fire", id]),
     }),
@@ -445,7 +488,7 @@ async function runFire(id: string, env: NodeJS.ProcessEnv): Promise<number> {
   const outcome = await fire(id, {
     stateDir: state,
     now: Date.now,
-    hosts: hostAdapters(env, node),
+    hosts: hostAdapters(env, node, state),
     timers,
     notify: osNotifier(),
     log: (event, fields) => log.info(event, fields),
@@ -477,6 +520,23 @@ async function runHookCommand(
       notify: (title, body) => {
         notify(title, body);
       },
+      closed: (ctx) => ({
+        stateDir: ctx.stateDir,
+        now: ctx.now,
+        env: ctx.env,
+        arm: (id, at) => {
+          const r = scheduleFire(id, at, sweepDeps(Date.now()));
+          log.info("hook.arm", { host, via: r === "fired" ? "now" : r.ok ? r.via : r.reason });
+        },
+        disarm: (id) => cancelTimer(id, timers),
+        notify: (title, body) => {
+          notify(title, body);
+        },
+      }),
+      program: (h, e) =>
+        h === "copilot-cli"
+          ? copilotPrograms({ env: e, home: homedir(), platform: process.platform })[0]?.path
+          : undefined,
       codexPath: () => {
         const programs = codexPrograms({ env, home: homedir(), platform: process.platform });
         const cli = programs.filter((p) => p.surface === "terminal");
@@ -492,4 +552,39 @@ async function runHookCommand(
     log.error("hook.failed", { host, event, message: (err as Error).message });
   }
   return 0;
+}
+
+/** Ask one question in the terminal; resolves with what was typed. */
+async function prompt(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(question);
+  } finally {
+    rl.close();
+  }
+}
+
+/** `agent-rewake continue`: continue a closed session after its usage limit (src/continue.ts). */
+async function runContinueCommand(
+  env: NodeJS.ProcessEnv,
+  mode?: "always" | "ask" | "cancel",
+): Promise<number> {
+  const { state, timers, sweepDeps } = timerDeps(env);
+  return runContinue({
+    ...(mode && { mode }),
+    hosts: CLOSED_HOSTS,
+    deps: {
+      stateDir: state,
+      now: Date.now(),
+      env,
+      arm: (id, at) => {
+        scheduleFire(id, at, sweepDeps(Date.now()));
+      },
+      disarm: (id) => cancelTimer(id, timers),
+      notify: () => {},
+    },
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    out: (t) => process.stdout.write(t),
+    ask: prompt,
+  });
 }
