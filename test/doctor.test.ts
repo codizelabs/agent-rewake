@@ -180,7 +180,15 @@ describe("doctor: installed", () => {
         },
       },
     });
-    expect(texts(run(), "todo").join()).toContain("Zed starts Rewake 0.1.0; this is Rewake 0.1.2.");
+    const f = run();
+    expect(texts(f, "todo").join()).toContain("Zed starts Rewake 0.1.0; this is Rewake 0.1.2.");
+    expect(f.find((x) => x.text.startsWith("Zed starts Rewake 0.1.0"))?.fix).toContain(
+      "npx @codizelabs/agent-rewake@latest install",
+    );
+    // A doctor older than the version Zed runs says so, instead of suggesting a downgrade.
+    expect(texts(run(zed, { version: "0.0.9" }), "info").join()).toContain(
+      "newer than this check (0.0.9)",
+    );
   });
 
   it("a Node.js or Rewake path that's gone", () => {
