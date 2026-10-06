@@ -7,6 +7,7 @@ import {
   detectAgents,
   type Found,
   otherAgentsNote,
+  withoutInstalled,
 } from "../src/install/detect.js";
 
 let root: string;
@@ -166,5 +167,13 @@ describe("wording", () => {
     ).toBe(
       "Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with Claude Code, Codex, Grok Build or Antigravity used on their own in a terminal, another editor or a desktop app.",
     );
+  });
+});
+
+describe("installed previews", () => {
+  it("leaves out agents Rewake is already installed in", () => {
+    const codex: Found = { id: "codex", name: "Codex", surfaces: ["terminal"] };
+    const grok: Found = { id: "grok", name: "Grok Build", surfaces: ["terminal"] };
+    expect(withoutInstalled([codex, grok], (id) => id === "codex")).toEqual([grok]);
   });
 });

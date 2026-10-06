@@ -10,9 +10,14 @@ export interface HostAdapter {
   id: string;
   /** As people know it, for notifications: "Codex". */
   name: string;
+  /** What the agent calls a conversation: "thread" (Codex) or "session" (Copilot, Grok). */
+  noun: string;
   /** Facts at fire time, from the agent's own files or commands. Anything unknown is left out. */
   check(resume: Schedule, now: number): Promise<HostFacts>;
-  /** Deliver the message into the same session, once. */
+  /**
+   * Deliver the message into the same session, once. On failure, `detail` may name a cause the
+   * person can fix: "signed-out", "archived" or "deleted".
+   */
   send(resume: Schedule, idempotencyKey: string): Promise<SendResult>;
 }
 

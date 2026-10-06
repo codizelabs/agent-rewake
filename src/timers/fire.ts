@@ -53,24 +53,46 @@ function where(host: HostAdapter, s: Schedule): string {
   return folder ? `${host.name} in ${folder}` : host.name;
 }
 
+/** Why a send failed, when the host knows: named so the person can fix it. */
+export type FailCause = "signed-out" | "archived" | "deleted";
+
+export interface NoticeFacts {
+  /** "thread" (Codex, Zed) or "session" (Copilot, Grok): the host's own word. */
+  noun: string;
+  /** The agent's name for sign-in hints: "Codex". */
+  agentName: string;
+  /** When the resume was due (for "late"). */
+  dueAt?: number;
+  /** A later reset the agent reported (for "far-reset"). */
+  resetsAt?: number;
+  cause?: FailCause;
+}
+
 /** The notification for a resume Rewake won't send on its own. Plain words, no message text. */
 export function notice(
   why: "late" | "open" | "far-reset" | "expired" | "failed",
   agent: string,
   now: number,
-  resetsAt?: number,
+  f: NoticeFacts,
 ): string {
+  const n = f.noun;
   switch (why) {
     case "open":
-      return `${agent}: the usage limit has reset. The session is open, so Rewake didn't send anything. Continue it there.`;
+      return `${agent}: the usage limit has reset. The ${n} is open, so Rewake didn't send anything. Continue it there.`;
     case "late":
-      return `${agent}: the usage limit reset a while ago, while Rewake couldn't run, so it didn't continue on its own. Open the session to continue.`;
+      return `${agent}: the usage limit reset${f.dueAt ? ` at ${formatWhen(f.dueAt, now)}` : ""}, but Rewake couldn't run then (the computer may have been off or asleep), so it didn't continue. Open the ${n} to continue.`;
     case "far-reset":
-      return `${agent} is limited again until ${resetsAt ? formatWhen(resetsAt, now) : "later"}. Rewake won't continue on its own; open the session after that.`;
+      return `${agent} is limited again until ${f.resetsAt ? formatWhen(f.resetsAt, now) : "later"}. Rewake won't continue on its own; open the ${n} after that.`;
     case "expired":
-      return `${agent} is still limited, so Rewake stopped trying. Open the session when the limit resets.`;
+      return `${agent} is still limited, so Rewake stopped trying. Open the ${n} when the limit resets.`;
     case "failed":
-      return `${agent}: Rewake couldn't continue the session. Open it to continue.`;
+      if (f.cause === "signed-out")
+        return `${agent}: Rewake couldn't continue the ${n} because you're signed out of ${f.agentName}. Sign in, then open the ${n}.`;
+      if (f.cause === "archived")
+        return `${agent}: Rewake couldn't continue the ${n} because it's archived. Unarchive it in ${f.agentName} to continue.`;
+      if (f.cause === "deleted")
+        return `${agent}: Rewake couldn't continue the ${n} because it no longer exists.`;
+      return `${agent}: Rewake couldn't continue the ${n}. Open it to continue.`;
   }
 }
 
@@ -140,9 +162,22 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       log("fire.wait", { why, armed: armed?.ok ?? false });
       return "waiting";
     };
-    const tell = (why: Parameters<typeof notice>[0], status: Schedule["status"]): FireOutcome => {
-      settle(status, why);
-      deps.notify("Agent Rewake", notice(why, at, now, facts.newResetsAt));
+    const tell = (
+      why: Parameters<typeof notice>[0],
+      status: Schedule["status"],
+      cause?: FailCause,
+    ): FireOutcome => {
+      settle(status, cause ?? why);
+      deps.notify(
+        "Agent Rewake",
+        notice(why, at, now, {
+          noun: host.noun,
+          agentName: host.name,
+          dueAt: s.dueAt,
+          ...(facts.newResetsAt !== undefined && { resetsAt: facts.newResetsAt }),
+          ...(cause && { cause }),
+        }),
+      );
       removeTimer();
       return why === "failed" || why === "expired" ? "failed" : "notified";
     };
@@ -192,7 +227,10 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           if (rearms >= MAX_REARMS) return tell("expired", "failed");
           return wait(now + backoffMs(rearms), result.reason);
         }
-        return tell("failed", "failed");
+        const cause = ["signed-out", "archived", "deleted"].includes(result.detail ?? "")
+          ? (result.detail as FailCause)
+          : undefined;
+        return tell("failed", "failed", cause);
       }
       case "wait":
         return wait(decision.until, decision.why);

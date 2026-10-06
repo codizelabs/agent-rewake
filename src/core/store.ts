@@ -280,8 +280,13 @@ export class ScheduleStore {
     return out.sort((a, b) => a.dueAt - b.dueAt);
   }
 
-  listForSession(sessionId: string): Schedule[] {
-    return this.list().filter((s) => s.sessionId === sessionId);
+  /**
+   * One session's schedules, for the integration that owns them: the Zed add-on (`acp`, also
+   * records without a host) by default. Codex in Zed and Codex's own hooks can share a thread id,
+   * so each sees only its own records and a message is never delivered twice.
+   */
+  listForSession(sessionId: string, host = "acp"): Schedule[] {
+    return this.list().filter((s) => s.sessionId === sessionId && (s.host ?? "acp") === host);
   }
 
   remove(scheduleId: string): boolean {
