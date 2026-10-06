@@ -20,7 +20,17 @@ jobs:
       - name: Check the branch name
         env:
           BRANCH: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
         run: |
+          # main only takes releases: pull requests from develop.
+          if [ "$BASE" = "main" ]; then
+            if [ "$BRANCH" = "develop" ]; then
+              echo "Release pull request: develop into main"
+              exit 0
+            fi
+            echo "::error::Pull requests into main come only from develop (a release). Open this one against develop instead; see CONTRIBUTING.md (Releasing)."
+            exit 1
+          fi
           # <type>/<short-kebab-description>, or a branch made by an automated tool.
           pattern='^((feat|fix|docs|chore|ci|refactor|test|perf|release)/[a-z0-9][a-z0-9._-]*|(dependabot|claude)/.+)$'
           if printf '%s' "$BRANCH" | grep -Eq "$pattern"; then
