@@ -57,6 +57,16 @@ describe("classifyPromptError", () => {
     );
   });
 
+  it("resumes a spend limit when the session limit behind it resets", () => {
+    expect(
+      classifyPromptError(
+        limitError(
+          "You've hit your individual spend limit · run /usage-credits to ask your admin for a higher limit · your session limit resets 7:50pm (Asia/Karachi)",
+        ),
+      ),
+    ).toMatchObject({ kind: "usage_limit", limitType: "session" });
+  });
+
   it("treats a rate limit without limit text as transient", () => {
     expect(classifyPromptError(limitError("Server is temporarily limiting requests")).kind).toBe(
       "transient",

@@ -4,7 +4,21 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- A usage limit that names a spend limit or credits but also says when the plan's limit resets ("You've hit your individual spend limit · … · your session limit resets 7:50pm") is resumed at that time. Rewake ignored it before. The same applies to Codex, Copilot, Factory Droid, Amp, Z.AI and others ("purchase more credits or try again at 2:51 PM").
+- When a limit can't be fixed by waiting (credits, billing or a spending limit), Rewake says so in the thread instead of saying nothing.
+- Reset times are read in every format agents use: dates with a year, day-first dates, UTC and offsets, "in 4 days, 23 hours", "4hr 10min", "2h3m4s", "202ms", "next hour" and epoch times. "Try again after 1 seconds" no longer reads as 1 o'clock, "202ms" as 202 minutes, or "Jan 2, 2027, 3pm" as 8pm.
+- A resume left over from an earlier limit no longer gets in the way. When Claude answers again before the old reset (another account, another model, bought usage), the old resume is cancelled, also after a restart. A missed resume, or one waiting for your answer, is replaced by the new limit's resume, and a sooner reset moves a scheduled resume earlier.
+- "Automatic resume: on for new threads" also applies to a thread Rewake first sees when Zed reopens it, not only to threads created while Rewake runs.
+- A limit that arrives while another Rewake question is open is still offered, as a line in the thread.
+- Rewake exits when Zed closes it, even if the agent ignores the request to stop; the log moves to a new file each day.
+- Rewake reads the error text wherever the agent puts it (`data.details`, a plain `data`, `data.error`), as Zed does, and recognises a lost session from more agents.
+
 ### Changed
+
+- Usage limits are recognised for every agent in Zed's registry, each from what it actually sends: Claude's rate-limit event (the same test Claude Code uses to continue on its own), Codex's error kinds, Gemini CLI, Qwen, Qoder, Kimi, Z.AI, MiniMax, Auggie, CodeBuddy, Devin, Junie, Mistral Vibe, goose, OpenCode, Kilo, Cline, Grok Build, Kimchi and Harn. Short-term rate limits, which the agent retries itself, are no longer treated as a usage limit.
+- Cursor, GitHub Copilot, Amp, Factory Droid, Antigravity, goose, fast-agent, Cortex Code and Autohand report a limit only as the last line of a turn. Rewake now reads that line, and only when it starts with the agent's own fixed wording.
 
 - `doctor` checks the whole setup and says in plain words what's left to do, grouped by Zed, Rewake, sign-in, scheduled messages and recent problems, with a fix for each and a "start here". It covers:
   - **Zed:** whether it's installed, and an old version.
