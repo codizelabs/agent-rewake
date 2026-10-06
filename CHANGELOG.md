@@ -2,6 +2,14 @@
 
 All notable changes to Agent Rewake are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the version is `0.x`, a minor release may contain breaking changes, always called out below.
 
+## [Unreleased]
+
+### Changed
+
+- `doctor` says in plain words whether Rewake can work in your Zed: set up or not, used yet or not, and what to do next. It explains that Zed starts Rewake when you open a thread in the Agent Panel, not when Zed starts, and that Zed's own agent, the Claude desktop app and Claude Code in a terminal are out of its reach. Its output no longer names folders, accounts or API keys; `doctor --details` adds versions and folders (home shortened to `~`) for bug reports.
+- `install` explains when it adds Claude Agent because Zed has no external agents yet, warns when Zed's AI features are off, and its next steps name the Agent Panel and its shortcut.
+- The README, docs and website say who Rewake is for ("Is it for you?"), with a troubleshooting entry for "installed, but nothing happens".
+
 ## [0.1.1] - 2026-10-06
 
 ### Fixed

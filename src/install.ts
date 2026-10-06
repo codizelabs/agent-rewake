@@ -387,8 +387,15 @@ export function planInstall(opts: InstallOptions): Plan {
         ["agent_servers", CLAUDE_REGISTRY_ID],
         wrappedEntry({}, { kind: "registry", id: CLAUDE_REGISTRY_ID }, opts.launch),
       );
-      summary.push(`Add Claude Agent ("${CLAUDE_REGISTRY_ID}") with Rewake`);
+      summary.push(
+        `Add Claude Agent ("${CLAUDE_REGISTRY_ID}") with Rewake. You have no external agents in Zed yet; Claude Agent is Claude in Zed's Agent Panel, and that's where Rewake works`,
+      );
     }
+    const agent = isRecord(parsed.value.agent) ? parsed.value.agent : {};
+    if (parsed.value.disable_ai === true || agent.enabled === false)
+      notes.push(
+        `${settingsFile}: Zed's AI features are turned off (${parsed.value.disable_ai === true ? "disable_ai" : "agent.enabled"}), so the Agent Panel and Rewake won't run until you turn them back on.`,
+      );
     if (summary.length > 0)
       changes.push({
         file: settingsFile,
@@ -467,16 +474,6 @@ export function planInstall(opts: InstallOptions): Plan {
 }
 
 /** Work out every edit `uninstall` would make: only Rewake's own entries are removed. */
-/** The agents in Zed's settings that run through Rewake (for `doctor`). */
-export function wrappedAgentIds(dir: string): string[] {
-  const parsed = parseJsonc(read(join(dir, "settings.json")).text || "{}");
-  const servers = isRecord(parsed.value) ? parsed.value.agent_servers : undefined;
-  if (parsed.error || !isRecord(servers)) return [];
-  return Object.entries(servers)
-    .filter(([, entry]) => unwrappedEntry(entry) !== undefined)
-    .map(([id]) => id);
-}
-
 /**
  * Files that Zed's agent entries for Rewake point at and that no longer exist: the Node binary
  * and Rewake's script, written as absolute paths. Bare names like "npx" are left to Zed's PATH lookup.
@@ -713,6 +710,13 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
   return 0;
 }
 
+/** The shortcut that opens Zed's Agent Panel (Zed 1.22.0 keymaps, `agent::ToggleFocus`). */
+export function agentPanelKey(p: NodeJS.Platform = platform()): string {
+  if (p === "darwin") return "Cmd+?";
+  if (p === "win32") return "Ctrl+Shift+/";
+  return "Ctrl+?";
+}
+
 /** How to quit Zed completely on this OS, for "restart Zed" instructions. */
 export function quitZed(p: NodeJS.Platform = platform()): string {
   if (p === "darwin") return "quit Zed completely (Cmd+Q)";
@@ -723,14 +727,17 @@ export function quitZed(p: NodeJS.Platform = platform()): string {
 function nextSteps(): string {
   return [
     "",
-    `Now ${quitZed()} and open it again. Zed keeps agents`,
-    "it has already started, so Rewake only starts when Zed starts the agent afresh.",
-    "`agent-rewake doctor` shows whether Zed has started it.",
+    `Now ${quitZed()} and open it again.`,
+    `Then open Zed's Agent Panel (${agentPanelKey()}) and open or start a thread with one of these agents.`,
+    "Zed starts Rewake when you open a thread with the agent, not when Zed itself starts.",
+    "`agent-rewake doctor` shows whether it has started.",
     "",
-    "Then open any thread with these agents, new or old, and use the",
-    '"Rewake" menu under the message box (next to the model picker) to schedule a message.',
+    'In the thread, the "Rewake" menu under the message box (next to the model picker) schedules messages.',
     "When the agent hits a usage limit, Rewake asks you in the thread with Yes/No buttons.",
     `All threads: command palette, task: spawn, then "${TASK_LABEL}".`,
+    "",
+    "Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI.",
+    "It can't reach Zed's own agent, Claude Code in a terminal, or the Claude desktop app.",
     "",
     `Agent Rewake is open source: ${REPO_URL}. If it saves you time, a star there helps others find it.`,
     "",
