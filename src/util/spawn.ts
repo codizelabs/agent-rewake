@@ -141,6 +141,7 @@ export function npmScript(
 export function killTree(
   child: { pid?: number | undefined; kill: (signal?: NodeJS.Signals) => boolean },
   p: NodeJS.Platform = osPlatform(),
+  signal: NodeJS.Signals = "SIGTERM",
 ): void {
   if (p === "win32" && child.pid !== undefined) {
     const taskkill = join(
@@ -157,5 +158,5 @@ export function killTree(
     );
     if (r.status === 0) return;
   }
-  child.kill("SIGTERM");
+  child.kill(signal);
 }

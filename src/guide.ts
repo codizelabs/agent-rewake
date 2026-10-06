@@ -46,7 +46,7 @@ Agent Rewake is an open-source add-on for Zed's agent threads (Claude, Codex, Ge
 - **Commands** typed in the thread: \`/schedule <when> <message>\` (for example \`/schedule in 1h Run the tests\`, \`/schedule 9pm …\`, \`/schedule every weekday 09:00 …\`), \`/schedule list\`, \`/schedule rm N\`, \`/schedule pause N\`, \`/schedule resume N\`, \`/schedule now N\`, \`/schedule resume\` (after a limit), \`/schedule auto on|off\`, \`/schedule prompt <text>\` (this thread's resume message), \`/stop\`.
 - **The schedules page**: run \`agent-rewake ui\` in a terminal (or the Zed task Rewake adds) for every thread's messages, with mouse and keys. \`agent-rewake schedules\` lists them; \`agent-rewake doctor\` checks the setup.
 - **Settings…** (they apply to every thread):
-  - *Automatic resume after usage limits*: *On, even when permissions are bypassed* · *On, except when permissions are bypassed* · *Ask when a new thread opens* (default) · *Off*. "On" and "Ask" decide what new threads do; the bypass part applies at every limit.
+  - *Automatic resume after usage limits*: *On, even when permissions are bypassed* · *On, except when permissions are bypassed* · *Ask when a new thread opens* (default) · *Off*. "On" and "Ask" decide what new threads do ("On" also covers threads Rewake sees for the first time, such as ones reopened after installing it); the bypass part applies at every limit.
   - *Time format*: 12-hour (default) or 24-hour.
 - **Per thread**: automatic resume on or off (menu or \`/schedule auto on|off\`), and the resume message (\`/schedule prompt\`, or edit it in the resume form; it's remembered for this thread).
 
@@ -80,7 +80,7 @@ Limits: one-off messages at most 30 days ahead; repeats have no limit unless giv
 
 ## Usage limits
 
-- Rewake recognises usage limits for Claude, Codex and Gemini from their own error details, and for other agents from cautious wording matches. Credit, billing and spend limits are never resumed, because waiting doesn't fix them.
+- Rewake recognises usage limits for every agent in Zed's registry the way that agent reports them: error details and codes, or for some agents (Cursor, Copilot, Amp, Factory Droid, Antigravity, goose and others) a fixed last line at the end of the turn. Only that last line counts, never other text in a reply. Credit, billing and spend limits are never resumed, because waiting doesn't fix them; Rewake says so in the thread. If the message gives a reset time, even next to an offer of credits ("purchase more credits or try again at 2:51 PM"), the limit resets, and Rewake resumes the thread then.
 - When a limit stops the agent, Zed shows the agent's limit text as its reply, and Rewake asks: "… hit its usage limit. It resets at …. Resume this thread when it resets?" with the resume message to edit. If the agent didn't say when it resets, the form asks when: in 30 minutes, 1, 3 or 5 hours, or a custom time.
 - The resume goes 1 minute after the reset (plus up to 20 seconds).
 - **Automatic resume** (per thread; new threads follow Settings): at a limit Rewake schedules the resume without asking. It asks instead when: the user chose *On, except when permissions are bypassed* and the thread bypasses permissions; with Claude, its "Continue automatically at usage limit" setting is off; the reset is more than 24 hours away; the agent gave the same reset time as last time; or the agent never says when it resets and the limit has lasted about a day.
