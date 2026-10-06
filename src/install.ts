@@ -23,12 +23,8 @@ import {
 } from "jsonc-parser";
 import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
-import { pluginDir as antigravityPluginDir } from "./hosts/antigravity/install.js";
-import { modInstalled } from "./hosts/claude-code/install.js";
-import { pluginInstalled } from "./hosts/codex/plugin.js";
-import { hooksFile } from "./hosts/copilot/install.js";
-import { grokHooksFile } from "./hosts/grok/install.js";
-import { detectAgents, type Found, otherAgentsNote, withoutInstalled } from "./install/detect.js";
+import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
+import { detectAgents, type Found, otherAgentsNote } from "./install/detect.js";
 import { readText, renameWithRetry } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
 import { findOnWindows, npmScript } from "./util/spawn.js";
@@ -681,6 +677,8 @@ export interface RunInstallOptions {
   ask?: (question: string) => Promise<boolean>;
   /** Other coding agents on this computer (default: detected now). */
   agents?: Found[];
+  /** Names of the previews set up here (default: checked now). */
+  previews?: string[];
 }
 
 /** `agent-rewake install` and `agent-rewake uninstall`. */
@@ -701,25 +699,14 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
   out(describe(plan, opts.uninstall ? "remove these entries from Zed" : "set up Zed"));
   let note: string | undefined;
   if (!opts.uninstall) {
+    const home = opts.env.HOME || opts.env.USERPROFILE || homedir();
+    const ids = opts.previews ? [] : installedPreviews(opts.env, home, stateDir(opts.env));
+    const previews = opts.previews ?? ids.map((id) => PREVIEW_NAMES[id] ?? id);
     note = otherAgentsNote(
-      opts.agents ??
-        withoutInstalled(
-          detectAgents({
-            env: opts.env,
-            home: opts.env.HOME || opts.env.USERPROFILE || homedir(),
-            platform: platform(),
-          }),
-          (id) => {
-            const home = opts.env.HOME || opts.env.USERPROFILE || homedir();
-            return (
-              (id === "codex" && pluginInstalled(opts.env, home)) ||
-              (id === "claude-code" && modInstalled(opts.env, home)) ||
-              (id === "copilot-cli" && existsSync(hooksFile(opts.env, home))) ||
-              (id === "grok" && existsSync(grokHooksFile(opts.env, home))) ||
-              (id === "antigravity" && existsSync(antigravityPluginDir(opts.env, home)))
-            );
-          },
-        ),
+      (opts.agents ?? detectAgents({ env: opts.env, home, platform: platform() })).filter(
+        (f) => !ids.includes(f.id),
+      ),
+      previews,
     );
     if (note) out(`\n${note}\n`);
   }
