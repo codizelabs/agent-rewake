@@ -1,7 +1,9 @@
 import { registerHost } from "../core/store.js";
+import { type ClosedDeps, type ClosedHost, closedAdapter } from "./closed.js";
 import { codexAdapter } from "./codex/adapter.js";
 import { type CodexHookDeps, codexHooks } from "./codex/hooks.js";
-import type { HookHandler } from "./hook.js";
+import { COPILOT_ID, copilotHooks, copilotHost } from "./copilot/host.js";
+import type { HookContext, HookHandler } from "./hook.js";
 import type { HostAdapter } from "./host.js";
 
 /**
@@ -9,15 +11,35 @@ import type { HostAdapter } from "./host.js";
  * its phase lands (plan §11), with `registerHost` so its records are read.
  */
 registerHost("codex");
+registerHost(COPILOT_ID);
+
+/** The hosts whose closed sessions Rewake continues (`agent-rewake continue`). */
+export const CLOSED_HOSTS: ClosedHost[] = [copilotHost];
 
 /** The adapters `fire` uses, built for this run's environment. */
-export function hostAdapters(env: NodeJS.ProcessEnv, node: string): Map<string, HostAdapter> {
-  return new Map([["codex", codexAdapter({ env, node })]]);
+export function hostAdapters(
+  env: NodeJS.ProcessEnv,
+  node: string,
+  stateDir: string,
+): Map<string, HostAdapter> {
+  return new Map<string, HostAdapter>([
+    ["codex", codexAdapter({ env, node })],
+    ...CLOSED_HOSTS.map((h) => [h.id, closedAdapter(h, stateDir, env)] as const),
+  ]);
+}
+
+export interface HookDeps extends CodexHookDeps {
+  /** What the closed-session hosts' hooks need, for this event. */
+  closed: (ctx: HookContext) => ClosedDeps;
+  /** The agent's program on the session's own PATH. */
+  program: (host: string, env: NodeJS.ProcessEnv) => string | undefined;
 }
 
 /** The hook handler for `agent-rewake hook <host> <event>`. */
-export function hookHandler(host: string, deps: CodexHookDeps): HookHandler | undefined {
+export function hookHandler(host: string, deps: HookDeps): HookHandler | undefined {
   if (host === "codex") return codexHooks(deps);
+  if (host === COPILOT_ID)
+    return copilotHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   return undefined;
 }
 
