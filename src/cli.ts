@@ -6,6 +6,7 @@ import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn
 import { SchedulingAddon } from "./addon.js";
 import { applySettings } from "./core/settings.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
+import { detectAgents } from "./install/detect.js";
 import {
   keyChord,
   launchCommand,
@@ -219,6 +220,7 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
     platform: process.platform,
     home: homedir(),
     zedApps: () => findZedApps(process.platform, homedir(), env),
+    agents: () => detectAgents({ env, home: homedir(), platform: process.platform }),
     launch: launchCommand(),
     version: VERSION,
     nodeVersion: process.versions.node,

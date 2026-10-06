@@ -7,6 +7,7 @@ import { resolveClaudeAdapter } from "./adapters/claude/spawn.js";
 import { loadSettings } from "./core/settings.js";
 import { ScheduleStore } from "./core/store.js";
 import { TEXT_LOCALE } from "./core/time.js";
+import { compareVersions, type Found, otherAgentsNote } from "./install/detect.js";
 import {
   AGENT_NAME,
   agentPanelKey,
@@ -70,6 +71,8 @@ export interface DoctorContext {
   launch?: LaunchCommand;
   version: string;
   nodeVersion: string;
+  /** Other coding agents on this computer (src/install/detect.ts); none when not given. */
+  agents?: () => Found[];
 }
 
 export interface ZedApp {
@@ -87,21 +90,10 @@ const MIN_ZED = "1.22.0";
 const MIN_NODE = 22;
 const DAY = 24 * 60 * 60 * 1000;
 
+export { compareVersions };
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
-
-/** -1, 0 or 1, comparing dotted version numbers (anything after a "-" or "+" ignored). */
-export function compareVersions(a: string, b: string): number {
-  const parts = (v: string) =>
-    (v.split(/[-+ ]/)[0] ?? "").split(".").map((n) => Number.parseInt(n, 10) || 0);
-  const x = parts(a);
-  const y = parts(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0);
-    if (d !== 0) return d < 0 ? -1 : 1;
-  }
-  return 0;
-}
 
 /** Zed's apps where its installers put them, with versions where the app records one. */
 export function findZedApps(
@@ -225,6 +217,10 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   const install = `npx ${"@codizelabs/agent-rewake"} install`;
   // Updating: `@latest`, because a bare `npx <package>` may run a copy npx cached earlier.
   const update = `npx ${"@codizelabs/agent-rewake"}@latest install`;
+
+  // Other coding agents on this computer, and whether the line about them was shown yet.
+  const reach = otherAgentsNote(ctx.agents?.() ?? []);
+  let reachShown = false;
 
   // ---- Zed ------------------------------------------------------------------------------------
   const apps = ctx.zedApps();
@@ -493,11 +489,16 @@ export function diagnose(ctx: DoctorContext): Finding[] {
         text: "Installed, but Zed hasn't started Rewake yet. Zed starts it when you open a thread with the agent, not when Zed starts.",
         fix: `Open ${panel} and start a thread with ${one}. If it still doesn't start, ${quitZed(platform)}, open it again and try once more.`,
       });
-      add({
-        area: "Rewake",
-        level: "info",
-        text: `Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI. It can't reach Zed's own agent${setup.usesZedAgent ? " (your settings pick a model for it)" : ""}, the Claude desktop app, claude.ai, or Claude Code in a terminal; Claude Code and the desktop app have their own setting to continue after a usage limit.`,
-      });
+      // With other agents found here, the specific line says this and names them.
+      if (reach) {
+        add({ area: "Rewake", level: "info", text: reach });
+        reachShown = true;
+      } else
+        add({
+          area: "Rewake",
+          level: "info",
+          text: `Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI. It can't reach Zed's own agent${setup.usesZedAgent ? " (your settings pick a model for it)" : ""}, the Claude desktop app, claude.ai, or Claude Code in a terminal; Claude Code and the desktop app have their own setting to continue after a usage limit.`,
+        });
       add({
         area: "Rewake",
         level: "info",
@@ -675,6 +676,9 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       fix: "Open the thread to see the agent's message.",
     });
 
+  // ---- Other coding agents here: say plainly that Rewake doesn't reach them on their own ------
+  if (reach && !reachShown) add({ area: "Rewake", level: "info", text: reach });
+
   return findings;
 }
 
@@ -770,6 +774,12 @@ export function detailLines(ctx: DoctorContext): string[] {
     `Zed data folder: ${tilde(zedDataDir(env))}`,
     `Rewake's folder: ${tilde(state)}`,
     `Agents in Zed's settings: ${setup.agents.join(", ") || "none"}; with Rewake: ${setup.withRewake.join(", ") || "none"}`,
+    `Other coding agents: ${
+      ctx
+        .agents?.()
+        .map((a) => `${a.name} ${a.version ?? "(version unknown)"} [${a.surfaces.join(", ")}]`)
+        .join(", ") || "none found"
+    }`,
     `Last start: ${last ? `${new Date(last.t).toISOString()}, Rewake ${String(last.version ?? "?")}, Node.js ${String(last.node ?? "?")}` : "none in the last 14 days"}`,
   ];
   const set = Object.keys(env).filter((k) => k.startsWith("AGENT_REWAKE_"));
