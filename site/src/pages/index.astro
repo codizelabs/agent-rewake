@@ -19,7 +19,7 @@ const title = "Agent Rewake: resume Claude after usage limits and schedule messa
 const description =
   "Free, open-source add-on for Zed's agent threads: Claude, Codex or Gemini picks the work back up on its own when a usage limit resets. It can also send messages later, once or on a repeat.";
 const image = new URL("social-preview.png", site).href;
-const updated = "2026-10-04";
+const updated = "2026-10-06";
 
 const faq: Array<{ q: string; a: string[] }> = [
   {
@@ -386,6 +386,11 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
 
     <footer class="site">
       <div class="wrap">
+        <a class="maker" href="https://github.com/codizelabs" aria-label="A Codize Labs project">
+          <span>A project by</span>
+          <img class="on-light" src={href("images/codizelabs-logo.png")} alt="Codize Labs" width="160" height="48" loading="lazy" />
+          <img class="on-dark" src={href("images/codizelabs-logo-reversed.png")} alt="Codize Labs" width="160" height="48" loading="lazy" />
+        </a>
         <div class="cols">
           <a href={href("docs/")}>Docs</a>
           <a href={href("docs/#privacy-and-security")}>Security and privacy</a>

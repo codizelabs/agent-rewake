@@ -118,4 +118,13 @@ Agent Rewake is free and open source. If it saves you time, you can [support it 
 
 [Apache-2.0](LICENSE) © KASHAN HAIDER · [Codize Labs](https://github.com/codizelabs)
 
+<p align="center">
+  <a href="https://github.com/codizelabs">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="site/public/images/codizelabs-logo-reversed.png">
+      <img src="site/public/images/codizelabs-logo.png" alt="A Codize Labs project" width="180">
+    </picture>
+  </a>
+</p>
+
 <sub>Agent Rewake is an independent project, not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Google or Zed Industries. Claude is a trademark of Anthropic, PBC. Zed is a trademark of Zed Industries, Inc.</sub>

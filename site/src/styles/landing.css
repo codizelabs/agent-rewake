@@ -680,3 +680,36 @@ section[id],
   box-shadow: var(--rw-shadow);
   background: #0e1116;
 }
+
+/* ---- maker mark (footer) ---- */
+footer.site .maker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  color: var(--rw-muted);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+footer.site .maker img {
+  display: block;
+  width: 160px;
+  height: auto;
+}
+footer.site .maker .on-dark {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) footer.site .maker .on-light {
+    display: none;
+  }
+  :root:not([data-theme="light"]) footer.site .maker .on-dark {
+    display: block;
+  }
+}
+:root[data-theme="dark"] footer.site .maker .on-light {
+  display: none;
+}
+:root[data-theme="dark"] footer.site .maker .on-dark {
+  display: block;
+}
