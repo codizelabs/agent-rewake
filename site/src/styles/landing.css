@@ -623,12 +623,30 @@ section[id],
 }
 
 /* ---- install command (hero) ---- */
+.install-label {
+  margin: 1.75rem 0 0.5rem;
+  font: 600 0.8rem/1 var(--rw-font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rw-dawn);
+}
+.install-cmd .prompt {
+  flex: none;
+  font: 500 0.95rem/1.4 var(--rw-font-mono);
+  color: var(--rw-muted);
+  user-select: none;
+}
+.install-after {
+  margin: 0 0 1.25rem;
+  color: var(--rw-muted);
+  font-size: 0.95rem;
+}
 .install-cmd {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   max-width: 34rem;
-  margin: 1.5rem 0 1rem;
+  margin: 0 0 0.75rem;
   padding: 0.35rem 0.35rem 0.35rem 1rem;
   border: 1px solid var(--rw-line);
   border-radius: 12px;
@@ -712,4 +730,70 @@ footer.site .maker .on-dark {
 }
 :root[data-theme="dark"] footer.site .maker .on-dark {
   display: block;
+}
+
+/* ---- install section ---- */
+.install .install-steps {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  margin: 2rem 0 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+.install .install-steps li {
+  position: relative;
+  padding: 1.5rem;
+  border: 1px solid var(--rw-line);
+  border-radius: var(--rw-radius);
+  background: var(--rw-surface);
+}
+.install .install-steps .num {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 0.75rem;
+  border-radius: 50%;
+  background: var(--rw-dawn);
+  color: var(--rw-on-dawn);
+  font: 700 0.95rem/1 var(--rw-font-body);
+}
+.install .install-steps h3 {
+  margin: 0 0 0.6rem;
+  font-size: 1.15rem;
+}
+.install .install-steps p {
+  margin: 0.6rem 0 0;
+  color: var(--rw-muted);
+}
+.install .install-steps .install-cmd {
+  max-width: none;
+  margin: 0;
+}
+.install .install-steps .install-cmd code {
+  font-size: 0.85rem;
+}
+.install-meta {
+  color: var(--rw-muted);
+  font-size: 0.95rem;
+}
+@media (max-width: 860px) {
+  .install .install-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.install .install-steps li {
+  min-width: 0;
+}
+/* Narrow screens: the command wraps instead of being cut off. */
+@media (max-width: 520px) {
+  .install-cmd code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 0.85rem;
+  }
+}
+.hero {
+  overflow-x: clip;
 }

@@ -138,9 +138,9 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
           Agent Rewake
         </a>
         <nav class="nav" aria-label="Main">
+          <a class="opt" href="#install">Install</a>
           <a class="opt" href="#film">Watch</a>
           <a class="opt" href="#features">Features</a>
-          <a class="opt" href="#how">How it works</a>
           <a href={href("docs/#install")}>Docs</a>
           <a href="https://github.com/codizelabs/agent-rewake">GitHub</a>
         </nav>
@@ -155,17 +155,20 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
             <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v0.1 · free and open source</a>
             <h1 class="rise">{words.map((w, i) => <><span style={`--i:${i}`}>{w}</span>{" "}</>)}</h1>
             <p class="lede">
-              Agent Rewake is a free, open-source add-on for Zed that resumes Claude, Codex, Gemini or any other agent on its own when a usage limit resets. It can also send messages into your threads later.
+              A free, open-source add-on for Zed. Claude, Codex, Gemini or any other agent picks the work back up on its own when its usage limit resets.
             </p>
+            <p class="install-label">Install in one line</p>
             <div class="install-cmd">
+              <span class="prompt" aria-hidden="true">$</span>
               <code id="install-cmd">npx @codizelabs/agent-rewake install</code>
               <button type="button" class="copy" data-copy="install-cmd" aria-label="Copy the install command">Copy</button>
             </div>
+            <p class="install-after">Then restart Zed. That's it: the Rewake menu appears in every agent thread.</p>
             <div class="ctas">
               <a class="btn primary" href={href("docs/#install")}>Get started</a>
               <a class="btn" href="#film"><span aria-hidden="true">▶</span> Watch the 1-minute intro</a>
             </div>
-            <p class="note">Works in the threads you already have. No new agent to pick: a menu under the message box.</p>
+            <p class="note">Works in the threads you already have, with Claude, Codex, Gemini and every other agent in Zed.</p>
           </div>
           <ResumeScene />
         </div>
@@ -181,6 +184,36 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
             <track kind="captions" srclang="en" label="English" src={href("video/rewake-intro.vtt")} />
             <a href={href("video/rewake-intro.mp4")}>Download the intro film (MP4)</a>
           </video>
+        </div>
+      </section>
+
+      <section id="install" class="install">
+        <div class="wrap" data-reveal>
+          <p class="kicker">Install</p>
+          <h2>Up and running in under a minute.</h2>
+          <ol class="install-steps">
+            <li>
+              <span class="num" aria-hidden="true">1</span>
+              <h3>Run one command</h3>
+              <div class="install-cmd">
+                <span class="prompt" aria-hidden="true">$</span>
+                <code id="install-cmd-2">npx @codizelabs/agent-rewake install</code>
+                <button type="button" class="copy" data-copy="install-cmd-2" aria-label="Copy the install command">Copy</button>
+              </div>
+              <p>It shows exactly what it will change in Zed's settings and asks first. Every file is backed up.</p>
+            </li>
+            <li>
+              <span class="num" aria-hidden="true">2</span>
+              <h3>Restart Zed</h3>
+              <p>Quit Zed and open it again, so it starts your agents through Rewake. Your agents and threads keep their names.</p>
+            </li>
+            <li>
+              <span class="num" aria-hidden="true">3</span>
+              <h3>Open any thread</h3>
+              <p>The <b>Rewake</b> menu sits under the message box. When the agent hits its limit, Rewake offers to resume it.</p>
+            </li>
+          </ol>
+          <p class="install-meta">Needs Node.js 22+ and Zed 1.22+ · macOS, Linux and Windows · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
         </div>
       </section>
 
