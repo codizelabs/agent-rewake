@@ -312,6 +312,15 @@ function hasLegacyThreads(stateDir: string): boolean {
   return new ThreadStore(stateDir).list().some((t) => t.agentId === undefined);
 }
 
+/** The Rewake version an agent entry pins (`@codizelabs/agent-rewake@<version>`), if it pins one. */
+export function pinnedVersion(entry: unknown): string | undefined {
+  const args = isRecord(entry) && Array.isArray(entry.args) ? entry.args : [];
+  const prefix = `${PACKAGE_NAME}@`;
+  for (const a of args)
+    if (typeof a === "string" && a.startsWith(prefix)) return a.slice(prefix.length);
+  return undefined;
+}
+
 /** Work out every edit `install` would make, without touching the disk. */
 export function planInstall(opts: InstallOptions): Plan {
   const changes: FileChange[] = [];
@@ -358,7 +367,11 @@ export function planInstall(opts: InstallOptions): Plan {
           notes.push(`${settingsFile}: ${agentLabel(id, env)} already has Rewake.`);
         else {
           after = edit(after, ["agent_servers", id], want);
-          summary.push(`Update Rewake in ${agentLabel(id, env)}`);
+          const from = pinnedVersion(entry);
+          const to = pinnedVersion(want);
+          summary.push(
+            `Update Rewake in ${agentLabel(id, env)}${from && to && from !== to ? ` (from ${from} to ${to})` : ""}`,
+          );
         }
         continue;
       }

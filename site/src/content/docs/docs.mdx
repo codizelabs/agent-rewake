@@ -114,9 +114,40 @@ Start with `agent-rewake doctor`. It checks Zed (installed, version, AI features
 - **The thread stopped responding after a limit:** a known Zed issue ([#55501](https://github.com/zed-industries/zed/issues/55501)). Rewake reconnects a thread whose session the agent lost; without Rewake, reload the agent in Zed.
 - **"Another Zed window owns this thread":** the thread is open in two windows; only one sends.
 
+## Update
+
+The same two steps for every version, from any earlier one:
+
+1. Run the install command again, with `@latest`:
+
+   ```sh
+   npx @codizelabs/agent-rewake@latest install
+   ```
+
+   It shows which agents it updates, and from which version to which, and asks first.
+2. **Quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window). Zed keeps agents it already started on the old version until then.
+
+Your threads, scheduled messages, automatic-resume choices and settings stay as they are: they live in Rewake's own folder, which an update doesn't touch. A message due while Zed is closed for the restart is sent when you reopen its thread, or, if it's more than 15 minutes late, Rewake asks first (a repeating message skips to its next run).
+
+Check it with `npx @codizelabs/agent-rewake@latest doctor`. It says if Zed still starts an older version, and what to do.
+
+- **Why run install again:** `install` writes the exact version into Zed's settings, so Zed keeps the version you installed until you run it again. Updates never happen behind your back.
+- **Why `@latest`:** `npx @codizelabs/agent-rewake install` without it may run a copy npx saved earlier.
+- **Installed with `npm install -g`:** run `npm install -g @codizelabs/agent-rewake@latest`, then `agent-rewake install`, then restart Zed.
+- **After you upgrade or move Node.js:** run the install command again too, so Zed's settings point at the new Node.js. `doctor` tells you when that's needed.
+- **Going back to an earlier version:** run that version's install, for example `npx @codizelabs/agent-rewake@0.1.1 install`, and restart Zed.
+
+### Version-specific steps
+
+None so far: every version updates with the two steps above. If a release ever needs anything more (a newer Node.js or Zed, a setting renamed, stored messages in a new format), it's listed here and under **Upgrade notes** for that version in the [CHANGELOG](https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md), and `doctor` checks for it where it can.
+
+| From | To | Extra steps |
+|---|---|---|
+| Any earlier version | Any later version | None |
+
 ## Uninstall
 
-`agent-rewake uninstall` puts every agent back the way it was and removes Rewake's task and keybinding, after showing you the list. Then delete the state directory that `doctor` prints. Pending messages aren't sent after removal.
+`agent-rewake uninstall` puts every agent back the way it was and removes Rewake's task and keybinding, after showing you the list. Then delete Rewake's folder, which `agent-rewake doctor --details` shows. Pending messages aren't sent after removal.
 
 ## Status
 

@@ -68,6 +68,10 @@ Check the setup at any time. `doctor` looks at Zed, its settings and agents, Rew
 npx @codizelabs/agent-rewake doctor
 ```
 
+### Updating
+
+From any version, the same two steps: run `npx @codizelabs/agent-rewake@latest install`, then quit Zed completely and open it again. Your threads, scheduled messages and settings stay. Details, and any version-specific steps (none so far), are in the [docs](https://codizelabs.github.io/agent-rewake/docs/#update).
+
 ### Requirements
 
 - [Zed](https://zed.dev) 1.22 or newer, with its AI features on, and an external agent in the Agent Panel (for example Claude Agent, signed in). `install` can add Claude Agent for you

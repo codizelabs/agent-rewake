@@ -20,6 +20,7 @@ import {
   keyChord,
   type LaunchCommand,
   launchCommand,
+  pinnedVersion,
   planInstall,
   planUninstall,
   runInstall,
@@ -369,5 +370,20 @@ describe("launchCommand", () => {
     const npx = launchCommand("/n/node", "/home/u/.npm/_npx/abc/node_modules/.bin/agent-rewake");
     expect(npx.args[0]).toBe("--yes");
     expect(npx.args[1]).toMatch(/^@codizelabs\/agent-rewake@/);
+  });
+});
+
+describe("updating", () => {
+  it("says which version it updates from and to", () => {
+    const pinned = (v: string): LaunchCommand => ({
+      command: "/usr/bin/node",
+      args: ["/usr/lib/node_modules/npm/bin/npx-cli.js", "--yes", `@codizelabs/agent-rewake@${v}`],
+    });
+    const old = planInstall({ dir, launch: pinned("0.1.0"), keybinding: false, env });
+    applyPlan(old);
+    const next = planInstall({ dir, launch: pinned("0.1.2"), keybinding: false, env });
+    expect(next.changes[0]?.summary.join("\n")).toContain("(from 0.1.0 to 0.1.2)");
+    expect(pinnedVersion({ args: ["--yes", "@codizelabs/agent-rewake@0.1.2"] })).toBe("0.1.2");
+    expect(pinnedVersion({ args: ["/x/agent-rewake.js"] })).toBeUndefined();
   });
 });
