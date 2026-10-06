@@ -5,6 +5,13 @@ import Default from "@astrojs/starlight/components/Footer.astro";
 ---
 
 <Default {...Astro.props}><slot /></Default>
+<p class="maker">
+  <a href="https://github.com/codizelabs" aria-label="A Codize Labs project">
+    <span>A project by</span>
+    <img class="on-light" src={`${import.meta.env.BASE_URL}images/codizelabs-logo.png`} alt="Codize Labs" width="140" height="42" loading="lazy" />
+    <img class="on-dark" src={`${import.meta.env.BASE_URL}images/codizelabs-logo-reversed.png`} alt="Codize Labs" width="140" height="42" loading="lazy" />
+  </a>
+</p>
 <p class="support">
   <a href="https://ko-fi.com/R5R31N7TP" rel="noopener">
     <span aria-hidden="true">☕</span> Support Agent Rewake on Ko-fi
@@ -12,6 +19,26 @@ import Default from "@astrojs/starlight/components/Footer.astro";
 </p>
 
 <style>
+  .maker {
+    margin: 2rem 0 0;
+    text-align: center;
+  }
+  .maker a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+    text-decoration: none;
+  }
+  .maker img {
+    width: 140px;
+    height: auto;
+  }
+  :global([data-theme="dark"]) .maker .on-light,
+  :global([data-theme="light"]) .maker .on-dark {
+    display: none;
+  }
   .support {
     margin: 2rem 0 0.5rem;
     text-align: center;

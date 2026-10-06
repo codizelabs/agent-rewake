@@ -370,7 +370,7 @@ describe("agent-rewake bundle", () => {
   });
 
   it("never writes message content to its logs", async () => {
-    const secret = "SECRET-PROMPT-7f3a9c";
+    const privateText = "PRIVATE-PROMPT-7f3a9c";
     const stateDir = join(home, "redaction-state");
     const p = start(["--", process.execPath, fakeAgent], { AGENT_REWAKE_STATE_DIR: stateDir });
     p.send({ id: 0, method: "initialize", params: { protocolVersion: 1 } });
@@ -379,7 +379,7 @@ describe("agent-rewake bundle", () => {
     p.send({
       id: 2,
       method: "session/prompt",
-      params: { sessionId: "s-1", prompt: [{ type: "text", text: secret }] },
+      params: { sessionId: "s-1", prompt: [{ type: "text", text: privateText }] },
     });
     const perm = JSON.parse(await p.waitFor((l) => l.includes("request_permission"))) as {
       id: string;
@@ -389,7 +389,10 @@ describe("agent-rewake bundle", () => {
     p.send({
       id: 3,
       method: "session/prompt",
-      params: { sessionId: "s-1", prompt: [{ type: "text", text: `/schedule in 2h ${secret}` }] },
+      params: {
+        sessionId: "s-1",
+        prompt: [{ type: "text", text: `/schedule in 2h ${privateText}` }],
+      },
     });
     await p.waitFor((l) => l.includes('"id":3'));
     p.child.stdin.end();
@@ -399,7 +402,7 @@ describe("agent-rewake bundle", () => {
       .map((f) => readFileSync(join(logDir, f), "utf8"))
       .join("\n");
     expect(logs.length).toBeGreaterThan(0);
-    expect(logs).not.toContain(secret);
+    expect(logs).not.toContain(privateText);
   });
 
   it.skipIf(process.platform === "win32")(
