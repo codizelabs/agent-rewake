@@ -40,6 +40,7 @@ function setup(o: { facts?: HostFacts; send?: SendResult; now?: number; throws?:
   const host: HostAdapter = {
     id: "test",
     name: "Codex",
+    noun: "thread",
     check: async () => {
       if (o.throws) throw new Error("no session file");
       return o.facts ?? {};
@@ -113,7 +114,9 @@ describe("fire", () => {
     expect(await fire(r.scheduleId, deps)).toBe("notified");
     expect(sent).toEqual([]);
     expect(store.get(r.scheduleId)?.status).toBe("needs_attention");
-    expect(notes).toEqual([notice("open", "Codex in shop", NOW)]);
+    expect(notes).toEqual([
+      "Codex in shop: the usage limit has reset. The thread is open, so Rewake didn't send anything. Continue it there.",
+    ]);
   });
 
   it("only notifies when more than 30 minutes late", async () => {
@@ -122,7 +125,7 @@ describe("fire", () => {
     expect(await fire(r.scheduleId, deps)).toBe("notified");
     expect(sent).toEqual([]);
     expect(store.get(r.scheduleId)?.status).toBe("missed");
-    expect(notes[0]).toContain("didn't continue on its own");
+    expect(notes[0]).toContain("but couldn't run then (the computer may have been off or asleep)");
   });
 
   it("stops when the person typed after the limit, or the agent continued by itself", async () => {
@@ -154,7 +157,7 @@ describe("fire", () => {
     const { deps, notes } = setup({ facts: { usageAllowed: false } });
     expect(await fire(r.scheduleId, deps)).toBe("failed");
     expect(store.get(r.scheduleId)?.status).toBe("failed");
-    expect(notes[0]).toContain("stopped trying");
+    expect(notes[0]).toContain("is still at its usage limit, so Rewake didn't continue.");
   });
 
   it("tries again later when the agent is limited at send time", async () => {
@@ -216,12 +219,25 @@ describe("fire", () => {
 });
 
 describe("notice", () => {
-  it("says what happened and what to do, without message text", () => {
-    expect(notice("open", "Codex in shop", NOW)).toBe(
-      "Codex in shop: the usage limit has reset. The session is open, so Rewake didn't send anything. Continue it there.",
+  const f = { noun: "thread", agentName: "Codex" };
+  it("says what happened and what to do, with times and the cause when known", () => {
+    expect(notice("late", "Codex in shop", NOW, { ...f, dueAt: NOW - 3_600_000 })).toMatch(
+      /^Codex in shop: Rewake was due to continue the thread at .+ today, but couldn't run then \(the computer may have been off or asleep\)\. Open the thread to continue\.$/,
     );
-    expect(notice("far-reset", "Codex", NOW, NOW + 3 * 86_400_000)).toMatch(
-      /^Codex is limited again until \w+ at /,
+    expect(notice("far-reset", "Codex", NOW, { ...f, resetsAt: NOW + 3 * 86_400_000 })).toMatch(
+      /^Codex is limited again until \w+ at .+, so Rewake didn't continue\. Open the thread after that to continue\.$/,
+    );
+    expect(notice("expired", "Codex in shop", NOW, { ...f, resetsAt: NOW + 3_600_000 })).toMatch(
+      /^Codex in shop is still at its usage limit, so Rewake didn't continue\. Open the thread after .+ today to continue\.$/,
+    );
+    expect(notice("failed", "Codex in shop", NOW, { ...f, cause: "signed-out" })).toBe(
+      "Codex in shop: Rewake couldn't continue the thread because you're signed out of Codex. Sign in, then open the thread to continue.",
+    );
+    expect(notice("failed", "Codex in shop", NOW, { ...f, cause: "archived" })).toBe(
+      "Codex in shop: Rewake couldn't continue the thread because it's archived. Unarchive it, then open the thread to continue.",
+    );
+    expect(notice("failed", "Grok Build", NOW, { noun: "session", agentName: "Grok Build" })).toBe(
+      "Grok Build: Rewake couldn't continue the session. Open the session to continue.",
     );
   });
 });

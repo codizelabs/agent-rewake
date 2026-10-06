@@ -1,0 +1,8 @@
+{
+  "name": "agent-rewake-test-agents",
+  "private": true,
+  "description": "Agent CLIs pinned for Rewake's contract tests (plan §10.2 L2). Never shipped.",
+  "dependencies": {
+    "@openai/codex": "0.160.1"
+  }
+}

@@ -205,7 +205,16 @@ function claudeCode(h: DetectHost): Found | undefined {
   };
 }
 
-function codex(h: DetectHost): Found | undefined {
+/** One program found on disk, with its version when a file records it. */
+export interface Program {
+  path: string;
+  version?: string;
+  /** Where it came from: "terminal" for a CLI install, "ChatGPT app" for the bundled copy. */
+  surface: string;
+}
+
+/** Every Codex program: CLI installs, then the copy inside the ChatGPT desktop app (macOS). */
+export function codexPrograms(h: DetectHost): Program[] {
   const dir = h.env.CODEX_INSTALL_DIR || join(h.home, ".local", "bin");
   const localAppData = h.env.LOCALAPPDATA;
   const bins = programs("codex", h, [
@@ -214,27 +223,34 @@ function codex(h: DetectHost): Found | undefined {
       ? [join(localAppData, "Programs", "OpenAI", "Codex", "bin", "codex")]
       : []),
   ]);
-  const versions = bins.map(
-    (b) =>
-      npmVersion(b, "@openai/codex") ?? versionInPath(b, /[\\/]Caskroom[\\/]codex[\\/]([\d.]+)/),
-  );
-  const chatgpt = apps(h, "ChatGPT")
-    .map((a) => join(a, "Contents", "Resources", "codex-cli"))
-    .filter((d) => existsSync(d));
-  const bundled = chatgpt.map((d) => {
-    const v = readJson(join(d, "codex-package.json"))?.version;
-    return typeof v === "string" ? v : undefined;
+  const found: Program[] = bins.map((path) => {
+    const version =
+      npmVersion(path, "@openai/codex") ??
+      versionInPath(path, /[\\/]Caskroom[\\/]codex[\\/]([\d.]+)/);
+    return { path, surface: "terminal", ...(version && { version }) };
   });
-  if (bins.length === 0 && chatgpt.length === 0) return undefined;
-  const version = highest([...versions, ...bundled]);
+  for (const app of apps(h, "ChatGPT")) {
+    const d = join(app, "Contents", "Resources", "codex-cli");
+    if (!existsSync(d)) continue;
+    const v = readJson(join(d, "codex-package.json"))?.version;
+    found.push({
+      path: join(d, "bin", "codex"),
+      surface: "ChatGPT app",
+      ...(typeof v === "string" && { version: v }),
+    });
+  }
+  return found;
+}
+
+function codex(h: DetectHost): Found | undefined {
+  const found = codexPrograms(h);
+  if (found.length === 0) return undefined;
+  const version = highest(found.map((p) => p.version));
   return {
     id: "codex",
     name: "Codex",
     ...(version && { version }),
-    surfaces: [
-      ...(bins.length > 0 ? ["terminal"] : []),
-      ...(chatgpt.length > 0 ? ["ChatGPT app"] : []),
-    ],
+    surfaces: [...new Set(found.map((p) => p.surface))],
   };
 }
 
@@ -323,4 +339,12 @@ export function otherAgentsNote(found: Found[]): string | undefined {
   if (found.length === 0) return undefined;
   const names = [...new Set(found.map((f) => f.name))];
   return `Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with ${orList(names)} used on ${names.length === 1 ? "its" : "their"} own in a terminal, another editor or a desktop app.`;
+}
+
+/**
+ * The agents found, minus those where Rewake is already installed as a preview (their own app
+ * then isn't a place Rewake "doesn't work"). `installed(id)` says whether it is.
+ */
+export function withoutInstalled(found: Found[], installed: (id: PlaceId) => boolean): Found[] {
+  return found.filter((f) => !installed(f.id));
 }
