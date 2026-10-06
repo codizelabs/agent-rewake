@@ -4,6 +4,7 @@
   "description": "Agent CLIs pinned for Rewake's contract tests (plan §10.2 L2). Never shipped.",
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.292",
+    "@google/gemini-cli": "0.62.0",
     "@openai/codex": "0.160.1",
     "@xai-official/grok": "1.0.46"
   }

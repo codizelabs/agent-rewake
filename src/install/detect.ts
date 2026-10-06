@@ -284,6 +284,25 @@ export function grokPrograms(h: DetectHost): Program[] {
   });
 }
 
+/** Every Gemini CLI program, with versions from its package.json (running it writes files). */
+export function geminiPrograms(h: DetectHost): Program[] {
+  const appData = h.env.APPDATA;
+  const extra = h.platform === "win32" && appData ? [join(appData, "npm", "gemini")] : [];
+  return programs("gemini", h, extra).map((path) => {
+    const version = npmVersion(path, "@google/gemini-cli");
+    return { path, surface: "terminal", ...(version && { version }) };
+  });
+}
+
+/** Every Antigravity CLI program (`agy`); its version isn't recorded in a file. */
+export function agyPrograms(h: DetectHost): Program[] {
+  const localAppData = h.env.LOCALAPPDATA;
+  return programs("agy", h, [
+    join(h.home, ".local", "bin", "agy"),
+    ...(h.platform === "win32" && localAppData ? [join(localAppData, "agy", "bin", "agy")] : []),
+  ]).map((path) => ({ path, surface: "terminal" }));
+}
+
 function simpleCli(
   h: DetectHost,
   id: PlaceId,

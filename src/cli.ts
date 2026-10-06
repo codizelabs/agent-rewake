@@ -8,18 +8,25 @@ import { SchedulingAddon } from "./addon.js";
 import { runContinue } from "./continue.js";
 import { applySettings } from "./core/settings.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
+import {
+  pluginDir as antigravityPluginDir,
+  runAntigravityInstall,
+} from "./hosts/antigravity/install.js";
 import { modInstalled, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { pluginInstalled } from "./hosts/codex/plugin.js";
 import { hooksFile, runCopilotInstall } from "./hosts/copilot/install.js";
+import { runGeminiInstall } from "./hosts/gemini/install.js";
 import { grokHooksFile, runGrokInstall } from "./hosts/grok/install.js";
 import { readStdin, runHook } from "./hosts/hook.js";
 import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
 import {
+  agyPrograms,
   codexPrograms,
   compareVersions,
   copilotPrograms,
   detectAgents,
+  geminiPrograms,
   grokPrograms,
   withoutInstalled,
 } from "./install/detect.js";
@@ -69,7 +76,15 @@ function agentIdentity(
 }
 
 /** Places `install --only` takes: Zed (the default) and the previews being tested. */
-const INSTALL_PLACES = new Set(["zed", "claude-code", "codex", "copilot-cli", "grok"]);
+const INSTALL_PLACES = new Set([
+  "zed",
+  "claude-code",
+  "codex",
+  "copilot-cli",
+  "grok",
+  "gemini-cli",
+  "antigravity",
+]);
 
 const USAGE = `agent-rewake ${VERSION}
 
@@ -265,6 +280,20 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           ask: async (q) => /^y(es)?$/i.test((await prompt(q)).trim()),
         }),
       );
+    const common = {
+      uninstall: first === "uninstall",
+      yes,
+      dryRun,
+      env,
+      stateDir: stateDir(env),
+      node: stableNode(),
+      bundle: process.argv[1] ?? "",
+      interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+      out: (t: string) => process.stdout.write(t),
+      ask: async (q: string) => /^y(es)?$/i.test((await prompt(q)).trim()),
+    };
+    if (chosen.includes("gemini-cli")) code = Math.max(code, await runGeminiInstall(common));
+    if (chosen.includes("antigravity")) code = Math.max(code, await runAntigravityInstall(common));
     return code;
   }
   if (first === "continue") {
@@ -376,7 +405,8 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
           (id === "codex" && pluginInstalled(env, homedir())) ||
           (id === "claude-code" && modInstalled(env, homedir())) ||
           (id === "copilot-cli" && existsSync(hooksFile(env, homedir()))) ||
-          (id === "grok" && existsSync(grokHooksFile(env, homedir()))),
+          (id === "grok" && existsSync(grokHooksFile(env, homedir()))) ||
+          (id === "antigravity" && existsSync(antigravityPluginDir(env, homedir()))),
       ),
     launch: launchCommand(),
     version: VERSION,
@@ -556,6 +586,8 @@ async function runHookCommand(
         const host = { env: e, home: homedir(), platform: process.platform };
         if (h === "copilot-cli") return copilotPrograms(host)[0]?.path;
         if (h === "grok") return grokPrograms(host)[0]?.path;
+        if (h === "gemini-cli") return geminiPrograms(host)[0]?.path;
+        if (h === "antigravity") return agyPrograms(host)[0]?.path;
         return undefined;
       },
       codexPath: () => {
