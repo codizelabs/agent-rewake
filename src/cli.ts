@@ -6,12 +6,14 @@ import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn
 import { SchedulingAddon } from "./addon.js";
 import { applySettings } from "./core/settings.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
+import { HOSTS, OWNER_ENV } from "./hosts/index.js";
 import { detectAgents } from "./install/detect.js";
 import {
   keyChord,
   launchCommand,
   runInstall,
   selfCommand,
+  stableNode,
   TASK_LABEL,
   taskEntry,
   wrappedEntry,
@@ -20,6 +22,10 @@ import {
 import { runMcp } from "./mcp.js";
 import { runProxy } from "./proxy.js";
 import { agentName } from "./setup.js";
+import { fire } from "./timers/fire.js";
+import { launcherPath } from "./timers/launcher.js";
+import { osNotifier } from "./timers/notify.js";
+import { defaultTimerHost } from "./timers/timers.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { Logger } from "./util/log.js";
@@ -64,6 +70,7 @@ Usage:
   agent-rewake uninstall [--yes] [--dry-run]
                                    Take Rewake out of your agents and remove its Zed entries
   agent-rewake setup zed           Print the Zed settings, task and keybinding (to add by hand)
+  agent-rewake fire <id>           Run by Rewake's timers at a resume's time (safe to run any time)
   agent-rewake --version
   agent-rewake --help
 
@@ -140,6 +147,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       env,
     });
   }
+  if (first === "fire") return runFire(argv[1] ?? "", env);
   if (first === "setup") {
     if (argv[1] !== "zed") {
       process.stderr.write("agent-rewake: usage: agent-rewake setup zed\n");
@@ -183,6 +191,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     return 2;
   }
 
+  // Hooks Rewake installed for this agent's own CLI stand down in sessions Zed runs (plan §3.5).
+  agent = { ...agent, env: { ...agent.env, [OWNER_ENV]: "acp" } };
   log.info("proxy.start", {
     version: VERSION,
     node: process.versions.node,
@@ -308,4 +318,28 @@ function runInTerminal(cmd: AgentCommand): number {
     ...(run.windowsVerbatimArguments && { windowsVerbatimArguments: true }),
   });
   return r.status ?? 1;
+}
+
+/**
+ * `agent-rewake fire <id>`: run by a resume's OS timer (src/timers/). Exit status 0 unless the
+ * id is malformed; what happened is in the schedule and the log.
+ */
+async function runFire(id: string, env: NodeJS.ProcessEnv): Promise<number> {
+  if (!/^[a-z0-9-]{1,64}$/.test(id)) {
+    process.stderr.write("agent-rewake: usage: agent-rewake fire <id>\n");
+    return 2;
+  }
+  const state = stateDir(env);
+  const log = new Logger(env);
+  const outcome = await fire(id, {
+    stateDir: state,
+    now: Date.now,
+    hosts: HOSTS,
+    timers: defaultTimerHost(state, stableNode(), launcherPath(state)),
+    notify: osNotifier(),
+    log: (event, fields) => log.info(event, fields),
+    fromTimer: true,
+  });
+  log.info("fire.done", { outcome });
+  return 0;
 }
