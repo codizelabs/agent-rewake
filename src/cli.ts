@@ -7,6 +7,7 @@ import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn
 import { SchedulingAddon } from "./addon.js";
 import { applySettings } from "./core/settings.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
+import { modInstalled, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { pluginInstalled } from "./hosts/codex/plugin.js";
 import { readStdin, runHook } from "./hosts/hook.js";
@@ -63,7 +64,7 @@ function agentIdentity(
 }
 
 /** Places `install --only` takes: Zed (the default) and the previews being tested. */
-const INSTALL_PLACES = new Set(["zed", "codex"]);
+const INSTALL_PLACES = new Set(["zed", "claude-code", "codex"]);
 
 const USAGE = `agent-rewake ${VERSION}
 
@@ -182,6 +183,30 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           env,
         }),
       );
+    const ask = async (q: string) => {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        return /^y(es)?$/i.test((await rl.question(q)).trim());
+      } finally {
+        rl.close();
+      }
+    };
+    if (chosen.includes("claude-code"))
+      code = Math.max(
+        code,
+        await runClaudeInstall({
+          uninstall: first === "uninstall",
+          yes,
+          dryRun,
+          env,
+          stateDir: stateDir(env),
+          node: stableNode(),
+          bundle: process.argv[1] ?? "",
+          interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+          out: (t) => process.stdout.write(t),
+          ask,
+        }),
+      );
     if (chosen.includes("codex"))
       code = Math.max(
         code,
@@ -195,14 +220,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           bundle: process.argv[1] ?? "",
           interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
           out: (t) => process.stdout.write(t),
-          ask: async (q) => {
-            const rl = createInterface({ input: process.stdin, output: process.stdout });
-            try {
-              return /^y(es)?$/i.test((await rl.question(q)).trim());
-            } finally {
-              rl.close();
-            }
-          },
+          ask,
         }),
       );
     return code;
@@ -294,7 +312,9 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
     agents: () =>
       withoutInstalled(
         detectAgents({ env, home: homedir(), platform: process.platform }),
-        (id) => id === "codex" && pluginInstalled(env, homedir()),
+        (id) =>
+          (id === "codex" && pluginInstalled(env, homedir())) ||
+          (id === "claude-code" && modInstalled(env, homedir())),
       ),
     launch: launchCommand(),
     version: VERSION,

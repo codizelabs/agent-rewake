@@ -9,6 +9,7 @@ on:
       - "src/hosts/**"
       - "test/agents/**"
       - "test/*-contract.test.ts"
+      - "scripts/build.mjs"
       - ".github/workflows/contracts.yml"
   schedule:
     - cron: "41 4 * * 1"
@@ -54,3 +55,40 @@ jobs:
         env:
           REWAKE_CODEX_BIN: ${{ github.workspace }}/test/agents/node_modules/.bin/codex
         run: npx vitest run test/codex-contract.test.ts
+
+  claude-code:
+    name: claude-code (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Install the pinned agent CLIs
+        working-directory: test/agents
+        run: npm ci --no-audit --no-fund
+
+      - name: Claude Code accepts and runs Rewake's mod
+        env:
+          REWAKE_CLAUDE_BIN: ${{ github.workspace }}/test/agents/node_modules/.bin/claude
+        run: npx vitest run test/claude-contract.test.ts
