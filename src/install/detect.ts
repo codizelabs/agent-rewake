@@ -164,14 +164,21 @@ function versionInPath(program: string, pattern: RegExp): string | undefined {
   return pattern.exec(realpath(program))?.[1];
 }
 
-function claudeCode(h: DetectHost): Found | undefined {
+/** Every Claude Code CLI program (terminal installs), with versions where a file records them. */
+export function claudePrograms(h: DetectHost): Program[] {
   const local = join(h.home, ".local", "bin", "claude");
-  const bins = programs("claude", h, [local]);
-  const versions = bins.map(
-    (b) =>
-      versionInPath(b, /[\\/]versions[\\/](\d+\.\d+\.\d+)/) ??
-      npmVersion(b, "@anthropic-ai/claude-code"),
-  );
+  return programs("claude", h, [local]).map((path) => {
+    const version =
+      versionInPath(path, /[\\/]versions[\\/](\d+\.\d+\.\d+)/) ??
+      npmVersion(path, "@anthropic-ai/claude-code");
+    return { path, surface: "terminal", ...(version && { version }) };
+  });
+}
+
+function claudeCode(h: DetectHost): Found | undefined {
+  const cli = claudePrograms(h);
+  const bins = cli.map((p) => p.path);
+  const versions = cli.map((p) => p.version);
   // The desktop app's Code tab: `claude-code/<version>/<build>/claude.app` (macOS).
   const desktop: string[] = [];
   if (h.platform === "darwin") {

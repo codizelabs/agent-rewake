@@ -1,6 +1,6 @@
 // Bundles Agent Rewake's own code into one ESM file. The Claude adapter, and through it Anthropic's
 // SDK, stays external and is installed by npm: it is never bundled.
-import { readFileSync } from "node:fs";
+import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { build } from "esbuild";
 
 // The version is written into the bundle, so a copy of it (the stable launcher hooks and timers
@@ -24,3 +24,18 @@ await build({
   legalComments: "none",
   logLevel: "info",
 });
+
+// The Claude Code mod: plain, readable files (Claude Code's plugin directory asks for unminified
+// code), copied as they are. Only the version is filled in. Its tests stay in the repository.
+const mod = new URL("../dist/hosts/claude-code/", import.meta.url);
+rmSync(mod, { recursive: true, force: true });
+cpSync(new URL("../src/hosts/claude-code/mod/", import.meta.url), mod, {
+  recursive: true,
+  filter: (src) => !/[\\/]tests([\\/]|$)/.test(src),
+});
+const manifest = new URL(".claude-plugin/plugin.json", mod);
+writeFileSync(
+  manifest,
+  `${JSON.stringify({ ...JSON.parse(readFileSync(manifest, "utf8")), version }, null, 2)}\n`,
+);
+console.log(`  dist/hosts/claude-code (the Claude Code mod, ${version})`);

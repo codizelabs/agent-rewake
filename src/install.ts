@@ -23,6 +23,7 @@ import {
 } from "jsonc-parser";
 import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
+import { modInstalled } from "./hosts/claude-code/install.js";
 import { pluginInstalled } from "./hosts/codex/plugin.js";
 import { detectAgents, type Found, otherAgentsNote, withoutInstalled } from "./install/detect.js";
 import { readText, renameWithRetry } from "./util/fs.js";
@@ -705,9 +706,13 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
             home: opts.env.HOME || opts.env.USERPROFILE || homedir(),
             platform: platform(),
           }),
-          (id) =>
-            id === "codex" &&
-            pluginInstalled(opts.env, opts.env.HOME || opts.env.USERPROFILE || homedir()),
+          (id) => {
+            const home = opts.env.HOME || opts.env.USERPROFILE || homedir();
+            return (
+              (id === "codex" && pluginInstalled(opts.env, home)) ||
+              (id === "claude-code" && modInstalled(opts.env, home))
+            );
+          },
         ),
     );
     if (note) out(`\n${note}\n`);

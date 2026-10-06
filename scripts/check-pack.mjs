@@ -15,7 +15,9 @@ const [command, args] = npmCli
   : ["npm", ["pack", "--dry-run", "--json"]];
 const [pack] = JSON.parse(execFileSync(command, args, { encoding: "utf8" }));
 const files = pack.files.map((f) => f.path);
-const allowed = /^(dist\/agent-rewake\.js|LICENSE|README\.md|package\.json)$/;
+// Rewake's bundle, and each host's own files under dist/hosts/ (the Claude Code mod).
+const allowed =
+  /^(dist\/agent-rewake\.js|dist\/hosts\/claude-code\/(\.claude-plugin\/(plugin|marketplace)\.json|hooks\/(hooks\.json|register\.js|logic\.js))|LICENSE|README\.md|package\.json)$/;
 const unexpected = files.filter((f) => !allowed.test(f));
 const forbidden = files.filter((f) => /anthropic|claude-agent-sdk|claude\.exe/i.test(f));
 
