@@ -20,6 +20,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - `install` explains when it adds Claude Agent because Zed has no external agents yet, warns when Zed's AI features are off, and its next steps name the Agent Panel and its shortcut.
 - `install` says which version it updates each agent from and to, and `doctor`'s update advice uses `npx @codizelabs/agent-rewake@latest install` (a bare `npx` may run a copy it saved earlier).
 - Docs: an **Update** section with the two steps that work for every version, why each is needed, `npm install -g` and downgrades, and a table of version-specific steps (none so far). Releases that need more add **Upgrade notes** here.
+- Scheduled messages saved by a later version of Rewake for an agent this version doesn't support are left alone (never sent, changed or deleted), so going back to an earlier version stays safe.
 - The README, docs and website say who Rewake is for ("Is it for you?"), with a troubleshooting entry for "installed, but nothing happens".
 
 ## [0.1.1] - 2026-10-06
