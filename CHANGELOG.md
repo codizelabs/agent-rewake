@@ -6,7 +6,17 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Changed
 
-- `doctor` says in plain words whether Rewake can work in your Zed: set up or not, used yet or not, and what to do next. It explains that Zed starts Rewake when you open a thread in the Agent Panel, not when Zed starts, and that Zed's own agent, the Claude desktop app and Claude Code in a terminal are out of its reach. Its output no longer names folders, accounts or API keys; `doctor --details` adds versions and folders (home shortened to `~`) for bug reports.
+- `doctor` checks the whole setup and says in plain words what's left to do, grouped by Zed, Rewake, sign-in, scheduled messages and recent problems, with a fix for each and a "start here". It covers:
+  - **Zed:** whether it's installed, and an old version.
+  - **Zed's settings:** AI features or the agent turned off (also in a release-channel or OS section, counted only for an edition of Zed that's installed); a section that sets an agent again without Rewake; Zed's list of agents not downloaded yet.
+  - **Rewake:** agents without it, and why some can't have it; Zed starting an older version, or a Node.js that has moved or is too old; Zed not having started Rewake yet (with where Rewake works and what it can't reach); its folder not writable.
+  - **Settings that switch features off:** automatic resume or the agent's tools, on an agent or in the shell, and Claude Code's own continue setting.
+  - **Sign-in:** an API key given to Claude Agent in Zed's settings, which Zed clears when Rewake runs it; the sign-in kind each agent reported (an API key means no usage windows).
+  - **Scheduled messages:** past due, needs you, failed and missed ones, and the next one.
+  - **Recently:** agents that couldn't start or kept stopping, lost conversations, and messages that failed for sign-in or billing.
+
+  It works offline and prints no folders, accounts, keys or message text; `doctor --details` adds versions and folders (home shortened to `~`) for bug reports.
+- Rewake records the sign-in kind an agent reports to Zed (account, API key, cloud provider, gateway or none), as one word, so `doctor` can explain it. It never records the account's email, organisation or plan.
 - `install` explains when it adds Claude Agent because Zed has no external agents yet, warns when Zed's AI features are off, and its next steps name the Agent Panel and its shortcut.
 - The README, docs and website say who Rewake is for ("Is it for you?"), with a troubleshooting entry for "installed, but nothing happens".
 

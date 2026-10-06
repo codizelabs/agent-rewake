@@ -2,20 +2,13 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  type AgentCommand,
-  claudeAdapterCommand,
-  resolveClaudeAdapter,
-} from "./adapters/claude/spawn.js";
+import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
 import { SchedulingAddon } from "./addon.js";
 import { applySettings } from "./core/settings.js";
-import { TEXT_LOCALE } from "./core/time.js";
+import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
 import {
-  agentPanelKey,
   keyChord,
   launchCommand,
-  missingLaunchFiles,
-  quitZed,
   runInstall,
   selfCommand,
   TASK_LABEL,
@@ -25,11 +18,11 @@ import {
 } from "./install.js";
 import { runMcp } from "./mcp.js";
 import { runProxy } from "./proxy.js";
-import { agentName, detectSetup } from "./setup.js";
+import { agentName } from "./setup.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { Logger } from "./util/log.js";
-import { ensurePrivateDir, stateDir, zedDataDir } from "./util/paths.js";
+import { ensurePrivateDir, stateDir } from "./util/paths.js";
 import { resolveCommand } from "./util/spawn.js";
 import { VERSION } from "./version.js";
 import {
@@ -163,7 +156,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       const npmLog = join(ensurePrivateDir(join(stateDir(env), "logs")), "npm-install.log");
       agent = await wrappedAgentCommand(wrap.target, wrap.extra, env, stateDir(env), npmLog);
     } catch (err) {
-      log.error("agent.resolve_failed", { message: (err as Error).message });
+      log.error("agent.resolve_failed", {
+        agent: wrap.target.kind === "registry" ? wrap.target.id : (wrap.target.id ?? "custom"),
+        message: (err as Error).message,
+      });
       process.stderr.write(`agent-rewake: ${(err as Error).message}\n`);
       return 1;
     }
@@ -215,110 +211,30 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   return code;
 }
 
-/**
- * `agent-rewake doctor`: whether Rewake can work for this person, in plain words. The default output
- * names no files, folders, accounts or keys, so it can be pasted anywhere; `--details` adds versions
- * and folders (home shortened to ~) for bug reports. Exit status 1 only when something is broken.
- */
+/** `agent-rewake doctor [--details]`: see src/doctor.ts. Exit status 1 when something is broken. */
 function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
-  const zedDir = zedConfigDir(env);
-  const setup = detectSetup(zedDir, stateDir(env));
-  const lines: string[] = [`Agent Rewake ${VERSION}`, ""];
-  const problems: string[] = [];
-  const major = Number(process.versions.node.split(".")[0]);
-  if (major < 22)
-    problems.push(
-      `Node.js ${process.versions.node} is too old: Rewake needs Node.js 22 or newer (nodejs.org).`,
-    );
-  let adapter: { version: string; binPath: string } | undefined;
-  try {
-    adapter = resolveClaudeAdapter();
-  } catch {
-    problems.push(
-      "Rewake's copy of the Claude adapter is missing. Run the install command again: npx @codizelabs/agent-rewake install",
-    );
-  }
-  if (setup.settings === "invalid")
-    problems.push(
-      "Zed's settings file has a mistake in it, so Rewake can't read it. Open it in Zed (command palette: zed: open settings file), fix the highlighted part, then run doctor again.",
-    );
-  if (missingLaunchFiles(zedDir).length > 0)
-    problems.push(
-      "Zed would start Rewake from a Node.js that has moved or been upgraded. Run the install command again to update it: npx @codizelabs/agent-rewake install",
-    );
-
-  const names = (ids: string[]) => ids.map((id) => agentName(id, env)).join(", ");
-  const panel = `Zed's Agent Panel (${agentPanelKey()})`;
-  let status: string;
-  if (setup.aiOff || setup.agentOff) {
-    lines.push(
-      setup.aiOff
-        ? "Zed's AI features are turned off (disable_ai in Zed's settings), so the Agent Panel and Rewake can't run."
-        : "Zed's agent is turned off (agent.enabled in Zed's settings), so the Agent Panel and Rewake can't run.",
-      "Turn them back on in Zed's settings to use Rewake.",
-    );
-    status = "Not running: Zed's AI features are off.";
-  } else if (setup.withRewake.length === 0) {
-    lines.push(
-      setup.agents.length > 0
-        ? `Rewake isn't added to your agents yet (${names(setup.agents)}).`
-        : "Rewake isn't set up yet, and Zed has no external agents (such as Claude Agent).",
-      "To set it up: npx @codizelabs/agent-rewake install",
-    );
-    status = "Not set up yet.";
-  } else if (setup.lastStart) {
-    const who =
-      setup.lastStart.agent === "default" ? "Claude Agent" : agentName(setup.lastStart.agent, env);
-    lines.push(
-      `Rewake is on for: ${names(setup.withRewake)}.`,
-      `Working: Zed last started it ${new Date(setup.lastStart.at).toLocaleString(TEXT_LOCALE)}, for ${who}.`,
-    );
-    status = "Everything looks right.";
-  } else {
-    lines.push(
-      `Rewake is on for: ${names(setup.withRewake)}.`,
-      `Not used yet. Zed starts Rewake when you open or start a thread with ${setup.withRewake.length === 1 ? names(setup.withRewake) : "one of these agents"} in ${panel}. Restarting Zed alone doesn't start it.`,
-      `If it still doesn't start: ${quitZed()}, open it again, then start a new thread with that agent.`,
-    );
-    status = "Installed, not used yet.";
-  }
-  if (!setup.lastStart && !setup.aiOff && !setup.agentOff)
-    lines.push(
-      "",
-      `Where Rewake works: in ${panel}, with external agents such as Claude Agent, Codex and Gemini CLI.`,
-      `It can't reach Zed's own agent${setup.usesZedAgent ? " (the one your settings pick a model for)" : ""}: Zed doesn't let add-ons into it. To have threads resume after a limit, start them with Claude Agent in the same panel.`,
-      "It also can't reach Claude outside Zed's Agent Panel: Claude Code in a terminal and the Claude desktop app each have their own setting to continue after a usage limit.",
-    );
+  const ctx: DoctorContext = {
+    env,
+    now: Date.now(),
+    platform: process.platform,
+    home: homedir(),
+    zedApps: () => findZedApps(process.platform, homedir(), env),
+    launch: launchCommand(),
+    version: VERSION,
+    nodeVersion: process.versions.node,
+  };
+  const findings = diagnose(ctx);
   for (const id of toolsRefused(stateDir(env)))
-    lines.push(
-      "",
-      `${agentName(id, env)} didn't accept Rewake's tools, so it can't suggest schedules. The Rewake menu and /schedule still work; there's nothing to fix.`,
-    );
-  if (problems.length > 0) lines.push("", "Needs fixing:", ...problems.map((p) => `  - ${p}`));
-  if (details) {
-    const home = homedir();
-    const tilde = (p: string) => (home && p.startsWith(home) ? `~${p.slice(home.length)}` : p);
-    lines.push(
-      "",
-      "Details (for bug reports):",
-      `  Node.js ${process.versions.node}, ${process.platform} ${process.arch}`,
-      `  Claude adapter: ${adapter ? adapter.version : "not found"}`,
-      `  Zed settings folder: ${tilde(zedDir)}`,
-      `  Zed data folder: ${tilde(zedDataDir(env))}`,
-      `  Rewake's folder: ${tilde(stateDir(env))}`,
-      `  Agents in Zed's settings: ${setup.agents.join(", ") || "none"}; with Rewake: ${setup.withRewake.join(", ") || "none"}`,
-    );
-    if (env.ANTHROPIC_API_KEY)
-      lines.push(
-        env.AGENT_REWAKE_KEEP_API_KEY === "1"
-          ? "  Anthropic API key in this terminal: passed on to Claude Agent (AGENT_REWAKE_KEEP_API_KEY=1)."
-          : "  Anthropic API key in this terminal: not passed on, so Claude Agent keeps using your Claude sign-in, as Zed does.",
-      );
-  }
-  lines.push("", problems.length > 0 ? "Something needs fixing: see above." : status);
-  if (!details) lines.push("More detail for a bug report: agent-rewake doctor --details");
-  process.stdout.write(`${lines.join("\n")}\n`);
-  return problems.length > 0 ? 1 : 0;
+    findings.push({
+      area: "Recently",
+      level: "info",
+      text: `${agentName(id, env)} didn't accept Rewake's tools, so it can't suggest schedules. The Rewake menu and /schedule still work.`,
+    });
+  const ascii = (process.platform === "win32" && !env.WT_SESSION) || env.TERM === "dumb";
+  process.stdout.write(
+    render(findings, { version: VERSION, ascii, ...(details && { details: detailLines(ctx) }) }),
+  );
+  return findings.some((f) => f.level === "problem") ? 1 : 0;
 }
 
 /** Agents that refused Rewake's tool server, from the logs. */
