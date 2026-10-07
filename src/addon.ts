@@ -3036,7 +3036,8 @@ export class SchedulingAddon {
         this.refreshMarker(session);
         continue;
       }
-      if (now - s.dueAt > this.missedGraceMs && s.attempts.length === 0) {
+      // A resume paused again by the limit is held to its new time as well.
+      if (now - s.dueAt > this.missedGraceMs && (s.attempts.length === 0 || s.kind !== "user")) {
         this.store.update(s.scheduleId, (x) => ({ ...x, status: "missed" }), now);
         const when = formatWhen(s.dueAt, now, this.opts.locale);
         if (this.clientSupportsForms && !session.formOpen) {

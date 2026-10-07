@@ -779,6 +779,31 @@ describe("resume after a usage limit", () => {
     h.addon.stop();
   });
 
+  it("asks before sending a resume that was paused again, when it's found well after its new time", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.advance(3 * HOUR + 60_000);
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt").at(-1);
+    h.agent(rateEvent(RESET + 5 * HOUR));
+    h.agent({ id: sent?.id, error: limitErr });
+    await settle();
+    expect(h.store.list()[0]).toMatchObject({ status: "scheduled", attempts: [{ n: 1 }] });
+
+    // The computer slept through the new time (22:01) and wakes two hours later.
+    h.advance(7 * HOUR);
+    h.addon.tick();
+    await settle();
+    expect(h.toAgent.filter((m) => m.method === "session/prompt")).toHaveLength(2); // not again
+    expect(h.store.list()[0]?.status).toBe("missed");
+    expect(formMessage(h)).toMatch(
+      /^Rewake: A message scheduled for Sunday 4 October at 22:01 wasn't sent, because Zed or this computer wasn't running then: "Resume"\. Send it now\?$/,
+    );
+    h.addon.stop();
+  });
+
   it("shows a message once when it's sent again after a usage limit", async () => {
     const h = await harness(dir, { claude: true });
     h.prompt(2, "/schedule in 1h Run the tests");
