@@ -68,6 +68,30 @@ export function blockingKind(rateLimits, now) {
 }
 
 /**
+ * Claude Code's own panels, by `CLAUDE_CODE_ENTRYPOINT`: the VS Code extension (also in Cursor and
+ * other VS Code builds) and the desktop app. They run Claude Code through the Agent SDK, so the
+ * session isn't "interactive" and has no surface, but a person is at the prompt.
+ */
+const PANELS = { "claude-vscode": "vscode", "claude-desktop": "desktop" };
+
+/** Whether a person is at this session's prompt: the terminal, or one of Claude Code's panels. */
+export function personAtPrompt({ isInteractive, entrypoint }) {
+  return (
+    isInteractive === true || (typeof entrypoint === "string" && Object.hasOwn(PANELS, entrypoint))
+  );
+}
+
+/** The session's surface, or the panel's when the Agent SDK reports none. */
+export function surfaceOf({ surface, entrypoint }) {
+  return (
+    surface ??
+    (typeof entrypoint === "string" && Object.hasOwn(PANELS, entrypoint)
+      ? PANELS[entrypoint]
+      : null)
+  );
+}
+
+/**
  * Whether Claude Code's own "Continue automatically at usage limit" will most likely continue
  * this limit by itself: an interactive terminal session, the setting not turned off (absent means
  * on), and a reset within 24 hours. The Desktop app's own checkbox can't be read, so Desktop

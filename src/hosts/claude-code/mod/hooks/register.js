@@ -36,10 +36,12 @@ import {
   notHere,
   parseCommand,
   parseWhen,
+  personAtPrompt,
   REHIT_WINDOW_MS,
   STALE_MS,
   safeId,
   splitWhen,
+  surfaceOf,
   WAITING_EXPIRES_MS,
   WAKE_HORIZON_MS,
   when,
@@ -54,6 +56,8 @@ const QUESTION =
 
 let isInteractive = false;
 let surface = null;
+/** How Claude Code was started (`CLAUDE_CODE_ENTRYPOINT`): "cli", "claude-vscode", "sdk-ts"… */
+let entrypoint;
 /** Sessions whose limit is being handled right now (a burst of StopFailures is one limit). */
 const handling = new Set();
 let busy = false;
@@ -263,9 +267,10 @@ async function ask($, id, ep, now) {
 }
 
 async function onLimit($, id) {
-  // -p runs and Agent SDK hosts (Zed's Claude adapter among them) have no person at the prompt,
-  // and Rewake's ACP add-on already resumes Zed's threads: only interactive sessions here.
-  if (!isInteractive) return;
+  // -p runs and other Agent SDK hosts (Zed's Claude adapter among them) have no person at the
+  // prompt, and Rewake's ACP add-on already resumes Zed's threads. Claude Code's own editor
+  // panels also run through the Agent SDK, but a person is there: they count.
+  if (!personAtPrompt({ isInteractive, entrypoint })) return;
   // StopFailure comes in bursts: a second one while the first is still being handled is the same.
   if (handling.has(id)) return;
   handling.add(id);
@@ -666,7 +671,8 @@ const passOn = (_$, e, next) => (next.called ? undefined : next(e));
 export function register(on) {
   on("session.start", async ($, e, next) => {
     isInteractive = e.isInteractive;
-    surface = e.surface;
+    entrypoint = await $.env.get("CLAUDE_CODE_ENTRYPOINT").catch(() => undefined);
+    surface = surfaceOf({ surface: e.surface, entrypoint });
     await loadConfig($);
     $.clock.every(TICK_MS, () => void tick($));
     void reopen($);
