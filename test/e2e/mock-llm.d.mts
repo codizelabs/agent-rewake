@@ -8,6 +8,10 @@ export interface MockRequest {
   body: string;
   /** The text of each user message in the request, in order. */
   user: string[];
+  /** Anthropic Messages: Claude Code's session id, from metadata.user_id. */
+  session?: string;
+  /** Anthropic Messages: the text of the last user message (its last 4,000 characters). */
+  prompt?: string;
 }
 export interface Mock {
   url: string;

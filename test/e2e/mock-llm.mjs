@@ -5,7 +5,8 @@
 // Set the state with `set()` (or POST /__mock): mode "ok" | "limit", until, claim (Claude's
 // window: five_hour | seven_day) and profile, the limit's wire format when the path alone doesn't
 // say: "copilot" (a weekly limit), "xai-free" or "xai-402" (Grok). It records each request's method,
-// path, whether it was refused, its body and the text of its user messages (made-up test data).
+// path, whether it was refused, its body and the text of its user messages (made-up test data);
+// for Anthropic Messages also Claude Code's session id and the last user message's text.
 // Codex signed in with ChatGPT also reads its usage from the mock (`chatgpt_base_url` =
 // `<url>/backend-api`), from the same state.
 import { createServer } from "node:http";
@@ -286,6 +287,28 @@ function gemini(res, path, req, reply) {
   json(res, 200, body);
 }
 
+/** Claude Code's session id (in metadata.user_id) and the text of the last user message. */
+function anthropicContext(req) {
+  let session;
+  try {
+    session = JSON.parse(req.metadata?.user_id ?? "{}").session_id;
+  } catch {
+    // Not Claude Code's JSON user id.
+  }
+  const last = (Array.isArray(req.messages) ? req.messages : []).findLast((m) => m.role === "user");
+  const content = last?.content;
+  const prompt =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((b) => b.type === "text")
+            .map((b) => b.text)
+            .join("\n")
+        : undefined;
+  return { session, prompt: prompt?.slice(-4000) };
+}
+
 export function startMock() {
   const state = {
     mode: "ok",
@@ -330,6 +353,7 @@ export function startMock() {
         limited: refused,
         body: raw,
         user: userTexts(body),
+        ...(family === "anthropic" && anthropicContext(body)),
       });
       if (req.method === "HEAD" || path === "/api/hello") return res.writeHead(200).end();
       if (/\/messages\/count_tokens$/.test(path)) return json(res, 200, { input_tokens: 10 });
