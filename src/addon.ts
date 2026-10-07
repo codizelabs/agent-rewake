@@ -240,7 +240,7 @@ export class SchedulingAddon {
   private readonly initHooks = phase1Hooks();
   /** The keep-awake hold this process takes while one of its threads has a message due soon. */
   private readonly wake: Wake;
-  /** Messages whose thread was told the computer is kept awake for them (id and due time). */
+  /** Messages whose thread was told the computer is kept awake for them. */
   private readonly wakeAnnounced = new Set<string>();
   /** The one-time "can't keep this computer awake here" line was shown. */
   private wakeUnsupportedSaid = false;
@@ -2759,7 +2759,8 @@ export class SchedulingAddon {
       return;
     }
     for (const s of due) {
-      const key = `${s.scheduleId}@${s.dueAt}`;
+      // Once per message, not per run: an hourly repeat would otherwise say it every hour.
+      const key = s.scheduleId;
       const session = this.sessions.get(s.sessionId);
       if (this.wakeAnnounced.has(key) || !session) continue;
       this.wakeAnnounced.add(key);

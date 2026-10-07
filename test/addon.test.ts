@@ -2730,6 +2730,29 @@ describe("keeping the computer awake", () => {
     h.addon.stop();
   });
 
+  it("says it once for a repeating message, not on every run", async () => {
+    const r = recorder();
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    const s = h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Check the build",
+      dueAt: T0 + HOUR,
+      createdBy: "command",
+      now: T0,
+    });
+    h.addon.tick();
+    await settle();
+    // The next run of the same message, an hour later.
+    h.store.update(s.scheduleId, (x) => ({ ...x, dueAt: T0 + 2 * HOUR }), T0);
+    h.addon.tick();
+    await settle();
+    expect(
+      h.texts().filter((t) => t.startsWith("Rewake: Keeping this computer awake")),
+    ).toHaveLength(1);
+    h.addon.stop();
+  });
+
   it("doesn't hold for a message due more than a few hours away", async () => {
     const r = recorder();
     const h = await harness(dir, { claude: true, wake: r.wake });
