@@ -64,14 +64,14 @@ Once the session is closed, run `npx @codizelabs/agent-rewake continue`, any tim
 
 ## Is it for you?
 
-Rewake works in **Zed's Agent Panel** (⌘? on macOS, Ctrl+? on Linux, Ctrl+Shift+/ on Windows), with an **external agent** such as Claude Agent, Codex or Gemini CLI. If that's where you chat with your agent, it's for you.
+| Where you use your agent | What Rewake does there | Guide |
+|---|---|---|
+| Zed's Agent Panel, with any external agent (Claude Agent, Codex, Gemini CLI…) | Resumes the thread at the reset, and sends messages later | [Zed](https://codizelabs.github.io/agent-rewake/docs/#zed) |
+| Claude Code in a terminal (preview) | Asks once at the limit, then continues the same session | [Claude Code](https://codizelabs.github.io/agent-rewake/docs/#claude-code) |
+| Codex in a terminal (preview) | Type `rewake` at the limit; the thread continues after the reset | [Codex](https://codizelabs.github.io/agent-rewake/docs/#codex) |
+| GitHub Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI (previews) | Continues a closed session after the reset | [Copilot CLI](https://codizelabs.github.io/agent-rewake/docs/#github-copilot-cli) · [Gemini CLI](https://codizelabs.github.io/agent-rewake/docs/#gemini-cli) · [Grok Build](https://codizelabs.github.io/agent-rewake/docs/#grok-build) · [Antigravity CLI](https://codizelabs.github.io/agent-rewake/docs/#antigravity-cli) |
 
-It can't reach:
-
-- **Zed's own agent** (the panel's built-in one): Zed doesn't let add-ons into it. Start the thread with Claude Agent in the same panel instead.
-- **Claude's own apps**: claude.ai and the Claude desktop app's chat.
-
-Outside Zed, previews for Claude Code, Codex, GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI install one by one: see [Outside Zed: previews](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews).
+It can't reach Zed's own agent (the panel's built-in one), claude.ai or the Claude desktop app's chat.
 
 ## Quick start
 
@@ -79,9 +79,9 @@ Outside Zed, previews for Claude Code, Codex, GitHub Copilot CLI, Grok Build, Ge
 npx @codizelabs/agent-rewake install
 ```
 
-`install` lists the agents it will add Rewake to and asks before changing anything. Each settings file is backed up first, and your comments and settings are kept.
+In a terminal, `install` shows what it found on your computer (Zed and each coding agent) and what Rewake does in each. Tick the places you want, see every change together, and answer once; one line per place then gives its next step. Everything except Zed is a preview.
 
-Then **quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window), open the **Agent Panel**, and open or start a thread with one of your agents. Zed starts Rewake with that thread, not when Zed itself starts. A **Rewake** menu now sits under the message box, next to the model picker.
+For Zed, `install` lists the agents it will add Rewake to. Each settings file is backed up first, and your comments and settings are kept. Then **quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window), open the **Agent Panel**, and open or start a thread with one of your agents. Zed starts Rewake with that thread, not when Zed itself starts. A **Rewake** menu now sits under the message box, next to the model picker.
 
 If you have no external agents yet, `install` offers to add **Claude Agent**: pick it in the Agent Panel and sign in with your Claude account.
 
@@ -97,8 +97,9 @@ From any version, the same two steps: run `npx @codizelabs/agent-rewake@latest i
 
 ### Requirements
 
-- [Zed](https://zed.dev) 1.22 or newer, with its AI features on, and an external agent in the Agent Panel (for example Claude Agent, signed in). `install` can add Claude Agent for you
 - [Node.js](https://nodejs.org) 22 or newer
+- For Zed: [Zed](https://zed.dev) 1.22 or newer, with its AI features on, and an external agent in the Agent Panel (for example Claude Agent, signed in). `install` can add Claude Agent for you
+- For a preview: a recent version of that agent ([the versions](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews))
 - macOS, Linux (including Flatpak Zed) or Windows
 
 ## How it works

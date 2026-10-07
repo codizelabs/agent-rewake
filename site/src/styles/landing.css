@@ -906,3 +906,41 @@ footer.site .maker .on-dark {
 .hero {
   overflow-x: clip;
 }
+
+/* how it works: one diagram per place, across on wide screens and down on narrow ones */
+#how .flow {
+  margin: 2.5rem 0 0;
+}
+.flow figcaption h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+}
+.flow figcaption p {
+  max-width: 46rem;
+  margin: 0 0 1rem;
+  color: var(--rw-muted);
+}
+.flow svg.down {
+  display: none;
+  max-width: 360px;
+  margin: 0 auto;
+}
+.flow marker path {
+  fill: var(--rw-line);
+}
+@media (max-width: 640px) {
+  .flow svg.across {
+    display: none;
+  }
+  .flow svg.down {
+    display: block;
+  }
+}
+
+/* "when it sends": a heading row for each place */
+table.when tr.group th {
+  padding-top: 1.1rem;
+  text-align: left;
+  font-weight: 700;
+  color: var(--rw-ink);
+}
