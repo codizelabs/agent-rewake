@@ -180,7 +180,10 @@ export function resumeGemini(
     child.on("exit", (code) => {
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       if (code === 41) return resolve({ ok: false, reason: "failed", detail: "signed-out" });
-      if (LIMIT.test(out)) return resolve({ ok: false, reason: "limited" });
+      if (LIMIT.test(out)) {
+        const resetsAt = classifyGeminiError(out, Date.now())?.resetsAt;
+        return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
+      }
       if (code === 0) return resolve({ ok: true });
       resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
     });

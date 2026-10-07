@@ -3,6 +3,7 @@ import { SessionLock } from "../core/lock.js";
 import {
   backoffMs,
   decideFire,
+  FAR_RESET_MS,
   type FireDecision,
   MAX_REARMS,
   RESET_MARGIN_MS,
@@ -287,10 +288,17 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           removeTimer();
           return "sent";
         }
-        // Limited again or busy: try later, within the same bound as decideFire.
+        // Limited again or busy: try later, within the same bound as decideFire. A reset the run's
+        // output gave is waited for, as a usage check's would be (a weekly limit outlasts backoff).
         if (result.reason === "limited" || result.reason === "busy") {
           const rearms = s.rearms ?? 0;
+          const reset = result.reason === "limited" ? result.resetsAt : undefined;
+          if (reset !== undefined && reset > now) facts = { ...facts, newResetsAt: reset };
           if (rearms >= MAX_REARMS) return tell("expired", "failed");
+          if (reset !== undefined && reset > now) {
+            if (reset - now > FAR_RESET_MS) return tell("far-reset", "needs_attention");
+            return wait(reset + RESET_MARGIN_MS, "still-limited");
+          }
           return wait(now + backoffMs(rearms), result.reason);
         }
         const cause = ["signed-out", "archived", "deleted", "timeout"].includes(result.detail ?? "")
