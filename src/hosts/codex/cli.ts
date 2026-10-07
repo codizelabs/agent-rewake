@@ -47,6 +47,33 @@ export type Usage =
   | { ok: true; allowed?: boolean; resetsAt?: number }
   | { ok: false; reason: "signed-out" | "timeout" | "spawn" | "error" };
 
+/** A window in `account/rateLimits/read` (app-server v2, camelCase). */
+interface UsageWindow {
+  usedPercent?: number;
+  resetsAt?: number | null;
+}
+
+/**
+ * When the limit that's blocking ends (ms): the latest of the full windows, which all have to
+ * clear; with none full, the window closest to full, not the weekly one that resets last.
+ */
+export function blockingReset(windows: (UsageWindow | null | undefined)[]): number | undefined {
+  const known = windows.filter(
+    (w): w is UsageWindow & { resetsAt: number } =>
+      !!w && typeof w.resetsAt === "number" && w.resetsAt > 0,
+  );
+  if (known.length === 0) return undefined;
+  const full = known.filter((w) => (w.usedPercent ?? 0) >= 100);
+  const w =
+    full.length > 0
+      ? full.reduce((a, b) => (b.resetsAt > a.resetsAt ? b : a))
+      : known.reduce((a, b) => {
+          const d = (b.usedPercent ?? 0) - (a.usedPercent ?? 0);
+          return d > 0 || (d === 0 && b.resetsAt < a.resetsAt) ? b : a;
+        });
+  return w.resetsAt * 1000;
+}
+
 /** Ask Codex whether ordinary usage is allowed again. Never throws. */
 export function readUsage(
   codex: Program,
@@ -96,15 +123,13 @@ export function readUsage(
           });
         const r = (m.result ?? {}) as {
           ordinaryUsageAllowed?: boolean | null;
-          rateLimits?: { primary?: { resetsAt?: number }; secondary?: { resetsAt?: number } };
+          rateLimits?: { primary?: UsageWindow | null; secondary?: UsageWindow | null };
         };
-        const resets = [r.rateLimits?.primary?.resetsAt, r.rateLimits?.secondary?.resetsAt]
-          .filter((x): x is number => typeof x === "number" && x > 0)
-          .map((s) => s * 1000);
+        const resetsAt = blockingReset([r.rateLimits?.primary, r.rateLimits?.secondary]);
         done({
           ok: true,
           ...(typeof r.ordinaryUsageAllowed === "boolean" && { allowed: r.ordinaryUsageAllowed }),
-          ...(resets.length > 0 && { resetsAt: Math.max(...resets) }),
+          ...(resetsAt !== undefined && { resetsAt }),
         });
       }
     });

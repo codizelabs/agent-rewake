@@ -14,6 +14,12 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - A limit that arrives while another Rewake question is open is still offered, as a line in the thread.
 - Rewake exits when Zed closes it, even if the agent ignores the request to stop; the log moves to a new file each day.
 - Rewake reads the error text wherever the agent puts it (`data.details`, a plain `data`, `data.error`), as Zed does, and recognises a lost session from more agents.
+- **Codex preview:** an ordinary plan limit is resumed again. Rewake read Codex's "spending cap reached" flag as set whenever Codex sent it, and Codex sends it on every limit (as `false`), so every Codex limit was treated as billing. Codex's credit, spend-cap and plan messages are recognised from the message too, and the reset is the window that stopped the turn, not the weekly one.
+- **Copilot CLI preview:** reads Copilot's own wording ("reset in 2 hours", reset dates in UTC), leaves short-term rate limits and errors Copilot recovered from to Copilot, and counts the monthly premium-request allowance as a usage limit. A reset date east of UTC is no longer dropped as already past.
+- **Grok Build preview:** short team or plan rate limits and overloads are no longer treated as an 80-hour weekly wait; the weekly reset is used only when the weekly pool is what ran out.
+- **Gemini CLI and Antigravity CLI previews:** a daily quota is resumed. Gemini words every quota error with "please check your plan and billing details", which Rewake read as billing; a reset time now wins over the offer of overages, and a wait of seconds is left to the agent.
+- **Claude Code preview:** a gateway's daily spending cap, which resets within a day, is waited for; a monthly cap still isn't.
+- A Copilot CLI or Grok session that no longer exists is reported as deleted, not as a failure.
 
 ### Changed
 

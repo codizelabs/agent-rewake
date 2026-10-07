@@ -560,7 +560,7 @@ function byProfile(
 }
 
 /** Grok Build words every case differently, and none of its texts carry a reset time. */
-function grokText(text: string): LimitClassification | undefined {
+export function grokText(text: string): LimitClassification | undefined {
   if (/^You've hit your team's API rate limit|^You've hit the rate limit for your plan/m.test(text))
     return { kind: "transient", text };
   if (/^You've reached your free Grok Build usage limit/m.test(text)) return usage(text);

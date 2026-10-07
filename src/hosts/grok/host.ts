@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { grokText } from "../../adapters/profiles.js";
+import { normalize } from "../../adapters/text.js";
 import { isProcessAlive } from "../../core/lock.js";
 import {
   type ClosedDeps,
@@ -14,7 +16,7 @@ import {
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import type { SendResult } from "../host.js";
-import { type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
+import { SESSION_GONE, type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
  * xAI's Grok Build in a terminal (plan §9.4; Grok 1.0.46, research note §2.2, §3.2):
@@ -87,22 +89,27 @@ export function classifyGrokFailure(
   billing: { resetsAt?: number; full: boolean },
 ): Omit<SessionLimit, "seenAt"> | undefined {
   const error = str(input.error);
-  const text = `${str(input.errorDetails ?? input.error_details)} ${str(input.lastAssistantMessage ?? input.last_assistant_message)}`;
-  if (error === "rate_limit")
-    return {
-      kind: "other",
-      billing: false,
-      ...(billing.resetsAt !== undefined && { resetsAt: billing.resetsAt }),
-    };
+  const text = normalize(
+    `${str(input.errorDetails ?? input.error_details)} ${str(input.lastAssistantMessage ?? input.last_assistant_message)}`,
+  );
+  // The weekly period's end is the reset only when the weekly pool is what ran out.
+  const weekly =
+    billing.full && billing.resetsAt !== undefined ? { resetsAt: billing.resetsAt } : {};
+  if (error === "rate_limit") {
+    // Grok's own sentences: team or plan rate limits and overloads are short-term, the free
+    // usage limit isn't (shared rules, src/adapters/profiles.ts).
+    const c = grokText(text.trim());
+    if (c?.kind === "transient") return undefined;
+    if (c?.kind === "not_recoverable") return { kind: "billing", billing: true };
+    if (c?.kind === "usage_limit") return { kind: "other", billing: false, ...weekly };
+    return billing.full ? { kind: "weekly", billing: false, ...weekly } : undefined;
+  }
   if (error !== "invalid_request" || !/\b402\b|weekly limit|credit|spending cap/i.test(text))
     return undefined;
-  // A 402: the weekly pool (wait for the reset) or a spending cap (billing).
-  if (/weekly limit/i.test(text) && billing.full)
-    return {
-      kind: "weekly",
-      billing: false,
-      ...(billing.resetsAt !== undefined && { resetsAt: billing.resetsAt }),
-    };
+  // A 402: the weekly pool (wait for the reset) or a spending cap or credit limit (billing).
+  const cap = /spending (?:cap|limit)|credit limit|out of credits/i.test(text);
+  if (!cap && billing.full && (/weekly limit/i.test(text) || /\b402\b/.test(text)))
+    return { kind: "weekly", billing: false, ...weekly };
   return { kind: "billing", billing: true };
 }
 
@@ -145,10 +152,14 @@ export function resumeGrok(
       {
         cwd: r.cwd || undefined,
         env: { ...env, GROK_DISABLE_AUTOUPDATER: "1" },
-        stdio: ["ignore", "pipe", "ignore"],
+        stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       },
     );
+    let err = "";
+    child.stderr.on("data", (d: Buffer) => {
+      if (err.length < 1 << 16) err += d.toString("utf8");
+    });
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < 1 << 20) out += d.toString("utf8");
     });
@@ -158,6 +169,8 @@ export function resumeGrok(
       // Exit 1 at the limit again (INFERENCE until X-G1): the text says so.
       if (/rate limit|weekly limit|\b429\b|\b402\b/i.test(out))
         return resolve({ ok: false, reason: "limited" });
+      if (SESSION_GONE.test(`${out}\n${err}`))
+        return resolve({ ok: false, reason: "closed", detail: "deleted" });
       resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
     });
   });

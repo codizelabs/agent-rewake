@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { classifyLimit, classifyText } from "../../adapters/profiles.js";
 import {
   type ClosedDeps,
   type ClosedHost,
@@ -46,7 +47,21 @@ export function classifyGeminiError(
   now: number,
 ): Omit<SessionLimit, "seenAt"> | undefined {
   if (!LIMIT.test(text)) return undefined;
-  if (/billing|credits|spend/i.test(text)) return { kind: "billing", billing: true };
+  // Gemini CLI's own rules (shared with Zed): no quota on this tier, no capacity, a short retry.
+  const g = classifyLimit("gemini", { code: 429, message: text }, now);
+  if (g.kind === "transient") return undefined;
+  if (g.kind === "not_recoverable") return { kind: "billing", billing: true };
+  // Money, unless a reset time is given. Gemini words every quota error with "please check your
+  // plan and billing details", so that sentence says nothing about money.
+  const money = classifyText(
+    text.replace(
+      /(?:You exceeded your current quota,?\s*)?please check your plan and billing details\.?/i,
+      "",
+    ),
+    now,
+  );
+  if (money.kind === "not_recoverable" && money.reason === "billing")
+    return { kind: "billing", billing: true };
   const after = /(?:reset after|resets in)\s+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)/i.exec(text);
   const ms = after?.[1] ? durationMs(after[1]) : undefined;
   let resetsAt = ms !== undefined ? now + ms : undefined;

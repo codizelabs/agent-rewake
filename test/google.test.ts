@@ -89,6 +89,32 @@ describe("Gemini CLI", () => {
     expect(classifyGeminiError("[API Error: 500 Internal]", NOW)).toBeUndefined();
   });
 
+  it("isn't fooled by the billing words Gemini puts in every quota error", () => {
+    expect(
+      classifyGeminiError(
+        "[API Error: You exceeded your current quota, please check your plan and billing details. Your daily quota will reset after 9h12m0s.]",
+        NOW,
+      ),
+    ).toEqual({ kind: "daily", billing: false, resetsAt: NOW + (9 * 60 + 12) * 60_000 });
+    // A per-minute quota with a short retry is Gemini CLI's to ride out.
+    expect(
+      classifyGeminiError(
+        "[API Error: RESOURCE_EXHAUSTED: You exceeded your current quota, please check your plan and billing details. Please retry in 44.09s.]",
+        NOW,
+      ),
+    ).toBeUndefined();
+    expect(
+      classifyGeminiError("[API Error: RESOURCE_EXHAUSTED: No capacity available for model]", NOW),
+    ).toBeUndefined();
+    // No quota for this model on the account's tier: no wait brings it.
+    expect(
+      classifyGeminiError(
+        "[API Error: RESOURCE_EXHAUSTED: Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0]",
+        NOW,
+      ),
+    ).toEqual({ kind: "billing", billing: true });
+  });
+
   it("only counts the newest record of the session file", () => {
     const f = join(dir, "s.jsonl");
     const err = JSON.stringify({ type: "error", content: "RESOURCE_EXHAUSTED" });
@@ -257,6 +283,27 @@ describe("Antigravity CLI", () => {
       resetsAt: NOW + (16 * 3600 + 39 * 60 + 20) * 1000,
     });
     expect(classifyAntigravityStop({ terminationReason: "model_stop" }, NOW)).toBeUndefined();
+    // A reset time wins over the offer of overages.
+    expect(
+      classifyAntigravityStop(
+        {
+          terminationReason: "error",
+          error:
+            "Individual quota reached. Contact your administrator to enable overages. Resets in 4h10m0s",
+        },
+        NOW,
+      ),
+    ).toEqual({ kind: "other", billing: false, resetsAt: NOW + (4 * 60 + 10) * 60_000 });
+    // Seconds away: Antigravity waits that out itself.
+    expect(
+      classifyAntigravityStop(
+        {
+          terminationReason: "error",
+          error: "RESOURCE_EXHAUSTED: Your quota will reset after 5s.",
+        },
+        NOW,
+      ),
+    ).toBeUndefined();
     expect(
       classifyAntigravityStop({ terminationReason: "error", error: "network" }, NOW),
     ).toBeUndefined();
