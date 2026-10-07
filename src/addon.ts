@@ -34,7 +34,7 @@ import {
   withValue,
 } from "./core/options-bridge.js";
 import { type AgentRequest, LinkStore, RequestStore } from "./core/requests.js";
-import { applySettings, loadSettings, saveSettings } from "./core/settings.js";
+import { applySettings, type KeepAwake, loadSettings, saveSettings } from "./core/settings.js";
 import { MAX_FOLLOW_UPS, type Schedule, ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import { DEFAULT_RESUME_PROMPT, ThreadStore } from "./core/threads.js";
 import { clockTime, formatClock, formatWhen, parseWhen, TEXT_LOCALE } from "./core/time.js";
@@ -42,6 +42,7 @@ import { introNote } from "./guide.js";
 import { zedAgentSetting } from "./install.js";
 import { phase1Hooks } from "./proxy.js";
 import { overview, overviewMarkdown, STATUS_WORDS } from "./ui/overview.js";
+import { type Wake, Wakefulness } from "./util/keep-awake.js";
 import type { Logger } from "./util/log.js";
 import { ensurePrivateDir } from "./util/paths.js";
 import { REPO_URL, SUPPORT_URL, VERSION } from "./version.js";
@@ -127,6 +128,8 @@ export interface AddonOptions {
   askOnNewThreads?: boolean;
   /** The once-per-thread "How Rewake works" note. Default true. */
   firstUseNote?: boolean;
+  /** Keeps the computer awake while a message is due (tests pass their own). */
+  wake?: Wake;
 }
 
 interface LimitEpisode {
@@ -235,6 +238,12 @@ export class SchedulingAddon {
   private watcher: FSWatcher | undefined;
   private watchDebounce: NodeJS.Timeout | undefined;
   private readonly initHooks = phase1Hooks();
+  /** The keep-awake hold this process takes while one of its threads has a message due soon. */
+  private readonly wake: Wake;
+  /** Messages whose thread was told the computer is kept awake for them (id and due time). */
+  private readonly wakeAnnounced = new Set<string>();
+  /** The one-time "can't keep this computer awake here" line was shown. */
+  private wakeUnsupportedSaid = false;
   /** Claude-only extras: its rate-limit events, transcripts and own auto-continue setting. */
   private claudeAgent = false;
   /** How this agent reports a usage limit. */
@@ -270,6 +279,7 @@ export class SchedulingAddon {
     this.links = new LinkStore(opts.stateDir);
     this.now = opts.now ?? Date.now;
     this.missedGraceMs = opts.missedGraceMs ?? 15 * 60_000;
+    this.wake = opts.wake ?? new Wakefulness();
     this.env = opts.env ?? process.env;
   }
 
@@ -307,6 +317,7 @@ export class SchedulingAddon {
     this.watcher?.close();
     this.requestWatcher?.close();
     this.lock.releaseAll();
+    this.wake.release();
   }
 
   hooks(): RouterHooks {
@@ -2104,6 +2115,19 @@ export class SchedulingAddon {
           ],
           default: current.clock,
         },
+        // Only where Rewake can actually do it (rule A5).
+        ...(this.wake.supported && {
+          keepAwake: {
+            type: "string",
+            title: "Keep this computer awake for resumes and scheduled messages",
+            oneOf: [
+              { const: "plugged-in", title: "While it's plugged in" },
+              { const: "always", title: "Always, also on battery" },
+              { const: "never", title: "Never" },
+            ],
+            default: current.keepAwake,
+          },
+        }),
       },
       ["autoResume", "clock"],
     );
@@ -2116,10 +2140,31 @@ export class SchedulingAddon {
       : now;
     const newThreads = choice === "off" ? "off" : choice === "ask" ? "ask" : "on";
     const autoWhenPromptsSkipped = choice !== "exceptBypass";
-    saveSettings(this.opts.stateDir, { ...current, clock, newThreads, autoWhenPromptsSkipped });
+    const keepAwake: KeepAwake = (["plugged-in", "always", "never"] as const).includes(
+      content.keepAwake as KeepAwake,
+    )
+      ? (content.keepAwake as KeepAwake)
+      : current.keepAwake;
+    saveSettings(this.opts.stateDir, {
+      ...current,
+      clock,
+      newThreads,
+      autoWhenPromptsSkipped,
+      keepAwake,
+    });
     applySettings(this.opts.stateDir);
     const changed: string[] = [];
     if (clock !== current.clock) changed.push(`Times now show like ${clockTime(15, 19)}.`);
+    if (keepAwake !== current.keepAwake)
+      changed.push(
+        {
+          "plugged-in":
+            "Rewake keeps this computer awake for resumes and scheduled messages while it's plugged in.",
+          always:
+            "Rewake keeps this computer awake for resumes and scheduled messages, also on battery.",
+          never: "Rewake lets this computer sleep, even with messages scheduled.",
+        }[keepAwake],
+      );
     if (choice !== now)
       changed.push(
         {
@@ -2675,6 +2720,55 @@ export class SchedulingAddon {
     this.processRequests();
     // Settings changed in another window or on the schedules page apply here within a heartbeat.
     applySettings(this.opts.stateDir);
+    this.updateWake();
+  }
+
+  /**
+   * Keep the computer from idling to sleep while a thread this process owns has a message due
+   * within a few hours, or a scheduled reply runs; otherwise let it sleep. One store read per call.
+   */
+  private updateWake(): void {
+    const settings = loadSettings(this.opts.stateDir);
+    const now = this.now();
+    const owned = [...this.sessions.values()].filter((s) => this.lock.holds(s.sessionId));
+    const ids = new Set(owned.map((s) => s.sessionId));
+    const due =
+      ids.size === 0
+        ? []
+        : this.store
+            .list()
+            .filter(
+              (s) =>
+                ids.has(s.sessionId) &&
+                (s.status === "scheduled" || s.status === "queued") &&
+                s.dueAt - now <= WAKE_HORIZON_MS,
+            );
+    const delivering = owned.find((s) => s.delivering !== undefined);
+    const want = due.length > 0 || delivering !== undefined;
+    const held = this.wake.set(want, settings.keepAwake);
+    if (!want || settings.keepAwake === "never") return;
+    if (!held) {
+      if (this.wake.supported || this.wakeUnsupportedSaid) return;
+      this.wakeUnsupportedSaid = true;
+      const where = this.sessions.get(due[0]?.sessionId ?? "") ?? delivering;
+      if (where)
+        this.status(
+          where,
+          "Rewake: Can't keep this computer awake on this system. If it sleeps, resumes and scheduled messages wait until it wakes; change its sleep settings to avoid that.",
+        );
+      return;
+    }
+    for (const s of due) {
+      const key = `${s.scheduleId}@${s.dueAt}`;
+      const session = this.sessions.get(s.sessionId);
+      if (this.wakeAnnounced.has(key) || !session) continue;
+      this.wakeAnnounced.add(key);
+      const what = s.kind === "user" ? "the scheduled message" : "the resume";
+      this.status(
+        session,
+        `Rewake: Keeping this computer awake until ${what} at ${formatWhen(s.dueAt, now, this.opts.locale)}${settings.keepAwake === "plugged-in" ? ", while it's plugged in" : ""}. Closing the lid still puts it to sleep.`,
+      );
+    }
   }
 
   // ---- the agent's requests ------------------------------------------------------
@@ -2991,6 +3085,7 @@ export class SchedulingAddon {
     );
     if (!sending) return; // deleted in the meantime
     session.delivering = s.scheduleId;
+    this.updateWake();
     this.startTurn(session);
     const late = now - s.dueAt > 60_000;
     const what = s.kind === "user" ? "message" : "resume message";
@@ -3040,6 +3135,7 @@ export class SchedulingAddon {
   private settle(session: SessionState, scheduleId: string, response: JsonRpcMessage): void {
     const now = this.now();
     session.delivering = undefined;
+    setImmediate(() => this.updateWake());
     const stopReason = asObject(response.result).stopReason;
     const schedule = this.store.get(scheduleId);
     const limited: LimitClassification = this.classifyTurn(session, response) ?? {
@@ -3433,6 +3529,9 @@ const UNKNOWN_RESET_DELAYS: Array<[number, string]> = [
   [3 * 3_600_000, "In 3 hours"],
   [5 * 3_600_000, "In 5 hours"],
 ];
+
+/** How far ahead a due message keeps the computer awake: covers a 5-hour limit. */
+const WAKE_HORIZON_MS = 6 * 3_600_000;
 
 /** Resumes that will still run on their own. */
 const LIVE_RESUME: ReadonlySet<Schedule["status"]> = new Set([

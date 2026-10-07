@@ -241,3 +241,31 @@ describe("notice", () => {
     );
   });
 });
+
+describe("fire keeps the computer awake while the resumed turn runs", () => {
+  it("holds during the send, as the setting says, and lets go after, even on failure", async () => {
+    for (const send of [{ ok: true } as const, { ok: false, reason: "failed" } as const]) {
+      const r = resume();
+      const { deps } = setup({ send });
+      const events: string[] = [];
+      const host = deps.hosts.get("test") as HostAdapter;
+      const realSend = host.send;
+      host.send = async (s, key) => {
+        events.push("send");
+        return realSend(s, key);
+      };
+      const wake = {
+        supported: true,
+        set: (want: boolean, mode: string) => {
+          events.push(`hold ${want} ${mode}`);
+          return true;
+        },
+        release: () => {
+          events.push("release");
+        },
+      };
+      await fire(r.scheduleId, { ...deps, wake });
+      expect(events).toEqual(["hold true plugged-in", "send", "release"]);
+    }
+  });
+});

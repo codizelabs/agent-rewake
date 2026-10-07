@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "../src/core/settin
 import { ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import { callTool } from "../src/mcp.js";
+import type { Wake } from "../src/util/keep-awake.js";
 import { Logger } from "../src/util/log.js";
 
 const HOUR = 3_600_000;
@@ -59,6 +60,8 @@ interface HarnessOptions {
   sessionResult?: Record<string, unknown>;
   /** Ask about automatic resume when the session opens (off in most tests). */
   askOnNewThreads?: boolean;
+  /** The keep-awake hold (most tests: one that never holds and says nothing). */
+  wake?: Wake;
 }
 
 async function harness(stateDir = dir, o: HarnessOptions = {}) {
@@ -82,6 +85,7 @@ async function harness(stateDir = dir, o: HarnessOptions = {}) {
     selfCommand: { command: "/node", args: ["/rewake.js"] },
     askOnNewThreads: o.askOnNewThreads ?? false,
     firstUseNote: o.firstUseNote ?? false,
+    wake: o.wake ?? { supported: true, set: () => false, release: () => {} },
   });
   const router = new Router({ clientIn, clientOut, agentIn, agentOut, hooks: addon.hooks() });
   addon.attach(router);
@@ -1066,6 +1070,25 @@ describe("the Rewake menu in the thread toolbar", () => {
       },
     });
 
+  it("offers keeping the computer awake in Settings only where Rewake can do it", async () => {
+    for (const supported of [true, false]) {
+      const wake: Wake = { supported, set: () => false, release: () => {} };
+      const h = await harness(dir, { claude: true, wake, configOptions: [MODEL] });
+      const opened = h.toClient.find((m) => m.id === 1)?.result as { configOptions: unknown };
+      pick(h, 7, menuOf(opened.configOptions), "settings");
+      await settle();
+      expect(formKeys(h).includes("keepAwake")).toBe(supported);
+      if (supported) {
+        await answer(h, { autoResume: "ask", clock: "24h", keepAwake: "always" });
+        expect(loadSettings(dir).keepAwake).toBe("always");
+        expect(h.texts().at(-1)).toContain(
+          "Rewake keeps this computer awake for resumes and scheduled messages, also on battery.",
+        );
+      }
+      h.addon.stop();
+    }
+  });
+
   it("says a resume is already scheduled, adds messages after it, and sends each when the reply before it finishes", async () => {
     const h = await harness(dir, { claude: true });
     await hitLimit(h, 2);
@@ -1208,7 +1231,7 @@ describe("the Rewake menu in the thread toolbar", () => {
       pick(h, 7, menuOf(opened.configOptions), "settings"); // the question is still open
       await settle();
       expect(forms(h)).toHaveLength(2);
-      expect(formKeys(h)).toEqual(["autoResume", "clock"]);
+      expect(formKeys(h)).toEqual(["autoResume", "clock", "keepAwake"]);
       h.client({ id: forms(h)[0]?.id, result: { action: "decline" } });
       await settle();
       expect(ThreadStoreFor().get("s-1")?.autoResume).not.toBe(true);
@@ -1388,7 +1411,7 @@ describe("the Rewake menu in the thread toolbar", () => {
 
     pick(h, 7, menuOf(latestOptions(h)), "settings");
     await settle();
-    expect(formKeys(h)).toEqual(["autoResume", "clock"]);
+    expect(formKeys(h)).toEqual(["autoResume", "clock", "keepAwake"]);
     const clock = (
       forms(h).at(-1)?.params as {
         requestedSchema: {
@@ -2659,6 +2682,97 @@ describe("limits reported in a turn's metadata", () => {
     await settle();
     expect(forms(h)).toHaveLength(0);
     expect(h.texts().filter((t) => t.startsWith("Rewake:"))).toHaveLength(0);
+    h.addon.stop();
+  });
+});
+
+describe("keeping the computer awake", () => {
+  /** A hold that records what Rewake asked for. */
+  const recorder = (supported = true) => {
+    const calls: [boolean, string][] = [];
+    let held = false;
+    const wake: Wake = {
+      supported,
+      set: (want, mode) => {
+        calls.push([want, mode]);
+        held = supported && want && mode !== "never";
+        return held;
+      },
+      release: () => {
+        held = false;
+      },
+    };
+    return { wake, calls, held: () => held };
+  };
+
+  it("holds while a resume is due within a few hours, says so once, and lets go after", async () => {
+    const r = recorder();
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    await settle();
+    expect(r.held()).toBe(true);
+    expect(r.calls.at(-1)).toEqual([true, "plugged-in"]);
+    const said = h.texts().filter((t) => t.startsWith("Rewake: Keeping this computer awake"));
+    expect(said).toEqual([
+      "Rewake: Keeping this computer awake until the resume at 17:01 today, while it's plugged in. Closing the lid still puts it to sleep.",
+    ]);
+    h.addon.tick();
+    await settle();
+    expect(h.texts().filter((t) => t.startsWith("Rewake: Keeping"))).toHaveLength(1);
+    // Cancelled: nothing is due, so the computer may sleep again.
+    for (const s of h.store.list())
+      h.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), T0);
+    h.addon.tick();
+    await settle();
+    expect(r.held()).toBe(false);
+    h.addon.stop();
+  });
+
+  it("doesn't hold for a message due more than a few hours away", async () => {
+    const r = recorder();
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Run the tests",
+      dueAt: T0 + 30 * HOUR,
+      createdBy: "command",
+      now: T0,
+    });
+    h.addon.tick();
+    await settle();
+    expect(r.held()).toBe(false);
+    h.addon.stop();
+  });
+
+  it("follows the setting: never means never", async () => {
+    saveSettings(dir, { ...loadSettings(dir), keepAwake: "never" });
+    const r = recorder();
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    await settle();
+    expect(r.held()).toBe(false);
+    expect(h.texts().some((t) => t.startsWith("Rewake: Keeping"))).toBe(false);
+    h.addon.stop();
+  });
+
+  it("says once where it can't keep the computer awake", async () => {
+    const r = recorder(false);
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    h.addon.tick();
+    await settle();
+    expect(h.texts().filter((t) => t.startsWith("Rewake: Can't keep this computer awake"))).toEqual(
+      [
+        "Rewake: Can't keep this computer awake on this system. If it sleeps, resumes and scheduled messages wait until it wakes; change its sleep settings to avoid that.",
+      ],
+    );
     h.addon.stop();
   });
 });

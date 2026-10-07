@@ -35,6 +35,7 @@ Coding agents stop at their usage limit: Claude's 5-hour session limit, Codex's 
 
 - **Resumes after a usage limit.** When the agent stops, the thread asks once whether to resume, with your resume message ready to edit. At the reset (plus a minute), Rewake sends it and the agent carries on. If the agent is still limited, Rewake waits for the new reset time.
 - **Automatic, if you want.** Turn it on for a thread, or for every new thread, and Rewake schedules the resume without asking. It asks first when a limit resets more than a day away, never resumes credit or billing limits (and says so in the thread), and never approves permission prompts for you.
+- **Keeps the computer awake, if it can.** On macOS, while a resume or scheduled message is due within six hours, Rewake stops the computer from idling to sleep (while plugged in, by default) and says so. Closing the lid still puts it to sleep.
 - **Queues the next steps.** Add follow-up messages that go one after another once the work resumes.
 - **Also: send messages later.** Schedule a message into a thread for a time, or on a repeat (every weekday at 9, or any cron schedule, read back in plain words before it's saved). Your agent can propose follow-ups too; nothing is scheduled until you approve it.
 - **One place for everything.** A **Rewake** menu under the message box, and a schedules page for every thread and agent.
