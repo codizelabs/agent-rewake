@@ -2481,6 +2481,30 @@ describe("the limit ends early", () => {
     expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
     h.addon.stop();
   });
+
+  it("cancels the resume when another agent answers again before the reset (another account)", async () => {
+    const h = await harness(dir, { agentName: "gemini-cli", agentTitle: "Gemini CLI" });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({ id: 2, error: { code: 429, message: "Quota exceeded. Try again in 3 hours." } });
+    await settle();
+    await answer(h, { prompt: "Resume" });
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.advance(HOUR); // still before the reset
+    // The agent's own command may not reach the model: it proves nothing.
+    h.prompt(3, "/stats");
+    await settle();
+    h.agent({ id: 3, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.prompt(4, "carry on");
+    await settle();
+    h.agent({ id: 4, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(/^Rewake: Cancelled the scheduled resume/);
+    h.addon.stop();
+  });
 });
 
 describe("the limit text in the thread", () => {
