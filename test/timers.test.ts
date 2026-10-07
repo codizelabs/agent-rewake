@@ -203,6 +203,8 @@ describe("Linux: systemd, then at", () => {
         "/home/me/.local/state/agent-rewake/bin/agent-rewake.js",
         "fire",
         ID,
+        "--state-dir",
+        dir,
       ],
     });
     expect(utcCalendar(AT)).toBe("2026-10-06 18:43:20 UTC");
@@ -225,7 +227,9 @@ describe("Linux: systemd, then at", () => {
     expect(armTimer(ID, AT, h)).toEqual({ ok: true, via: "at" });
     const at = calls.find((c) => c.command === "at");
     expect(at?.args).toEqual(["-t", atTime(AT)]);
-    expect(at?.input).toBe(`'/opt/node/bin/node' '/home/o'\\''brien/agent-rewake.js' fire ${ID}\n`);
+    expect(at?.input).toBe(
+      `'/opt/node/bin/node' '/home/o'\\''brien/agent-rewake.js' fire ${ID} --state-dir '${dir}'\n`,
+    );
     expect(readFileSync(join(dir, "timers", `${ID}.at`), "utf8")).toBe("17");
     cancelTimer(ID, h);
     expect(calls.at(-1)).toEqual({ command: "atrm", args: ["17"] });
