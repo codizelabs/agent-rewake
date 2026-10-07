@@ -2,7 +2,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { classifyText } from "../../adapters/profiles.js";
+import { ANTIGRAVITY_QUOTA, classifyAntigravityStop } from "../../core/limits/agents.js";
+import { recogniseForHost } from "../../core/limits/recognise.js";
+import type { LimitSignal } from "../../core/limits/types.js";
 import { formatAt } from "../../core/time.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import {
@@ -14,10 +16,9 @@ import {
   onSessionStart,
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
-import { durationMs } from "../gemini/host.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { resumeDeadline, type SendResult } from "../host.js";
-import { type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
+import { type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
  * Google's Antigravity CLI (`agy`) (plan §9.5; Antigravity docs `hooks`, `plugins`, `cli`, read
@@ -38,8 +39,6 @@ import { type SessionLimit, type SessionRecord, safeSessionId } from "../session
 
 export const ANTIGRAVITY_ID = "antigravity";
 
-const QUOTA = /Individual quota reached|RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED/;
-
 export function geminiHome(env: NodeJS.ProcessEnv, home: string = homedir()): string {
   return env.GEMINI_HOME || join(home, ".gemini");
 }
@@ -50,29 +49,6 @@ export function surfaceOf(transcriptPath: string, env: NodeJS.ProcessEnv, home?:
   for (const s of ["antigravity-cli", "antigravity-ide", "antigravity-acp", "antigravity"])
     if (transcriptPath.startsWith(join(g, s) + sep)) return s;
   return "unknown";
-}
-
-export function classifyAntigravityStop(
-  input: Record<string, unknown>,
-  now: number,
-): Omit<SessionLimit, "seenAt"> | undefined {
-  const error = typeof input.error === "string" ? input.error : "";
-  if (input.terminationReason !== "error" || !QUOTA.test(error)) return undefined;
-  // Shared rules: a reset time wins over money words ("… enable overages. Resets in 16h39m20s"),
-  // a reset only seconds away is a wait Antigravity rides out itself.
-  const c = classifyText(error, now);
-  if (c.kind === "transient") return undefined;
-  if (c.kind === "not_recoverable" && c.reason === "billing")
-    return { kind: "billing", billing: true };
-  const d = /Resets in ((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)/.exec(error)?.[1];
-  const ms = d ? durationMs(d) : undefined;
-  const resetsAt =
-    c.kind === "usage_limit" && c.resetAt !== undefined
-      ? c.resetAt
-      : ms !== undefined
-        ? now + ms
-        : undefined;
-  return { kind: "other", billing: false, ...(resetsAt !== undefined && { resetsAt }) };
 }
 
 /** A running Antigravity CLI and the folder it runs in, when the system says. */
@@ -169,7 +145,7 @@ export function resumeAgy(
       }
       const response = typeof json?.response === "string" ? json.response : "";
       const error = response || String(json?.error ?? out);
-      if (QUOTA.test(error)) {
+      if (ANTIGRAVITY_QUOTA.test(error)) {
         const stop = { terminationReason: "error", error };
         const resetsAt = classifyAntigravityStop(stop, Date.now())?.resetsAt;
         return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
@@ -199,6 +175,16 @@ function firstNotice(stateDir: string, id: string, resetsAt: number | undefined)
   }
   writeFileSync(file, key, { mode: 0o600 });
   return true;
+}
+
+/** The Stop hook's input as a limit signal (`terminationReason` is the code). */
+function stopSignal(input: Record<string, unknown>): LimitSignal {
+  return {
+    agent: "antigravity",
+    source: "hook",
+    ...(typeof input.terminationReason === "string" && { code: input.terminationReason }),
+    ...(typeof input.error === "string" && { text: input.error }),
+  };
 }
 
 export function antigravityHost(
@@ -236,7 +222,7 @@ export function antigravityHooks(deps: AntigravityHookDeps): HookHandler {
       const surface = surfaceOf(ctx.input.transcriptPath as string, ctx.env);
       if (surface === "antigravity-acp") return allow;
       if (surface !== "antigravity-cli") {
-        const limit = classifyAntigravityStop(ctx.input, ctx.now);
+        const limit = recogniseForHost(stopSignal(ctx.input), ctx.now);
         if (limit && !limit.billing && firstNotice(ctx.stateDir, id, limit.resetsAt))
           deps.closed(ctx).notify("Agent Rewake", appNotice(surface, limit.resetsAt, ctx.now));
         return allow;
@@ -244,7 +230,7 @@ export function antigravityHooks(deps: AntigravityHookDeps): HookHandler {
       const paths = ctx.input.workspacePaths;
       const cwd = Array.isArray(paths) && typeof paths[0] === "string" ? paths[0] : "";
       const d = deps.closed(ctx);
-      const limit = classifyAntigravityStop(ctx.input, ctx.now);
+      const limit = recogniseForHost(stopSignal(ctx.input), ctx.now);
       if (limit) {
         onSessionStart(host, id, cwd, d, deps.program(ctx.env));
         onLimit(host, id, cwd, limit, d);
@@ -254,3 +240,6 @@ export function antigravityHooks(deps: AntigravityHookDeps): HookHandler {
     },
   };
 }
+
+// Moved to the core (plan §3.4); kept here for existing imports.
+export { classifyAntigravityStop };

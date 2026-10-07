@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { grokText } from "../../adapters/profiles.js";
-import { normalize } from "../../adapters/text.js";
+import { classifyGrokFailure } from "../../core/limits/agents.js";
+import { recogniseForHost } from "../../core/limits/recognise.js";
 import { isProcessAlive } from "../../core/lock.js";
 import {
   type ClosedDeps,
@@ -17,7 +17,7 @@ import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { resumeDeadline, type SendResult } from "../host.js";
-import { SESSION_GONE, type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
+import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
  * xAI's Grok Build in a terminal (plan §9.4; Grok 1.0.46, research note §2.2, §3.2):
@@ -113,41 +113,6 @@ export function billingReset(
     fallback ??= found;
   }
   return fallback ?? { full: false };
-}
-
-/** A usage limit in a Grok `StopFailure`, or undefined for any other failure. */
-export function classifyGrokFailure(
-  input: Record<string, unknown>,
-  billing: { resetsAt?: number; full: boolean; seen?: boolean },
-): Omit<SessionLimit, "seenAt"> | undefined {
-  const error = str(input.error);
-  const text = normalize(
-    `${str(input.errorDetails ?? input.error_details)} ${str(input.lastAssistantMessage ?? input.last_assistant_message)}`,
-  );
-  // The weekly period's end is the reset only when the weekly pool is what ran out.
-  const weekly =
-    billing.full && billing.resetsAt !== undefined ? { resetsAt: billing.resetsAt } : {};
-  if (error === "rate_limit") {
-    // Grok's own sentences: team or plan rate limits and overloads are short-term, the free
-    // usage limit isn't (shared rules, src/adapters/profiles.ts).
-    const c = grokText(text.trim());
-    if (c?.kind === "transient") return undefined;
-    if (c?.kind === "not_recoverable") return { kind: "billing", billing: true };
-    if (c?.kind === "usage_limit") return { kind: "other", billing: false, ...weekly };
-    return billing.full ? { kind: "weekly", billing: false, ...weekly } : undefined;
-  }
-  if (error !== "invalid_request" || !/\b402\b|weekly limit|credit|spending cap/i.test(text))
-    return undefined;
-  // A 402: the weekly pool (wait for the reset) or a spending cap or credit limit (billing).
-  const cap = /spending (?:cap|limit)|credit limit|out of credits/i.test(text);
-  if (!cap && billing.full && (/weekly limit/i.test(text) || /\b402\b/.test(text)))
-    return { kind: "weekly", billing: false, ...weekly };
-  // Grok says "weekly limit" and its log has no recent billing line to say otherwise: still a
-  // limit that resets, so the person is asked for a time rather than told nothing. (A recent line
-  // whose pool isn't used up means the 402 was about money.)
-  if (!cap && !billing.seen && /weekly limit/i.test(text))
-    return { kind: "weekly", billing: false };
-  return { kind: "billing", billing: true };
 }
 
 /** The session is open in a Grok window: listed in active_sessions.json with a live PID. */
@@ -278,9 +243,15 @@ export function grokHooks(deps: GrokHookDeps): HookHandler {
           onPrompt(host, id, cwd, d);
           break;
         case "StopFailure": {
-          const limit = classifyGrokFailure(
-            ctx.input,
-            billingReset(grokHome(ctx.env), ctx.now, id),
+          const limit = recogniseForHost(
+            {
+              agent: "grok",
+              source: "hook",
+              ...(typeof ctx.input.error === "string" && { code: ctx.input.error }),
+              text: `${str(ctx.input.errorDetails ?? ctx.input.error_details)} ${str(ctx.input.lastAssistantMessage ?? ctx.input.last_assistant_message)}`,
+              period: billingReset(grokHome(ctx.env), ctx.now, id),
+            },
+            ctx.now,
           );
           if (limit) onLimit(host, id, cwd, limit, d);
           break;
@@ -293,3 +264,6 @@ export function grokHooks(deps: GrokHookDeps): HookHandler {
     },
   };
 }
+
+// Moved to the core (plan §3.4); kept here for existing imports.
+export { classifyGrokFailure };
