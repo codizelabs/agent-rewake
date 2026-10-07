@@ -167,6 +167,33 @@ describe("rollout files", () => {
     }
   });
 
+  it("says when the reset Codex recorded has already passed, and forgets an earlier turn's snapshot", () => {
+    const snap = (resetsAt: number) =>
+      JSON.stringify({
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          rate_limits: { primary: { used_percent: 100, window_minutes: 300, resets_at: resetsAt } },
+        },
+      });
+    const limited = JSON.stringify({
+      type: "event_msg",
+      payload: { type: "task_complete", error: { codex_error_info: "usage_limit_exceeded" } },
+    });
+    const started = JSON.stringify({ type: "event_msg", payload: { type: "task_started" } });
+    const now = 1_800_000_000_000;
+    const past = now / 1000 - 60;
+    expect(findCodexLimit([snap(past), limited].join("\n"), now)).toMatchObject({
+      limited: true,
+      resetPassed: true,
+    });
+    // The snapshot came before a new turn: it doesn't describe that turn's limit.
+    expect(findCodexLimit([snap(now / 1000 + 3600), started, limited].join("\n"), now)).toEqual({
+      limited: true,
+      at: now,
+    });
+  });
+
   it("lists the person's messages in a session file", () => {
     const tail = [
       '{"type":"event_msg","payload":{"type":"user_message","message":"first"}}',

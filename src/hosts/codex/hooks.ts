@@ -157,6 +157,8 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
           ].filter((t) => t > ctx.now);
           if (times.length > 0) at = Math.max(...times);
         }
+        // The reset Codex recorded has already passed: continue in a minute.
+        if (at === undefined && limit.resetPassed) at = ctx.now + RESET_MARGIN_MS;
         if (at === undefined)
           return block(
             'Rewake doesn\'t know when this limit resets. Type "rewake" with a time, for example "rewake 3:30pm".',

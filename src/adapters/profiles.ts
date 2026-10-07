@@ -63,6 +63,9 @@ const PROFILE_BY_ID: Record<string, AgentProfile> = {
   "codebuddy-code": "codebuddy",
   "antigravity-acp": "antigravity",
   "github-copilot-cli": "copilot",
+  // Copilot's language server, the registry's second Copilot entry (research
+  // direct-multimodel-agents §1): the same service and limits.
+  "github-copilot": "copilot",
   cursor: "cursor",
   "amp-acp": "amp",
   "factory-droid": "droid",
@@ -87,6 +90,9 @@ export function profileFor(agentId: string | undefined, agentName: unknown): Age
   if (/claude/i.test(name)) return "claude";
   if (/codex/i.test(name)) return "codex";
   if (/gemini/i.test(name)) return "gemini";
+  if (/antigravity/i.test(name)) return "antigravity";
+  if (/copilot/i.test(name)) return "copilot";
+  if (/\bgrok\b/i.test(name)) return "grok";
   return "generic";
 }
 
@@ -683,7 +689,9 @@ function turnEnd(
       return /^(?:402|429)\b/.test(text) ? classifyText(text, now, options) : undefined;
     }
     case "antigravity": {
-      if (!ended) return undefined;
+      // Antigravity ends a turn at its quota with "refusal" (QUOTA_EXHAUSTED, research
+      // impl-google L9), or as a normal end with the text.
+      if (!ended && stopReason !== "refusal") return undefined;
       if (
         /^Usage Limit Reached\s+You have reached your current quota for this period\./.test(
           message,
