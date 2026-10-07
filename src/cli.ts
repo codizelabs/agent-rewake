@@ -753,7 +753,12 @@ async function runHookCommand(
     const reaped = reapClosed(CLOSED_HOSTS, closedDeps(env, Date.now()));
     log.info("hook", { host, event, fired: swept.fired, armed: swept.armed, reaped });
   } catch (err) {
-    log.error("hook.failed", { host, event, message: (err as Error).message });
+    // The error's kind only: its message can hold paths and session ids (plan §2.6).
+    log.error("hook.failed", {
+      host,
+      event,
+      error: (err as NodeJS.ErrnoException).code ?? (err as Error).name,
+    });
   }
   return 0;
 }

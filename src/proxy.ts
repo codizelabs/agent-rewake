@@ -86,7 +86,10 @@ export function runProxy(opts: ProxyOptions): Promise<number> {
         opts.log.warn("agent.stdin_error", { code: (err as NodeJS.ErrnoException).code ?? "" });
       });
       child.on("error", (err) => {
-        opts.log.error("agent.spawn_failed", { message: err.message });
+        // The code only ("ENOENT"): the message names the agent's path.
+        opts.log.error("agent.spawn_failed", {
+          code: (err as NodeJS.ErrnoException).code ?? err.name,
+        });
         finish(1, "spawn_failed");
       });
       child.on("exit", (code, signal) => {

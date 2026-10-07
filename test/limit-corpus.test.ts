@@ -2428,6 +2428,14 @@ describe("Antigravity", () => {
         NOW + 4 * DAY + 23 * HOUR,
       ],
       [
+        "Antigravity: quota, the turn ends with refusal",
+        "antigravity",
+        `${QUOTA} Your limit will reset in 2 hours, 15 minutes.`,
+        "refusal",
+        "usage_limit",
+        NOW + 2 * HOUR + 15 * MIN,
+      ],
+      [
         "Antigravity: quota, resets in hours",
         "antigravity",
         `${QUOTA} Your limit will reset in 2 hours, 15 minutes.`,

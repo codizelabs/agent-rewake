@@ -45,6 +45,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - The README and docs say where the previews outside Zed are, instead of saying Claude Code in a terminal can't be reached; the docs no longer claim the Claude desktop app's Code tab before it's checked; the reference and `--help` list `install --only`, `uninstall --only`, `continue`, `hook` and `fire`; the disclaimer names GitHub and xAI; the site lists Windows; the agent's help (`about_rewake`) explains the previews.
 - `doctor` says when `AGENT_REWAKE_TEST_TIMING` (shorter waits for Rewake's own tests) is set, and that it's ignored without `AGENT_REWAKE_STATE_DIR`.
 
+- In Zed, Copilot's language-server entry (`github-copilot`) gets Copilot's limit rules, an Antigravity, Copilot or Grok agent added under its own id is recognised by its name, and an Antigravity quota that ends the turn as a refusal is recognised.
+- **Codex preview:** typing "rewake" after the reset Codex recorded has passed continues the thread in a minute, instead of asking for a time; an earlier turn's usage figures no longer set the reset of a later limit.
+- Rewake's log no longer records an error's message for a failed hook or an agent that didn't start, only its kind: those messages can contain folders.
+
 ### Changed
 
 - Usage limits are recognised for every agent in Zed's registry, each from what it actually sends: Claude's rate-limit event (the same test Claude Code uses to continue on its own), Codex's error kinds, Gemini CLI, Qwen, Qoder, Kimi, Z.AI, MiniMax, Auggie, CodeBuddy, Devin, Junie, Mistral Vibe, goose, OpenCode, Kilo, Cline, Grok Build, Kimchi and Harn. Short-term rate limits, which the agent retries itself, are no longer treated as a usage limit.

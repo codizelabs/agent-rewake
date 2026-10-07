@@ -14,6 +14,11 @@ describe("which profile an agent gets", () => {
     expect(profileFor(undefined, "@agentclientprotocol/claude-agent-acp")).toBe("claude");
     expect(profileFor("opencode", "OpenCode")).toBe("opencode");
     expect(profileFor("some-new-agent", "Some Agent")).toBe("generic");
+    // The registry's second Copilot entry (the language server), and agents added under a custom id.
+    expect(profileFor("github-copilot", "GitHub Copilot")).toBe("copilot");
+    expect(profileFor("my-agy", "Antigravity")).toBe("antigravity");
+    expect(profileFor("my-copilot", "GitHub Copilot CLI")).toBe("copilot");
+    expect(profileFor("my-grok", "Grok Build")).toBe("grok");
   });
 });
 

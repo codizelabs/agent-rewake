@@ -29,6 +29,8 @@ export interface CodexLimit {
   window?: "session" | "weekly" | "other";
   /** When the failed turn ended (ms). */
   at?: number;
+  /** Codex's snapshot named resets that have all passed: usage should be back now. */
+  resetPassed?: boolean;
 }
 
 /** The last `bytes` of a file, without a partial first line. */
@@ -68,7 +70,12 @@ function pickReset(rl: RateLimits | undefined, nowSec: number): Partial<CodexLim
       Number.isFinite(w.resets_at) &&
       w.resets_at > nowSec,
   );
-  if (windows.length === 0) return {};
+  if (windows.length === 0) {
+    const passed = [rl.primary, rl.secondary].some(
+      (w) => !!w && typeof w.resets_at === "number" && w.resets_at <= nowSec,
+    );
+    return passed ? { resetPassed: true } : {};
+  }
   const full = windows.filter((w) => (w.used_percent ?? 0) >= 100);
   // Every full window has to clear, so the latest of them. With none full, the one closest to
   // full is the one that stopped the turn, not the weekly window that happens to reset last.
@@ -117,7 +124,11 @@ export function findCodexLimit(tail: string, now: number = Date.now()): CodexLim
     if (rec.type !== "event_msg" || !p || typeof p !== "object") continue;
     if (p.type === "token_count" && p.rate_limits && typeof p.rate_limits === "object")
       rateLimits = p.rate_limits as RateLimits;
-    if (p.type === "task_started" || p.type === "turn_started") verdict = { limited: false };
+    if (p.type === "task_started" || p.type === "turn_started") {
+      // A new turn: the limit, and the snapshot that described it, belong to the one before.
+      verdict = { limited: false };
+      rateLimits = undefined;
+    }
     if (p.type === "task_complete" || p.type === "turn_complete") {
       const error = p.error as { codex_error_info?: unknown; message?: unknown } | null | undefined;
       if (error?.codex_error_info === "usage_limit_exceeded") {
