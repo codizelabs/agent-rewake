@@ -608,3 +608,45 @@ test("reopened while Claude Code's own wait was pending: Rewake asks instead", a
   await clock.advance(1);
   expect(seen.asked).toBe(1);
 });
+
+/** An armed continue due two minutes in, as another Claude Code process with the session sees it too. */
+const armedNow = (claim?: { by: string; at: number }) => ({
+  state: "armed",
+  resetAt: T0 + MIN,
+  fireAt: T0 + 2 * MIN,
+  createdAt: T0 - H,
+  rehits: 0,
+  attempts: 0,
+  ...(claim && { claim }),
+});
+
+test("another process with the same session open claims the continue first: this one sends nothing", async ($, on) => {
+  let other = false;
+  const h = harness(on, {
+    windows: () => {
+      // While this process checks usage, the other one claims the send.
+      const ep = h.seen.store["limit:S1"] as Record<string, unknown> | undefined;
+      if (ep?.state === "armed" && !other) {
+        h.seen.store["limit:S1"] = { ...ep, claim: { by: "other", at: T0 + 2 * MIN } };
+        other = true;
+      }
+      return [];
+    },
+    store: { "limit:S1": armedNow() },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await h.clock.advance(3 * MIN);
+  expect(other).toBe(true);
+  expect(h.seen.submitted.length).toBe(0);
+  await h.clock.advance(3 * MIN);
+  expect(h.seen.submitted.length).toBe(0);
+});
+
+test("a claim left by a process that stopped mid-send doesn't hold the continue up", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    store: { "limit:S1": armedNow({ by: "gone", at: T0 - 10 * MIN }) },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await clock.advance(3 * MIN);
+  expect(seen.submitted).toEqual([CONTINUE]);
+});
