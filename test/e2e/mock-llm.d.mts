@@ -4,7 +4,7 @@ export interface MockRequest {
   path: string;
   /** Answered with the agent's usage-limit response. */
   limited: boolean;
-  /** The first 4,000 characters of the request body. */
+  /** The request body. */
   body: string;
 }
 export interface Mock {

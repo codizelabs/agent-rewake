@@ -5,7 +5,8 @@
 // Set the state with `set()` (or POST /__mock): mode "ok" | "limit", until, claim (Claude's
 // window: five_hour | seven_day) and profile, the limit's wire format when the path alone doesn't
 // say: "copilot" (a weekly limit), "xai-free" or "xai-402" (Grok). It records each request's method,
-// path, whether it was refused, and the first 4,000 characters of its body (made-up test data).
+// path, whether it was refused, and its body (made-up test data). Codex signed in with ChatGPT also
+// reads its usage from the mock (`chatgpt_base_url` = `<url>/backend-api`), from the same state.
 import { createServer } from "node:http";
 
 const sec = (ms) => Math.floor(ms / 1000);
@@ -102,6 +103,25 @@ const LIMITS = {
     },
   }),
 };
+
+/** Codex's usage endpoint (`<chatgpt_base_url>/wham/usage`): the same limit, as a usage window. */
+function codexUsage(refused, s) {
+  const reset = refused ? s.until : Date.now() + 5 * 3_600_000;
+  return {
+    plan_type: "plus",
+    rate_limit: {
+      allowed: !refused,
+      limit_reached: refused,
+      primary_window: {
+        used_percent: refused ? 100 : 0,
+        limit_window_seconds: 18_000,
+        reset_after_seconds: left(reset),
+        reset_at: sec(reset),
+      },
+      secondary_window: null,
+    },
+  };
+}
 
 const json = (res, status, body, headers = {}) => {
   res.writeHead(status, { "content-type": "application/json", ...headers });
@@ -285,7 +305,7 @@ export function startMock() {
             : undefined;
       const refused =
         family !== undefined && limited() && !/count_?tokens/i.test(path) && req.method === "POST";
-      state.log.push({ method: req.method, path, limited: refused, body: raw.slice(0, 4000) });
+      state.log.push({ method: req.method, path, limited: refused, body: raw });
       if (req.method === "HEAD" || path === "/api/hello") return res.writeHead(200).end();
       if (/\/messages\/count_tokens$/.test(path)) return json(res, 200, { input_tokens: 10 });
       if (/:countTokens$/.test(path)) return json(res, 200, { totalTokens: 10 });
@@ -316,6 +336,9 @@ export function startMock() {
           ],
         });
       if (path.endsWith("/api-key")) return json(res, 200, { api_key_id: "mock", acls: [] });
+      // Codex signed in with ChatGPT reads its usage here (`account/rateLimits/read`).
+      if (/\/(wham|api\/codex)\/usage$/.test(path))
+        return json(res, 200, codexUsage(limited(), state));
       if (path === "/") return json(res, 200, {});
       json(res, 404, { error: { message: `mock: no route for ${path}` } });
     });
