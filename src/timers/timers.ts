@@ -22,7 +22,8 @@ import { ensurePrivateDir } from "../util/paths.js";
  *     refuses a unit name whose service is still running), so a resume re-armed from inside its own
  *     `fire` gets a new name, `<id>-r<n>`, and the older names are removed. Each armed name leaves a
  *     file in `<stateDir>/timers`, which is how every name of a resume is found again.
- *   - Windows (Task Scheduler): from Microsoft's documentation, untested. `schtasks /Create /XML`
+ *   - Windows (Task Scheduler): from Microsoft's documentation; the CI timer job runs it. Node runs
+ *     under `conhost.exe --headless`, so a timer opens no console window (research X-T4). `schtasks /Create /XML`
  *     (an ISO time, not the locale-dependent /SD date), StartWhenAvailable for missed starts,
  *     an EndBoundary with DeleteExpiredTaskAfter so Windows removes a task that never ran.
  */
@@ -286,7 +287,7 @@ export function taskXml(id: string, at: number, node: string, cli: string): stri
     <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
   </Settings>
   <Actions Context="Author">
-    <Exec><Command>${xml(node)}</Command><Arguments>"${xml(cli)}" fire ${id}</Arguments></Exec>
+    <Exec><Command>conhost.exe</Command><Arguments>--headless "${xml(node)}" "${xml(cli)}" fire ${id}</Arguments></Exec>
   </Actions>
 </Task>
 `;
