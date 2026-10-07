@@ -24,6 +24,9 @@ export interface TuiOptions {
   /** The thread this page was opened from. */
   threadId?: string;
   env?: NodeJS.ProcessEnv;
+  /** Resumes of agents outside Zed (src/ui/page.ts PageOptions). */
+  hostName?: (host: string) => string | undefined;
+  onHostChange?: (scheduleId: string) => void;
 }
 
 export async function runTui(stateDir: string, opts: TuiOptions = {}): Promise<number> {
@@ -40,6 +43,8 @@ export async function runTui(stateDir: string, opts: TuiOptions = {}): Promise<n
     ...(opts.locale && { locale: opts.locale }),
     ...(opts.threadId && { threadId: opts.threadId }),
     noColor: Boolean(env.NO_COLOR) || env.TERM === "dumb",
+    ...(opts.hostName && { hostName: opts.hostName }),
+    ...(opts.onHostChange && { onHostChange: opts.onHostChange }),
   });
   const inline = opts.inline === true;
   const height = () =>

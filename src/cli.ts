@@ -7,6 +7,7 @@ import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn
 import { SchedulingAddon } from "./addon.js";
 import { runContinue } from "./continue.js";
 import { applySettings } from "./core/settings.js";
+import { ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
 import { runAntigravityInstall } from "./hosts/antigravity/install.js";
 import { runClaudeInstall } from "./hosts/claude-code/install.js";
@@ -152,10 +153,19 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     sweepQuietly(env);
     const t = argv.indexOf("--thread");
     const threadId = t !== -1 ? argv[t + 1] : undefined;
+    const { timers, sweepDeps, state, node } = timerDeps(env);
+    const hosts = hostAdapters(env, node, state);
     return runTui(stateDir(env), {
       inline: argv.includes("--inline"),
       ...(threadId && { threadId }),
       env,
+      hostName: (h) => hosts.get(h)?.name,
+      // A resume outside Zed changed on the page: its OS timer follows.
+      onHostChange: (id) => {
+        const s = new ScheduleStore(state).get(id);
+        if (s?.status === "scheduled") scheduleFire(id, s.dueAt, sweepDeps(Date.now()));
+        else cancelTimer(id, timers);
+      },
     });
   }
   if (first === "schedules") {
@@ -298,6 +308,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     };
     if (chosen.includes("gemini-cli")) code = Math.max(code, await runGeminiInstall(common));
     if (chosen.includes("antigravity")) code = Math.max(code, await runAntigravityInstall(common));
+    if (first === "uninstall" && !dryRun) cancelResumesOf(chosen, env);
     if (!dryRun) sweepQuietly(env);
     return code;
   }
@@ -505,6 +516,35 @@ function rewakeCli(state: string): string {
   if (existsSync(stable)) return stable;
   const bundle = process.argv[1] ?? "";
   return (bundle && ensureLauncher(state, bundle)) || bundle || stable;
+}
+
+/**
+ * After `uninstall --only <agents>`: their planned resumes are cancelled and their timers removed,
+ * so nothing continues a session in an agent Rewake was taken out of. Only if Rewake really is out
+ * (the agent's hooks or plugin are gone); a declined or failed uninstall leaves them.
+ */
+function cancelResumesOf(places: string[], env: NodeJS.ProcessEnv): void {
+  const { state, timers } = timerDeps(env);
+  const still = new Set<string>(installedPreviews(env, homedir(), state));
+  // Place ids and host ids are the same words ("codex", "copilot-cli", "grok", …).
+  const gone = places.filter((p) => p !== "zed" && !still.has(p));
+  if (gone.length === 0) return;
+  const store = new ScheduleStore(state);
+  const hosts = hostAdapters(env, stableNode(), state);
+  for (const place of gone) {
+    let n = 0;
+    for (const s of store.list()) {
+      if (s.host !== place || TERMINAL_STATUSES.has(s.status)) continue;
+      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), Date.now());
+      cancelTimer(s.scheduleId, timers);
+      n++;
+    }
+    const name = hosts.get(place)?.name ?? place;
+    if (n > 0)
+      process.stdout.write(
+        `Also cancelled ${n === 1 ? "1 resume message" : `${n} resume messages`} for ${name} sessions.\n`,
+      );
+  }
 }
 
 /** Re-arm lost timers and start due resumes (plan §5); never fails the command running it. */

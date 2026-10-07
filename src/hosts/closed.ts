@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { decideArm, RESET_MARGIN_MS } from "../core/resume.js";
-import { loadSettings } from "../core/settings.js";
+import { loadSettings, type Settings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../core/threads.js";
 import { formatAt } from "../core/time.js";
@@ -90,6 +90,15 @@ export function unanswered(stateDir: string, r: SessionRecord): SessionLimit | u
   if ((r.lastPromptAt ?? 0) > l.seenAt) return undefined;
   if (pendingFor(stateDir, r.host, r.sessionId).length > 0) return undefined;
   return l;
+}
+
+/**
+ * Automatic resume outside Zed, from the same setting as Zed's new threads. Zed's "except when
+ * permissions are bypassed" doesn't apply: a resume outside Zed never bypasses permissions (each
+ * agent is run with its default approval mode), so "on" means on.
+ */
+export function autoFor(settings: Settings): "always" | "never" | "ask" {
+  return settings.newThreads === "on" ? "always" : settings.newThreads === "off" ? "never" : "ask";
 }
 
 /** What Rewake says once a closed session's resume is armed. */
@@ -193,12 +202,7 @@ export function onSessionEnd(
     now: d.now,
     ...(limit.resetsAt !== undefined && { resetsAt: limit.resetsAt }),
     isBilling: false,
-    auto:
-      settings.newThreads === "on" && settings.autoWhenPromptsSkipped
-        ? "always"
-        : settings.newThreads === "off"
-          ? "never"
-          : "ask",
+    auto: autoFor(settings),
   });
   if (decision.action === "arm") {
     armClosed(host, r, decision.fireAt, d);

@@ -4,6 +4,7 @@ import { loadSettings } from "../../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../../core/threads.js";
 import { formatAt, parseWhen } from "../../core/time.js";
+import { autoFor } from "../closed.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { findCodexLimit, isCodexRollout, readTail, threadIdOf } from "./rollout.js";
 
@@ -163,12 +164,7 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
           now: ctx.now,
           ...(limit.resetsAt !== undefined && { resetsAt: limit.resetsAt }),
           isBilling: limit.billing === true,
-          auto:
-            settings.newThreads === "on" && settings.autoWhenPromptsSkipped
-              ? "always"
-              : settings.newThreads === "off"
-                ? "never"
-                : "ask",
+          auto: autoFor(settings),
         });
         const cwd = typeof ctx.input.cwd === "string" ? basename(ctx.input.cwd) : "";
         const where = cwd ? `Codex in the "${cwd}" folder` : "Codex";
