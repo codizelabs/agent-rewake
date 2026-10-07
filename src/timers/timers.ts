@@ -8,6 +8,9 @@ import { ensurePrivateDir } from "../util/paths.js";
  * No Rewake process waits in the background. Each timer removes itself (or is removed by `fire`),
  * and `fire` re-checks everything, so a timer that runs early, late or twice does no harm.
  *
+ * Every timer names Rewake's state folder (`fire <id> --state-dir <dir>`): a timer runs without
+ * Rewake's environment, so AGENT_REWAKE_STATE_DIR wouldn't reach `fire` otherwise.
+ *
  * Facts this relies on (tested 2026-10-06 unless marked; research/impl-codex-grok-2026-10-06.md §5):
  *   - macOS (launchd, macOS 26.5): a plist loaded with `launchctl bootstrap gui/<uid>` from outside
  *     ~/Library/LaunchAgents runs at its StartCalendarInterval (local time, minute precision) and,
@@ -140,7 +143,13 @@ const xml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** The plist for one timer. Local wall-clock fields, rounded up to the next whole minute. */
-export function launchdPlist(id: string, at: number, node: string, cli: string): string {
+export function launchdPlist(
+  id: string,
+  at: number,
+  node: string,
+  cli: string,
+  stateDir?: string,
+): string {
   const d = new Date(Math.ceil(at / 60_000) * 60_000);
   const int = (k: string, v: number) => `<key>${k}</key><integer>${v}</integer>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -149,7 +158,7 @@ export function launchdPlist(id: string, at: number, node: string, cli: string):
 <dict>
   <key>Label</key><string>${label(id)}</string>
   <key>ProgramArguments</key>
-  <array><string>${xml(node)}</string><string>${xml(cli)}</string><string>fire</string><string>${id}</string></array>
+  <array><string>${xml(node)}</string><string>${xml(cli)}</string><string>fire</string><string>${id}</string>${stateDir ? `<string>--state-dir</string><string>${xml(stateDir)}</string>` : ""}</array>
   <key>StartCalendarInterval</key>
   <dict>${int("Month", d.getMonth() + 1)}${int("Day", d.getDate())}${int("Hour", d.getHours())}${int("Minute", d.getMinutes())}</dict>
   <key>RunAtLoad</key><true/>
@@ -172,7 +181,7 @@ function launchdArm(id: string, at: number, h: TimerHost): ArmResult {
   const plist = join(timersDir(h), `${label(id)}.plist`);
   // A loaded label can't be bootstrapped again: armTimer has already taken out the resume's
   // timers (generation 0), and a higher generation's name is new.
-  writeFileSync(plist, launchdPlist(id, at, h.node, h.cli), { mode: 0o600 });
+  writeFileSync(plist, launchdPlist(id, at, h.node, h.cli, h.stateDir), { mode: 0o600 });
   const r = h.run("launchctl", ["bootstrap", domain, plist]);
   if (r.status === 0) return { ok: true, via: "launchd" };
   rmSync(plist, { force: true });
@@ -207,6 +216,8 @@ function systemdArm(id: string, at: number, h: TimerHost): ArmResult {
     h.cli,
     "fire",
     id,
+    "--state-dir",
+    h.stateDir,
   ]);
   if (r.status !== 0) return { ok: false, reason: "failed", detail: r.stderr.trim() };
   mark(id, "systemd", h);
@@ -233,7 +244,7 @@ function atAvailable(h: TimerHost): boolean {
 
 function atArm(id: string, at: number, h: TimerHost): ArmResult {
   atCancel(id, h);
-  const job = `${shQuote(h.node)} ${shQuote(h.cli)} fire ${id}\n`;
+  const job = `${shQuote(h.node)} ${shQuote(h.cli)} fire ${id} --state-dir ${shQuote(h.stateDir)}\n`;
   const r = h.run("at", ["-t", atTime(at)], job);
   const n = /job (\d+)/.exec(`${r.stderr}\n${r.stdout}`)?.[1];
   if (r.status !== 0 || !n) return { ok: false, reason: "failed", detail: r.stderr.trim() };
@@ -271,7 +282,13 @@ export function localIso(at: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${off >= 0 ? "+" : "-"}${p(Math.trunc(off / 60))}:${p(off % 60)}`;
 }
 
-export function taskXml(id: string, at: number, node: string, cli: string): string {
+export function taskXml(
+  id: string,
+  at: number,
+  node: string,
+  cli: string,
+  stateDir?: string,
+): string {
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Agent Rewake: ${id}</Description></RegistrationInfo>
@@ -292,7 +309,7 @@ export function taskXml(id: string, at: number, node: string, cli: string): stri
     <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
   </Settings>
   <Actions Context="Author">
-    <Exec><Command>conhost.exe</Command><Arguments>--headless "${xml(node)}" "${xml(cli)}" fire ${id}</Arguments></Exec>
+    <Exec><Command>conhost.exe</Command><Arguments>--headless "${xml(node)}" "${xml(cli)}" fire ${id}${stateDir ? ` --state-dir "${xml(stateDir)}"` : ""}</Arguments></Exec>
   </Actions>
 </Task>
 `;
@@ -302,7 +319,7 @@ function schtasksArm(id: string, at: number, h: TimerHost): ArmResult {
   h.run("schtasks", ["/Delete", "/TN", taskName(id), "/F"]);
   const file = join(timersDir(h), `${id}.xml`);
   // UTF-16LE with a byte-order mark, as the XML declaration says.
-  writeFileSync(file, Buffer.from(`﻿${taskXml(id, at, h.node, h.cli)}`, "utf16le"));
+  writeFileSync(file, Buffer.from(`﻿${taskXml(id, at, h.node, h.cli, h.stateDir)}`, "utf16le"));
   const r = h.run("schtasks", ["/Create", "/TN", taskName(id), "/XML", file]);
   rmSync(file, { force: true });
   if (r.status !== 0) return { ok: false, reason: "failed", detail: r.stderr.trim() };
@@ -381,7 +398,8 @@ export function timerStale(id: string, at: number, h: TimerHost): boolean {
     if (names.length === 0) return false;
     return !names.some(
       (n) =>
-        readFileSync(join(dir, `${label(n)}.plist`), "utf8") === launchdPlist(n, at, h.node, h.cli),
+        readFileSync(join(dir, `${label(n)}.plist`), "utf8") ===
+        launchdPlist(n, at, h.node, h.cli, h.stateDir),
     );
   }
   if (kind === "at") {

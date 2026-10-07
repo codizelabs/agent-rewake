@@ -364,7 +364,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     }
     return runContinueCommand(env, mode);
   }
-  if (first === "fire") return runFire(argv[1] ?? "", env);
+  if (first === "fire") {
+    // Timers name the state folder: they run without Rewake's environment (src/timers/timers.ts).
+    const at = argv.indexOf("--state-dir");
+    const dir = at !== -1 ? argv[at + 1] : undefined;
+    return runFire(argv[1] ?? "", dir ? { ...env, AGENT_REWAKE_STATE_DIR: dir } : env);
+  }
   if (first === "hook") return runHookCommand(argv[1] ?? "", argv[2] ?? "", env);
   if (first === "setup") {
     if (argv[1] !== "zed") {

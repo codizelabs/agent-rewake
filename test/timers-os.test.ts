@@ -52,7 +52,8 @@ describe.runIf(enabled)("OS timer", () => {
         while (Date.now() < deadline && !(Date.now() >= at && due()))
           await new Promise((r) => setTimeout(r, 1000));
         const lines = readFileSync(marker, "utf8").trim().split("\n");
-        expect(lines.at(-1)).toBe(`fire ${id}`);
+        // The timer names Rewake's state folder: it runs without Rewake's environment.
+        expect(lines.at(-1)).toBe(`fire ${id} --state-dir ${dir}`);
         // `fire` removes its own timer on macOS and Windows; systemd and at remove theirs.
         cancelTimer(id, h);
         await new Promise((r) => setTimeout(r, 2000));
