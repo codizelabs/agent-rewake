@@ -70,6 +70,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - `install` in a terminal shows what's on your computer (Zed and each coding agent, with versions), what Rewake does in each, and a checklist: tick the places, see every change together, answer once, and get one result line per place with its next step. Agents too old for Rewake are shown with how to update them. `--all` picks every place found and `--skip` leaves some out; with `--yes` and no place named, `install` still sets up Zed only, and now says so.
 
+- **Previews outside Zed:** with `AGENT_REWAKE_STATE_DIR` set, a resume's timer now uses that folder too. Timers run without Rewake's environment, so they used the default folder, found nothing to send and removed themselves.
+
 ### Changed
 
 - The README opens with what Rewake does for each agent ("Auto-resume Claude Code after a usage limit", "Auto-resume Codex when the usage limit resets", and the other previews). The npm description and keywords name the agents too.
