@@ -2158,6 +2158,41 @@ describe("usage limits for every agent", () => {
     h.addon.stop();
   });
 
+  it("keeps and sends the resume of every thread limited at the same time", async () => {
+    const h = await harness(dir, CODEX);
+    const ids = ["s-1", "s-2", "s-3"];
+    for (const [i, sid] of ids.slice(1).entries()) {
+      h.client({ id: 10 + i, method: "session/new", params: { cwd: "/project", mcpServers: [] } });
+      await settle();
+      h.agent({ id: 10 + i, result: { sessionId: sid } });
+      await settle();
+    }
+    for (const [i, sid] of ids.entries()) {
+      new ThreadStore(dir).update(sid, "/project", { autoResume: true }, T0);
+      h.client({
+        id: 20 + i,
+        method: "session/prompt",
+        params: { sessionId: sid, prompt: [{ type: "text", text: "keep going" }] },
+      });
+      await settle();
+      h.agent({ id: 20 + i, error: codexLimit });
+      await settle();
+    }
+    const resumes = h.store.list().filter((s) => s.status === "scheduled");
+    expect(resumes.map((s) => s.sessionId).sort()).toEqual(ids);
+    expect(new Set(resumes.map((s) => s.scheduleId)).size).toBe(3);
+
+    h.advance(4 * HOUR + 35 * 60_000); // the reset, plus Rewake's margin
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt" && typeof m.id === "string");
+    expect(sent.map((m) => (m.params as { sessionId: string }).sessionId).sort()).toEqual(ids);
+    for (const m of sent) h.agent({ id: m.id, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().map((s) => s.status)).toEqual(["sent", "sent", "sent"]);
+    h.addon.stop();
+  });
+
   it("has Auto-resume in the menu for every agent", async () => {
     for (const o of [CODEX, { ...GEMINI, sessionResult: {} }]) {
       const h = await harness(mkdtempSync(join(tmpdir(), "rewake-auto-")), o);
