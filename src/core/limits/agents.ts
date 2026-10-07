@@ -53,6 +53,17 @@ export function copilotCode(text: string): SessionLimit | undefined {
   return undefined;
 }
 
+/** `{"message": "…"}` (or `{"error": {"message": "…"}}`) as its message; anything else as is. */
+function innerMessage(text: string): string {
+  try {
+    const j = JSON.parse(text) as { message?: unknown; error?: { message?: unknown } };
+    const m = j?.message ?? j?.error?.message;
+    return typeof m === "string" ? m : text;
+  } catch {
+    return text;
+  }
+}
+
 export function classifyCopilotError(
   text: unknown,
   now: number,
@@ -65,7 +76,8 @@ export function classifyCopilotError(
   // Copilot marks every retry "recoverable", a weekly limit too (1.0.92, tested offline): the flag
   // only excuses what the text calls short-term.
   if (recoverable) return undefined;
-  const t = text.slice(0, 4096);
+  // The text inside the provider's JSON body, when the hook carries one.
+  const t = innerMessage(text).slice(0, 4096);
   const c = classifyTurnEnd("copilot", `Error: ${t}`, "end_turn", now);
   if (c?.kind === "not_recoverable") return { kind: "billing", billing: true };
   if (c?.kind === "usage_limit")

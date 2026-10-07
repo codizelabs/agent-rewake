@@ -618,6 +618,16 @@ describe("Copilot's coded errors (1.0.92, tested offline)", () => {
       kind: "session",
       billing: false,
     });
+    // The text inside a JSON body, and Copilot's own "Last error" wording, read as the weekly limit.
+    expect(
+      classifyCopilotError(
+        JSON.stringify({ message: "Sorry, you've exceeded your weekly rate limit." }),
+        NOW,
+      ),
+    ).toMatchObject({ billing: false });
+    expect(
+      classifyCopilotError("429 Sorry, you've exceeded your weekly rate limit.", NOW),
+    ).toMatchObject({ billing: false });
     // An uncoded error Copilot recovers from stays Copilot's to handle.
     expect(classifyCopilotError("429 Too Many Requests", NOW, true)).toBeUndefined();
   });
