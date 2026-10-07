@@ -1,7 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { classifyText } from "../../adapters/profiles.js";
+import { formatAt } from "../../core/time.js";
+import { ensurePrivateDir } from "../../util/paths.js";
 import {
   type ClosedDeps,
   type ClosedHost,
@@ -173,6 +176,27 @@ export function resumeAgy(
   });
 }
 
+/** What Rewake says at a limit in the Antigravity app or IDE, which it can't continue. */
+export function appNotice(surface: string, resetsAt: number | undefined, now: number): string {
+  const where = surface === "antigravity-ide" ? "the Antigravity IDE" : "the Antigravity app";
+  const when = resetsAt ? ` It resets ${formatAt(resetsAt, now)}.` : "";
+  return `Antigravity hit its usage limit in ${where}.${when} Rewake can't continue conversations there, so continue yours after the reset.`;
+}
+
+/** One notice per conversation and reset: a person retrying in the app isn't told again. */
+function firstNotice(stateDir: string, id: string, resetsAt: number | undefined): boolean {
+  const dir = ensurePrivateDir(join(stateDir, "hosts", ANTIGRAVITY_ID, "notified"));
+  const file = join(dir, `${id}.json`);
+  const key = String(resetsAt ?? "unknown");
+  try {
+    if (readFileSync(file, "utf8") === key) return false;
+  } catch {
+    // Not told yet.
+  }
+  writeFileSync(file, key, { mode: 0o600 });
+  return true;
+}
+
 export function antigravityHost(
   isOpen: (r: SessionRecord) => boolean = (r) => agyOpenIn(r.cwd),
 ): ClosedHost {
@@ -203,9 +227,16 @@ export function antigravityHooks(deps: AntigravityHookDeps): HookHandler {
       // The Stop output needs a decision; anything but "continue" lets the turn stop as it would.
       const allow = JSON.stringify({ decision: "allow" });
       const id = ctx.input.conversationId as string;
-      // Only the CLI's conversations; Zed's are its add-on's, the app's and IDE's can't be sent to.
-      if (surfaceOf(ctx.input.transcriptPath as string, ctx.env) !== "antigravity-cli")
+      // Only the CLI's conversations are continued; Zed's are its add-on's. The app's and the
+      // IDE's can't be sent to, so at a limit there Rewake only says when it resets (R2, R4).
+      const surface = surfaceOf(ctx.input.transcriptPath as string, ctx.env);
+      if (surface === "antigravity-acp") return allow;
+      if (surface !== "antigravity-cli") {
+        const limit = classifyAntigravityStop(ctx.input, ctx.now);
+        if (limit && !limit.billing && firstNotice(ctx.stateDir, id, limit.resetsAt))
+          deps.closed(ctx).notify("Agent Rewake", appNotice(surface, limit.resetsAt, ctx.now));
         return allow;
+      }
       const paths = ctx.input.workspacePaths;
       const cwd = Array.isArray(paths) && typeof paths[0] === "string" ? paths[0] : "";
       const d = deps.closed(ctx);
