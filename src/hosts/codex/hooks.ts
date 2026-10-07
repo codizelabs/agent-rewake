@@ -40,7 +40,12 @@ function threadOf(input: Record<string, unknown>): { id: string; path: string } 
 }
 
 function pendingFor(store: ScheduleStore, threadId: string): Schedule[] {
-  return store.listForSession(threadId, "codex").filter((s) => !TERMINAL_STATUSES.has(s.status));
+  // Missed resumes and ones needing attention were already reported: a new limit replaces them.
+  return store
+    .listForSession(threadId, "codex")
+    .filter(
+      (s) => !TERMINAL_STATUSES.has(s.status) && !["missed", "needs_attention"].includes(s.status),
+    );
 }
 
 /** Block Codex's prompt with a reason it shows to the person. */

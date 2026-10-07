@@ -8,6 +8,7 @@ import {
   type ClosedDeps,
   type ClosedHost,
   placeOf,
+  stillOpen,
   unanswered,
 } from "./hosts/closed.js";
 import { type SessionRecord, SessionRecords } from "./hosts/sessions.js";
@@ -42,7 +43,7 @@ export function waiting(o: Pick<ContinueOptions, "hosts" | "deps">): Candidate[]
   const out: Candidate[] = [];
   for (const host of o.hosts)
     for (const record of new SessionRecords(o.deps.stateDir, host.id).list()) {
-      if (record.open) continue;
+      if (stillOpen(record, o.deps.running)) continue;
       const limit = unanswered(o.deps.stateDir, record);
       if (!limit) continue;
       out.push({ host, record, ...(limit.resetsAt !== undefined && { resetsAt: limit.resetsAt }) });

@@ -10,6 +10,7 @@ import { applySettings } from "./core/settings.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
 import { runAntigravityInstall } from "./hosts/antigravity/install.js";
 import { runClaudeInstall } from "./hosts/claude-code/install.js";
+import { type ClosedDeps, reapClosed } from "./hosts/closed.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { runCopilotInstall } from "./hosts/copilot/install.js";
 import { runGeminiInstall } from "./hosts/gemini/install.js";
@@ -49,6 +50,7 @@ import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { Logger } from "./util/log.js";
 import { ensurePrivateDir, stateDir } from "./util/paths.js";
+import { agentProcess } from "./util/proc.js";
 import { resolveCommand } from "./util/spawn.js";
 import { VERSION } from "./version.js";
 import {
@@ -510,9 +512,28 @@ function sweepQuietly(env: NodeJS.ProcessEnv): void {
   try {
     const { sweepDeps } = timerDeps(env);
     sweep(sweepDeps(Date.now()));
+    reapClosed(CLOSED_HOSTS, closedDeps(env, Date.now()));
   } catch {
     // The next hook or command sweeps again.
   }
+}
+
+/** What closed-session handling needs outside a hook (the sweep's reaping of ended sessions). */
+function closedDeps(env: NodeJS.ProcessEnv, now: number): ClosedDeps {
+  const { state, timers, sweepDeps } = timerDeps(env);
+  const notify = osNotifier();
+  return {
+    stateDir: state,
+    now,
+    env,
+    arm: (id, at) => {
+      scheduleFire(id, at, sweepDeps(Date.now()));
+    },
+    disarm: (id) => cancelTimer(id, timers),
+    notify: (title, body) => {
+      notify(title, body);
+    },
+  };
 }
 
 /** Timers, the sweep and a detached `fire`, for this run. */
@@ -596,6 +617,7 @@ async function runHookCommand(
         notify: (title, body) => {
           notify(title, body);
         },
+        agent: () => agentProcess(),
       }),
       program: (h, e) => {
         const host = { env: e, home: homedir(), platform: process.platform };
@@ -615,7 +637,8 @@ async function runHookCommand(
     const reply = await runHook(handler, event, await readStdin(), env, state, Date.now());
     if (reply) process.stdout.write(`${reply}\n`);
     const swept = sweep(sweepDeps(Date.now()));
-    log.info("hook", { host, event, fired: swept.fired, armed: swept.armed });
+    const reaped = reapClosed(CLOSED_HOSTS, closedDeps(env, Date.now()));
+    log.info("hook", { host, event, fired: swept.fired, armed: swept.armed, reaped });
   } catch (err) {
     log.error("hook.failed", { host, event, message: (err as Error).message });
   }

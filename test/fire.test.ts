@@ -327,3 +327,20 @@ describe("resumeDeadline", () => {
     expect(timedOut()).toBe(false);
   });
 });
+
+describe("agentProcess", () => {
+  it("skips the shells an agent starts hooks through, and gives the agent", async () => {
+    const { agentProcess, stillRunning } = await import("../src/util/proc.js");
+    const tree: Record<number, { ppid: number; name: string }> = {
+      300: { ppid: 200, name: "sh" },
+      200: { ppid: 100, name: "copilot" },
+    };
+    const ps = (pid: number) => tree[pid];
+    expect(agentProcess(300, "darwin", ps)).toEqual({ pid: 200, name: "copilot" });
+    expect(agentProcess(300, "win32", ps)).toBeUndefined();
+    expect(stillRunning({ pid: 200, name: "copilot" }, () => true, ps)).toBe(true);
+    // The PID now belongs to another program.
+    expect(stillRunning({ pid: 200, name: "node" }, () => true, ps)).toBe(false);
+    expect(stillRunning({ pid: 200, name: "copilot" }, () => false, ps)).toBe(false);
+  });
+});
