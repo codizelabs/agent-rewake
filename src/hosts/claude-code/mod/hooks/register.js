@@ -511,7 +511,7 @@ async function scheduleFlow($) {
   return { text: `Scheduled for ${at(when, now)}.` };
 }
 
-async function command($, args) {
+async function runCommand($, args) {
   const id = await $.session.id();
   const now = await $.clock.now();
   const p = parseArgs(args, now, clock);
@@ -597,7 +597,7 @@ export function register(on) {
     await loadConfig($);
     $.clock.every(TICK_MS, () => void tick($));
     void reopen($);
-    for (const command of [
+    for (const entry of [
       {
         name: "rewake",
         description: "See what Rewake will send in this session (or type: in 30m <message>)",
@@ -621,12 +621,11 @@ export function register(on) {
       },
       {
         name: "rewake-ask",
-        description:
-          "Ask before continuing after a usage limit (turns off continuing without asking)",
+        description: "Always ask you before continuing after a usage limit",
       },
     ])
       try {
-        await $.command.register(command);
+        await $.command.register(entry);
       } catch {
         // The name is taken: everything else still works.
       }
@@ -664,10 +663,10 @@ export function register(on) {
     return next(e);
   }).catch(passOn);
 
-  on("command.run", { command: "rewake" }, ($, e) => command($, e.args));
-  on("command.run", { command: "rewake-cancel" }, ($) => command($, "cancel"));
-  on("command.run", { command: "rewake-continue" }, ($) => command($, "continue"));
-  on("command.run", { command: "rewake-clear" }, ($) => command($, "clear"));
-  on("command.run", { command: "rewake-ask" }, ($) => command($, "ask"));
+  on("command.run", { command: "rewake" }, ($, e) => runCommand($, e.args));
+  on("command.run", { command: "rewake-cancel" }, ($) => runCommand($, "cancel"));
+  on("command.run", { command: "rewake-continue" }, ($) => runCommand($, "continue"));
+  on("command.run", { command: "rewake-clear" }, ($) => runCommand($, "clear"));
+  on("command.run", { command: "rewake-ask" }, ($) => runCommand($, "ask"));
   on("command.run", { command: "rewake-schedule" }, ($) => scheduleFlow($));
 }

@@ -65,6 +65,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **Codex preview:** when Codex can't say whether usage is back at the reset (the computer is offline, or Codex doesn't answer), Rewake checks again a few minutes later instead of sending. Before, the message was queued anyway, the turn then failed, and the resume counted as sent. If Codex still hasn't answered after the last check, Rewake tells you to resume the thread yourself.
 - **Claude Code preview:** with the same session open in two Claude Code windows, the continue after a usage limit is sent once, not once from each.
 
+- **Claude Code preview:** `install --only claude-code` also uses the Claude desktop app's own Claude Code, so an older Claude Code in the terminal no longer stops the install; it says when the terminal one is too old to load the plugin. The plugin passes `claude plugin validate` on Claude Code 2.1.289 too (a name used twice in it was rejected there), and `/rewake-ask` has its reviewed description.
+
 ### Changed
 
 - Usage limits are recognised for every agent in Zed's registry, each from what it actually sends: Claude's rate-limit event (the same test Claude Code uses to continue on its own), Codex's error kinds, Gemini CLI, Qwen, Qoder, Kimi, Z.AI, MiniMax, Auggie, CodeBuddy, Devin, Junie, Mistral Vibe, goose, OpenCode, Kilo, Cline, Grok Build, Kimchi and Harn. Short-term rate limits, which the agent retries itself, are no longer treated as a usage limit.
