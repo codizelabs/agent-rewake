@@ -186,6 +186,26 @@ describe("shippedMod", () => {
   );
 });
 
+describe("several Claude Codes", () => {
+  it("installs with the newest, and says when another is too old to load the plugin", async () => {
+    const r = await install({
+      programs: [
+        { path: "/usr/local/bin/claude", surface: "terminal", version: "2.1.282" },
+        {
+          path: "/Claude/claude.app/Contents/MacOS/claude",
+          surface: "desktop app",
+          version: "2.1.289",
+        },
+      ],
+    });
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("will add its plugin to Claude Code 2.1.289");
+    expect(r.output).toContain(
+      'Claude Code in your terminal is 2.1.282, too old to load the plugin (it needs 2.1.287). Update it with "claude update" so Rewake works there too.',
+    );
+  });
+});
+
 describe("keeping the mod current", () => {
   const writePlugin = (root: string, version: string) => {
     mkdirSync(join(root, ".claude-plugin"), { recursive: true });

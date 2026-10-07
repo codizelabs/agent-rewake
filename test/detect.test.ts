@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  claudeDesktopPrograms,
   type DetectHost,
   detectAgents,
   type Found,
@@ -187,5 +188,21 @@ describe("with previews installed", () => {
     expect(otherAgentsNote([], ["Claude Code", "Codex"])).toBe(
       "Rewake works in Zed's Agent Panel (not with Zed's own agent) and, as a preview you set up, in Claude Code and Codex. Previews cover only the places named.",
     );
+  });
+});
+
+describe("the Claude desktop app's own Claude Code", () => {
+  posixOnly("is a program Rewake can run, once the app has verified that build", () => {
+    const base = join(home, "Library", "Application Support", "Claude", "claude-code");
+    const bin = (v: string, b: string) =>
+      join(base, v, b, "claude.app", "Contents", "MacOS", "claude");
+    file(bin("2.1.289", "ee67"));
+    file(join(base, "2.1.289", "ee67", ".verified"), "x");
+    // Not verified yet (still downloading): left out.
+    file(bin("2.1.290", "aa11"));
+    expect(claudeDesktopPrograms({ ...host(), platform: "darwin" })).toEqual([
+      { path: bin("2.1.289", "ee67"), surface: "desktop app", version: "2.1.289" },
+    ]);
+    expect(claudeDesktopPrograms({ ...host(), platform: "linux" })).toEqual([]);
   });
 });
