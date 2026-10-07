@@ -96,6 +96,20 @@ You can also ask the agent ("check the CI run again in 30 minutes"). It proposes
 
 Rewake works the same way in front of every external agent Zed runs: Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and the rest. Rewake knows how each of them reports a limit: an error, its own error codes, or a last line such as Cursor's "Upgrade your plan to continue". When the agent says when the limit resets, Rewake resumes at that time; otherwise it asks you when. Zed's own agent isn't an external agent, so Rewake can't be added to it.
 
+### Outside Zed: previews
+
+To continue a Claude Code, Codex or other agent session after a usage limit outside Zed, in a terminal or the Claude desktop app, install a preview. Previews aren't installed by default, haven't been checked with every account type yet, and may change.
+
+| Agent | Install | How to use it |
+|---|---|---|
+| Claude Code (terminal, and the Claude desktop app's Code tab) | `npx @codizelabs/agent-rewake install --only claude-code` | At a usage limit, Rewake offers to continue the session after the reset. Keep Claude Code open. |
+| Codex (terminal) | `npx @codizelabs/agent-rewake install --only codex` | Trust Rewake's hooks in Codex once ("Hooks need review"). At a usage limit, type `rewake` in the thread; Rewake continues the thread after the reset. |
+| GitHub Copilot CLI, Grok Build, Gemini CLI, Antigravity CLI | `npx @codizelabs/agent-rewake install --only copilot-cli` (or `grok`, `gemini-cli`, `antigravity`) | Once the session is closed, run `npx @codizelabs/agent-rewake continue`; run it any time before the reset, and Rewake waits until then. Run `continue --always` once, and from then on Rewake continues closed sessions by itself when the reset is within a day. |
+
+For every preview, keep the computer on and awake until the time Rewake gives. `install` and `doctor` list the previews you set up.
+
+In Claude Code, `/rewake-schedule` also schedules a message into the session. To remove a preview: `npx @codizelabs/agent-rewake uninstall --only <name>`.
+
 ## Privacy and security
 
 - Everything runs on your machine. Rewake makes no network calls of its own and never sees your credentials; sign-in goes through the agent's own flow.
