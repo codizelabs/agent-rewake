@@ -77,6 +77,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - The site's Gemini CLI quota card shows Google's current figures (1,500 requests a day on AI Pro, 2,000 on AI Ultra) and says free accounts moved to Antigravity CLI in June 2026; it showed the old free-tier figure.
 
+- **JetBrains IDEs preview:** `install --only jetbrains` (or the install screen) adds "Claude Agent (with Rewake)" and "Codex (with Rewake)" to AI Assistant (`~/.jetbrains/acp.json`). They run those agents behind Rewake, as in Zed. Nothing else in the file changes; uninstall removes only Rewake's two entries.
+
 ### Changed
 
 - The website, README and docs are written for every place Rewake works, not only Zed: install is "run one command, pick where, restart that tool", "Is it for you?" is a table by place, "How it works" shows three diagrams (Zed's agent connection, a plugin inside Claude Code, and hooks with the system's own timer), and "When it sends", the comparison and the questions cover the previews too.
