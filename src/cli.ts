@@ -21,6 +21,7 @@ import { refreshMod, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { type ClosedDeps, reapClosed } from "./hosts/closed.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { runCopilotInstall } from "./hosts/copilot/install.js";
+import { devinFound, runDevinInstall } from "./hosts/devin/install.js";
 import { diagnoseOutside } from "./hosts/doctor.js";
 import { runGeminiInstall } from "./hosts/gemini/install.js";
 import { runGrokInstall } from "./hosts/grok/install.js";
@@ -100,6 +101,7 @@ const INSTALL_PLACES = new Set([
   "gemini-cli",
   "antigravity",
   "jetbrains",
+  "devin-desktop",
 ]);
 
 const USAGE = `agent-rewake ${VERSION}
@@ -120,7 +122,8 @@ Usage:
   agent-rewake install            In a terminal: pick the places to set up from what's found
   agent-rewake install --only <place>[,<place>...] | --all | --skip <place>[,<place>...]
                                    Places: zed, claude-code, codex, copilot-cli, grok, gemini-cli,
-                                   antigravity, jetbrains. Without a terminal or with --yes: Zed only
+                                   antigravity, jetbrains, devin-desktop. Without a terminal or
+                                   with --yes: Zed only
   agent-rewake uninstall [--yes] [--dry-run]
                                    Take Rewake out of your agents and remove its Zed entries
   agent-rewake setup zed           Print the Zed settings, task and keybinding (to add by hand)
@@ -305,6 +308,17 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       if (id === "copilot-cli") return runCopilotInstall(common);
       if (id === "grok") return runGrokInstall(common);
       if (id === "gemini-cli") return runGeminiInstall(common);
+      if (id === "devin-desktop")
+        return runDevinInstall({
+          uninstall,
+          yes: o.yes,
+          dryRun: o.dryRun,
+          env,
+          launch: launchCommand(),
+          interactive,
+          out: o.out,
+          ask,
+        });
       if (id === "jetbrains")
         return runJetbrainsInstall({
           uninstall,
@@ -628,9 +642,15 @@ function placesHere(env: NodeJS.ProcessEnv): { places: Place[]; missing: string[
   const zedApps = findZedApps(process.platform, homedir(), env);
   const installed = new Set<PlaceId>(installedPreviews(env, homedir(), stateDir(env)));
   // JetBrains IDEs run agents through ACP: offered like an agent, with no version of their own.
-  const withIde: Found[] = jetbrainsFound(env, homedir(), process.platform)
-    ? [...found, { id: "jetbrains", name: "JetBrains IDEs", surfaces: ["app"] }]
-    : found;
+  const withIde: Found[] = [
+    ...found,
+    ...(jetbrainsFound(env, homedir(), process.platform)
+      ? [{ id: "jetbrains" as const, name: "JetBrains IDEs", surfaces: ["app"] }]
+      : []),
+    ...(devinFound(homedir())
+      ? [{ id: "devin-desktop" as const, name: "Devin Desktop", surfaces: ["app"] }]
+      : []),
+  ];
   const places = placesFrom(
     withIde,
     {
@@ -667,6 +687,7 @@ function placeName(id: string): string {
     "gemini-cli": "Gemini CLI",
     antigravity: "Antigravity",
     jetbrains: "JetBrains IDEs",
+    "devin-desktop": "Devin Desktop",
   };
   return names[id] ?? id;
 }

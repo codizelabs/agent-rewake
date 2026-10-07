@@ -28,6 +28,7 @@ export type PlaceId =
   | "gemini-cli"
   | "antigravity"
   | "jetbrains"
+  | "devin-desktop"
   | "zed";
 
 export interface Found {
