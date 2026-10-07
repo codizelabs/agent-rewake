@@ -73,6 +73,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - **Copilot CLI preview:** a weekly limit is recognised from the code Copilot's service sends with the error, even though Copilot marks every retry "recoverable"; Rewake missed it before. When Copilot starts several hooks at once, none of them loses what another recorded, so a session always keeps the program Rewake resumes it with.
 
+- **Previews outside Zed:** with `AGENT_REWAKE_STATE_DIR` set, a resume's timer now uses that folder too. Timers run without Rewake's environment, so they used the default folder, found nothing to send and removed themselves.
+
 ### Changed
 
 - The website, README and docs are written for every place Rewake works, not only Zed: install is "run one command, pick where, restart that tool", "Is it for you?" is a table by place, "How it works" shows three diagrams (Zed's agent connection, a plugin inside Claude Code, and hooks with the system's own timer), and "When it sends", the comparison and the questions cover the previews too.

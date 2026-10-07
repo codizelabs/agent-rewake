@@ -381,3 +381,15 @@ describe("agentProcess", () => {
     expect(stillRunning({ pid: 200, name: "copilot" }, () => false, ps)).toBe(false);
   });
 });
+
+describe("fire from a timer", () => {
+  it("uses the state folder the timer names, not the default one", async () => {
+    const { main } = await import("../src/cli.js");
+    // An id with no resume there: "gone", and nothing is written outside that folder.
+    expect(
+      await main(["fire", "0f6c3a1e-6b1d-4d7a-9a51-2b8c4f1e9d10", "--state-dir", dir], {}),
+    ).toBe(0);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(join(dir, "logs"))).toBe(true);
+  });
+});
