@@ -38,6 +38,11 @@ export interface ArmContext {
   /** A credit, spend or billing limit: waiting doesn't fix it. */
   isBilling: boolean;
   auto: AutoResume;
+  /**
+   * With "always" and no reset time: continue after this long instead of asking (Zed's add-on
+   * remembers the wait the person last chose, DESIGN C2). Without it, no reset time means ask.
+   */
+  noResetDelayMs?: number;
 }
 
 export type ArmDecision =
@@ -49,7 +54,10 @@ export type ArmDecision =
 export function decideArm(c: ArmContext): ArmDecision {
   if (c.isBilling) return { action: "none", why: "billing" };
   if (c.auto === "never") return { action: "none", why: "never" };
-  if (c.resetsAt === undefined) return { action: "offer", why: "no-reset-time" };
+  if (c.resetsAt === undefined)
+    return c.auto === "always" && c.noResetDelayMs !== undefined
+      ? { action: "arm", fireAt: c.now + c.noResetDelayMs }
+      : { action: "offer", why: "no-reset-time" };
   if (c.resetsAt + RESET_MARGIN_MS <= c.now) return { action: "none", why: "passed" };
   if (c.resetsAt - c.now > FAR_RESET_MS) return { action: "offer", why: "far-reset" };
   if (c.auto === "ask") return { action: "offer", why: "ask" };
@@ -80,6 +88,8 @@ export interface FireContext {
   sessionOpen?: boolean;
   /** This resume's idempotency key was already sent. */
   alreadySent: boolean;
+  /** How late counts as too late to send without asking (default LATE_MS; Zed's add-on: 15 min). */
+  lateMs?: number;
 }
 
 export type FireDecision =
@@ -97,7 +107,7 @@ export function decideFire(c: FireContext): FireDecision {
   if (c.nativeContinued) return { action: "skip", why: "native" };
   if (c.userTypedSince) return { action: "skip", why: "typed" };
   if (c.sessionOpen) return { action: "notify", why: "open" };
-  if (c.now - r.dueAt > LATE_MS) return { action: "notify", why: "late" };
+  if (c.now - r.dueAt > (c.lateMs ?? LATE_MS)) return { action: "notify", why: "late" };
   if (c.usageAllowed === false) {
     if (rearms >= MAX_REARMS) return { action: "skip", why: "expired" };
     if (c.newResetsAt !== undefined && c.newResetsAt > c.now) {

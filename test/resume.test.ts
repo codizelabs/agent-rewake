@@ -164,3 +164,30 @@ describe("backoffMs", () => {
     );
   });
 });
+
+describe("the rules Zed's add-on shares with the previews", () => {
+  const NOW = Date.parse("2026-10-07T12:00:00Z");
+  it("with 'always' and no reset time, waits the chosen time instead of asking", () => {
+    expect(
+      decideArm({ now: NOW, isBilling: false, auto: "always", noResetDelayMs: 3_600_000 }),
+    ).toEqual({
+      action: "arm",
+      fireAt: NOW + 3_600_000,
+    });
+    expect(
+      decideArm({ now: NOW, isBilling: false, auto: "ask", noResetDelayMs: 3_600_000 }),
+    ).toEqual({
+      action: "offer",
+      why: "no-reset-time",
+    });
+  });
+
+  it("takes its own late threshold (Zed: 15 minutes, the previews: 30)", () => {
+    const resume = { dueAt: NOW - 20 * 60_000, status: "scheduled" };
+    expect(decideFire({ resume, now: NOW, alreadySent: false }).action).toBe("send");
+    expect(decideFire({ resume, now: NOW, alreadySent: false, lateMs: 15 * 60_000 })).toEqual({
+      action: "notify",
+      why: "late",
+    });
+  });
+});

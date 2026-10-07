@@ -34,6 +34,7 @@ import {
   withValue,
 } from "./core/options-bridge.js";
 import { type AgentRequest, LinkStore, RequestStore } from "./core/requests.js";
+import { decideArm, decideFire, FAR_RESET_MS } from "./core/resume.js";
 import { applySettings, type KeepAwake, loadSettings, saveSettings } from "./core/settings.js";
 import { MAX_FOLLOW_UPS, type Schedule, ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import { DEFAULT_RESUME_PROMPT, ThreadStore } from "./core/threads.js";
@@ -1139,19 +1140,20 @@ export class SchedulingAddon {
         this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), now);
     const thread = this.threads.get(session.sessionId);
     const gate = this.autoGate(session, resetAt);
-    if (thread?.autoResume && resetAt === undefined && gate === undefined) {
-      // The agent didn't say when it resets: wait the time last chosen in the resume form (C2).
-      session.limit.resetAt =
-        now + (thread.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS) - this.margin();
-      this.scheduleResume(
-        session,
-        "auto_limit_resume",
-        this.threads.resumePrompt(session.sessionId),
-        "auto",
-      );
-      return;
-    }
-    if (thread?.autoResume && resetAt !== undefined && gate === undefined) {
+    // The shared rules decide (src/core/resume.ts): billing never, a reset a day away is asked
+    // about, no reset time waits the time last chosen in the resume form (C2).
+    const delay = thread?.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS;
+    const decision = decideArm({
+      now,
+      ...(resetAt !== undefined && { resetsAt: resetAt }),
+      isBilling: false,
+      auto: thread?.autoResume && gate === undefined ? "always" : "ask",
+      noResetDelayMs: delay,
+    });
+    // A reset that has already passed: resume now (the add-on's own timing rounds it up).
+    const passed = decision.action === "none" && decision.why === "passed";
+    if (thread?.autoResume && gate === undefined && (decision.action === "arm" || passed)) {
+      if (resetAt === undefined) session.limit.resetAt = now + delay - this.margin();
       this.scheduleResume(
         session,
         "auto_limit_resume",
@@ -1186,8 +1188,7 @@ export class SchedulingAddon {
         return "the limit has lasted almost a day, so Rewake won't keep trying on its own.";
       return undefined;
     }
-    if (resetAt - this.now() > 24 * 3_600_000)
-      return "the limit resets more than 24 hours from now.";
+    if (resetAt - this.now() > FAR_RESET_MS) return "the limit resets more than 24 hours from now.";
     if ((session.limit?.autoAttempts ?? 0) >= 1)
       return `${capitalize(this.agentName)} gave the same reset time as last time, so resuming again would repeat itself.`;
     return undefined;
@@ -3038,7 +3039,14 @@ export class SchedulingAddon {
         continue;
       }
       // A resume paused again by the limit is held to its new time as well.
-      if (now - s.dueAt > this.missedGraceMs && (s.attempts.length === 0 || s.kind !== "user")) {
+      const late =
+        decideFire({
+          resume: { dueAt: s.dueAt, status: s.status },
+          now,
+          alreadySent: false,
+          lateMs: this.missedGraceMs,
+        }).action === "notify";
+      if (late && (s.attempts.length === 0 || s.kind !== "user")) {
         this.store.update(s.scheduleId, (x) => ({ ...x, status: "missed" }), now);
         const when = formatWhen(s.dueAt, now, this.opts.locale);
         if (this.clientSupportsForms && !session.formOpen) {
