@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Keep this computer awake for resumes and scheduled messages** (macOS): while a resume or scheduled message is due within six hours, or while the agent works on a scheduled message, Rewake stops the computer from idling to sleep with the system's own `caffeinate`, tied to Rewake's process so it ends with it. A new setting chooses *While it's plugged in* (default), *Always, also on battery* or *Never*; the thread says once when the computer is kept awake. In the Claude Code preview the same happens while a continue is due (Rewake's or Claude Code's own), and every preview keeps the computer awake while the agent works on the resumed session. Closing the lid still puts the computer to sleep, and Rewake can't wake a sleeping one. Linux and Windows aren't supported yet.
+
 ### Fixed
 
 - A usage limit that names a spend limit or credits but also says when the plan's limit resets ("You've hit your individual spend limit · … · your session limit resets 7:50pm") is resumed at that time. Rewake ignored it before. The same applies to Codex, Copilot, Factory Droid, Amp, Z.AI and others ("purchase more credits or try again at 2:51 PM").

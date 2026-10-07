@@ -11,6 +11,7 @@ import { loadSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore } from "../core/store.js";
 import { formatAt, formatWhen } from "../core/time.js";
 import type { HostAdapter, HostFacts } from "../hosts/host.js";
+import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
 import type { Notifier } from "./notify.js";
 import { armTimer, cancelTimer, type TimerHost } from "./timers.js";
@@ -49,6 +50,8 @@ export interface FireDeps {
   log?: (event: string, fields: LogFields) => void;
   /** This run was started by the resume's own timer (macOS removes it from a detached child). */
   fromTimer?: boolean;
+  /** Keeps the computer awake while the resumed turn runs (tests pass their own). */
+  wake?: Wake;
 }
 
 const LIVE = new Set<Schedule["status"]>(["scheduled", "waiting_for_limit", "cancelled"]);
@@ -141,7 +144,8 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
   const lockKey = `fire:${id}`;
   if (!lock.acquire(lockKey)) return "busy";
   try {
-    loadSettings(deps.stateDir); // the person's 12- or 24-hour clock, for notifications
+    // The person's 12- or 24-hour clock, for notifications, and whether to keep the computer awake.
+    const settings = loadSettings(deps.stateDir);
     const key = `${id}:${s.dueAt}`;
     let facts: HostFacts = {};
     if (s.status !== "cancelled")
@@ -228,10 +232,15 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           now,
         );
         let result: Awaited<ReturnType<HostAdapter["send"]>>;
+        // Most hosts run the whole resumed turn here: don't let the computer idle to sleep in it.
+        const wake = deps.wake ?? new Wakefulness();
+        wake.set(true, settings.keepAwake);
         try {
           result = await host.send(s, key);
         } catch (err) {
           result = { ok: false, reason: "failed", detail: (err as Error).message };
+        } finally {
+          wake.release();
         }
         const outcome = result.ok ? "sent" : result.reason;
         store.update(
