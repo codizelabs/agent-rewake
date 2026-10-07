@@ -15,14 +15,14 @@ import { runContinue, waiting } from "../src/continue.js";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { ScheduleStore } from "../src/core/store.js";
 import { type ClosedDeps, closedAdapter, FIRE_ENV } from "../src/hosts/closed.js";
-import { copilotHooks, copilotHost } from "../src/hosts/copilot/host.js";
+import { copilotHooks, copilotHost, resumeCopilot } from "../src/hosts/copilot/host.js";
 import {
   copilotHooksJson,
   hooksFile,
   MIN_COPILOT,
   runCopilotInstall,
 } from "../src/hosts/copilot/install.js";
-import { classifyCopilotError, parseCopilotReset } from "../src/hosts/copilot/recognise.js";
+import { classifyCopilotError } from "../src/hosts/copilot/recognise.js";
 import { runHook } from "../src/hosts/hook.js";
 import "../src/hosts/index.js"; // registers the hosts
 import { SessionRecords } from "../src/hosts/sessions.js";
@@ -33,7 +33,10 @@ const NOW = new Date(2026, 9, 7, 12, 0).getTime();
 const H = 3_600_000;
 const SID = "8a3c1f2e-0b5d-4c7a-9e21-3f6b8d0c4a17";
 const WEEKLY =
-  "You've reached your weekly rate limit. Please wait for your limit to reset on October 7, 2026 at 3:00 PM or switch to auto model to continue.";
+  "You've reached your weekly rate limit. Please wait for your limit to reset on October 8, 2026 at 3:00 PM or switch to auto model to continue.";
+/** Resets at 15:00 today in any time zone, for the hook tests. */
+const WEEKLY_IN =
+  "You've reached your weekly rate limit. Please wait for your limit to reset in 3 hours or switch to auto model to continue.";
 
 let dir: string;
 let state: string;
@@ -49,10 +52,11 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("Copilot's limit texts", () => {
   it("reads the reset from the text, and knows billing when it sees it", () => {
+    // Copilot prints a reset date in UTC without saying so.
     expect(classifyCopilotError(WEEKLY, NOW)).toEqual({
       kind: "weekly",
       billing: false,
-      resetsAt: new Date(2026, 9, 7, 15, 0).getTime(),
+      resetsAt: Date.UTC(2026, 9, 8, 15, 0),
     });
     expect(
       classifyCopilotError("You've hit your session rate limit. Please try again in 2 hours.", NOW),
@@ -65,12 +69,40 @@ describe("Copilot's limit texts", () => {
       kind: "billing",
       billing: true,
     });
-    expect(classifyCopilotError("You've hit your rate limit.", NOW)).toEqual({
+    expect(classifyCopilotError("Connection reset by peer", NOW)).toBeUndefined();
+    expect(
+      classifyCopilotError(
+        "You've reached your weekly rate limit. Please wait for your limit to reset on Smarch 1, 2026 at 1:00 AM.",
+        NOW,
+      ),
+    ).toEqual({ kind: "weekly", billing: false });
+  });
+
+  it("reads Copilot 1.0.92's wording and leaves short-term limits to Copilot", () => {
+    expect(
+      classifyCopilotError(
+        "You've hit your session rate limit. Please wait for your limit to reset in 2 hours. (Request ID: 1A2B:3C4D)",
+        NOW,
+      ),
+    ).toEqual({ kind: "session", billing: false, resetsAt: NOW + 2 * H });
+    expect(
+      classifyCopilotError(
+        "You've hit the rate limit for this model. Please wait for your limit to reset in under a minute.",
+        NOW,
+      ),
+    ).toBeUndefined();
+    expect(classifyCopilotError("You've hit your rate limit.", NOW)).toBeUndefined();
+  });
+
+  it("counts the monthly premium-request allowance as a usage limit", () => {
+    expect(classifyCopilotError("402 Payment Required", NOW)).toEqual({
       kind: "other",
       billing: false,
     });
-    expect(classifyCopilotError("Connection reset by peer", NOW)).toBeUndefined();
-    expect(parseCopilotReset("reset on Smarch 1, 2026 at 1:00 AM", NOW)).toBeUndefined();
+  });
+
+  it("ignores an error Copilot recovered from", () => {
+    expect(classifyCopilotError(WEEKLY, NOW, true)).toBeUndefined();
   });
 });
 
@@ -110,7 +142,7 @@ describe("Copilot's hooks", () => {
     await h.event("sessionStart", { source: "startup" });
     await h.event("userPromptSubmitted", { prompt: "fix the build" });
     await h.event("errorOccurred", {
-      error: { message: WEEKLY, name: "Error" },
+      error: { message: WEEKLY_IN, name: "Error" },
       errorContext: "model_call",
       recoverable: false,
     });
@@ -133,7 +165,7 @@ describe("Copilot's hooks", () => {
 
   it("arms at the end when automatic resume is on and the reset is within a day", async () => {
     const h = harness({ ...DEFAULT_SETTINGS, newThreads: "on" });
-    await h.event("errorOccurred", { error: { message: WEEKLY } });
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
     await h.event("sessionEnd", { reason: "error" });
     expect(h.armed.map(([, at]) => at)).toEqual([new Date(2026, 9, 7, 15, 1).getTime()]);
     expect(h.notes).toEqual([
@@ -147,7 +179,7 @@ describe("Copilot's hooks", () => {
     const h = harness();
     await h.event("errorOccurred", { error: { message: "You've run out of your AI credits" } });
     await h.event("sessionEnd", { reason: "error" });
-    await h.event("errorOccurred", { error: { message: WEEKLY } }, {}, NOW + 1000);
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN } }, {}, NOW + 1000);
     await h.event("userPromptSubmitted", { prompt: "go on" }, {}, NOW + 2000);
     await h.event("sessionEnd", { reason: "complete" }, {}, NOW + 3000);
     expect(h.notes).toEqual([]);
@@ -155,11 +187,15 @@ describe("Copilot's hooks", () => {
 
   it("stands down for Zed's sessions and for other agents' events", async () => {
     const h = harness();
-    await h.event("errorOccurred", { error: { message: WEEKLY } }, { AGENT_REWAKE_OWNER: "acp" });
-    await h.event("errorOccurred", { error: { message: WEEKLY }, hookEventName: "StopFailure" });
     await h.event(
       "errorOccurred",
-      { error: { message: WEEKLY } },
+      { error: { message: WEEKLY_IN } },
+      { AGENT_REWAKE_OWNER: "acp" },
+    );
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN }, hookEventName: "StopFailure" });
+    await h.event(
+      "errorOccurred",
+      { error: { message: WEEKLY_IN } },
       { GROK_HOOK_EVENT: "StopFailure" },
     );
     expect(new SessionRecords(state, "copilot-cli").get(SID)).toBeUndefined();
@@ -175,7 +211,7 @@ describe("Copilot's hooks", () => {
 describe("agent-rewake continue", () => {
   async function limited(h: ReturnType<typeof harness>) {
     await h.event("sessionStart", { source: "startup" });
-    await h.event("errorOccurred", { error: { message: WEEKLY } });
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
     await h.event("sessionEnd", { reason: "error" });
   }
   const run = async (h: ReturnType<typeof harness>, answers: string[], interactive = true) => {
@@ -250,7 +286,7 @@ describe("agent-rewake continue", () => {
     expect(await mode("always")).toMatch(
       /^From now on, when a session stops at a usage limit that resets within a day/,
     );
-    await h.event("errorOccurred", { error: { message: WEEKLY } });
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
     await h.event("sessionEnd", { reason: "error" });
     expect(h.armed).toHaveLength(1);
     expect(await mode("ask")).toMatch(/^Rewake will ask again/);
@@ -258,7 +294,9 @@ describe("agent-rewake continue", () => {
 
   it("offers preset times when the limit didn't say", async () => {
     const h = harness();
-    await h.event("errorOccurred", { error: { message: "You've hit your rate limit." } });
+    await h.event("errorOccurred", {
+      error: { message: "You've reached your weekly rate limit." },
+    });
     await h.event("sessionEnd", { reason: "error" });
     const r = await run(h, ["2"]);
     expect(r.code).toBe(0);
@@ -268,7 +306,9 @@ describe("agent-rewake continue", () => {
 
   it("takes another time, and asks again when it can't read one", async () => {
     const h = harness();
-    await h.event("errorOccurred", { error: { message: "You've hit your rate limit." } });
+    await h.event("errorOccurred", {
+      error: { message: "You've reached your weekly rate limit." },
+    });
     await h.event("sessionEnd", { reason: "error" });
     const r = await run(h, ["4", "tomorow", "4pm"]);
     expect(r.code).toBe(0);
@@ -280,7 +320,7 @@ describe("Copilot at fire time", () => {
   async function armed() {
     const h = harness();
     await h.event("sessionStart", { source: "startup" });
-    await h.event("errorOccurred", { error: { message: WEEKLY } });
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
     await h.event("sessionEnd", { reason: "error" });
     await runContinue({
       hosts: [copilotHost],
@@ -336,6 +376,19 @@ describe("Copilot at fire time", () => {
     const id = await armed();
     expect(await fire(id, deps({ FAKE_COPILOT: "limited" }))).toBe("waiting");
     expect(new ScheduleStore(state).get(id)?.status).toBe("scheduled");
+  });
+
+  it("reports a session Copilot no longer has as deleted, not a failure", async () => {
+    const r = new SessionRecords(state, "copilot-cli").update(SID, work, NOW, (x) => ({
+      ...x,
+      program: FAKE,
+    }));
+    if (!r) throw new Error("no session record");
+    expect(await resumeCopilot(r, "Continue.", { ...process.env, FAKE_COPILOT: "gone" })).toEqual({
+      ok: false,
+      reason: "closed",
+      detail: "deleted",
+    });
   });
 
   it("only notifies when the session is open again: never a second writer", async () => {

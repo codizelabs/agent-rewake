@@ -66,10 +66,8 @@ describe("Grok's limits", () => {
       kind: "billing",
       billing: true,
     });
-    expect(classifyGrokFailure({ error: "rate_limit" }, { full: false })).toEqual({
-      kind: "other",
-      billing: false,
-    });
+    // A rate limit with nothing else to go on is short-term (HTTP 429, 503, 529): Grok retries.
+    expect(classifyGrokFailure({ error: "rate_limit" }, { full: false })).toBeUndefined();
     expect(classifyGrokFailure({ error: "server_error" }, { full: false })).toBeUndefined();
     expect(
       classifyGrokFailure(
@@ -96,6 +94,44 @@ describe("Grok's limits", () => {
       JSON.stringify([{ session_id: SID, pid: 999_999_999 }]),
     );
     expect(grokSessionOpen(grok, SID)).toBe(false);
+  });
+});
+
+describe("Grok's own wording", () => {
+  const rate = (lastAssistantMessage: string) => ({ error: "rate_limit", lastAssistantMessage });
+  it("leaves its short-term limits and overloads to Grok", () => {
+    for (const text of [
+      "You’ve hit your team’s API rate limit. Ask a team admin to purchase more credits for higher limits, or try again later.",
+      "You’ve hit the rate limit for your plan. Please wait and try again.",
+      "Grok is temporarily overloaded (HTTP 529). Please try again.",
+    ])
+      expect(classifyGrokFailure(rate(text), { full: true, resetsAt: 9 })).toBeUndefined();
+  });
+  it("counts the free usage limit, with the weekly reset only when the pool is full", () => {
+    const free = rate("You’ve reached your free Grok Build usage limit.");
+    expect(classifyGrokFailure(free, { full: false, resetsAt: 9 })).toEqual({
+      kind: "other",
+      billing: false,
+    });
+    expect(classifyGrokFailure(free, { full: true, resetsAt: 9 })).toEqual({
+      kind: "other",
+      billing: false,
+      resetsAt: 9,
+    });
+  });
+  it("counts a 402 with a full weekly pool as the weekly limit, unless it names a cap", () => {
+    const paid = { error: "invalid_request", errorDetails: "402 Payment Required" };
+    expect(classifyGrokFailure(paid, { full: true, resetsAt: 9 })).toEqual({
+      kind: "weekly",
+      billing: false,
+      resetsAt: 9,
+    });
+    expect(
+      classifyGrokFailure(
+        { ...paid, lastAssistantMessage: "You've hit the credit limit for your plan." },
+        { full: true, resetsAt: 9 },
+      ),
+    ).toEqual({ kind: "billing", billing: true });
   });
 });
 

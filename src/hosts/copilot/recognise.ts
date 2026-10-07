@@ -1,3 +1,4 @@
+import { classifyTurnEnd } from "../../adapters/profiles.js";
 import type { SessionLimit } from "../sessions.js";
 
 /**
@@ -13,55 +14,30 @@ import type { SessionLimit } from "../sessions.js";
  * month", "spending limit for this session", "additional usage limit".
  * Whether `errorOccurred` carries exactly these texts is experiment E-C1.
  */
-const MONTHS = [
-  "january",
-  "february",
-  "march",
-  "april",
-  "may",
-  "june",
-  "july",
-  "august",
-  "september",
-  "october",
-  "november",
-  "december",
-];
 
-/** "reset on April 20, 2026 at 2:00 AM" (local time) or "try again in 58 hours". */
-export function parseCopilotReset(text: string, now: number): number | undefined {
-  const on = /reset on ([A-Za-z]+) (\d{1,2}), (\d{4}) at (\d{1,2}):(\d{2}) ?([AP]M)/i.exec(text);
-  if (on) {
-    const month = MONTHS.indexOf((on[1] ?? "").toLowerCase());
-    if (month < 0) return undefined;
-    let h = Number(on[4]) % 12;
-    if ((on[6] ?? "").toUpperCase() === "PM") h += 12;
-    const d = new Date(Number(on[3]), month, Number(on[2]), h, Number(on[5]), 0, 0);
-    return Number.isFinite(d.getTime()) ? d.getTime() : undefined;
-  }
-  const after = /try again in (\d+) ?(seconds?|minutes?|hours?|days?)/i.exec(text);
-  if (after) {
-    const unit = { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[(after[2] ?? "s")[0]?.toLowerCase() as "s"];
-    return now + Number(after[1]) * unit;
-  }
-  return undefined;
-}
-
-/** A usage limit in Copilot CLI's error text, or undefined for any other error. */
+/**
+ * A usage limit in Copilot CLI's error text, or undefined for any other error, a short-term rate
+ * limit Copilot rides out itself, or an error it recovered from. The hook's text is what the ACP
+ * client gets after "Error: ", so the rules are the shared ones (`classifyTurnEnd("copilot", …)`):
+ * Copilot's own sentences, "reset in 2 hours", and reset dates printed in UTC.
+ */
 export function classifyCopilotError(
   text: unknown,
   now: number,
+  recoverable = false,
 ): Omit<SessionLimit, "seenAt"> | undefined {
-  if (typeof text !== "string" || text === "") return undefined;
+  if (recoverable || typeof text !== "string" || text === "") return undefined;
   const t = text.slice(0, 4096);
-  if (/AI credits|spending limit|additional usage limit|billing/i.test(t))
+  const c = classifyTurnEnd("copilot", `Error: ${t}`, "end_turn", now);
+  if (c?.kind === "not_recoverable") return { kind: "billing", billing: true };
+  if (c?.kind === "usage_limit")
+    return {
+      kind: c.limitType,
+      billing: false,
+      ...(c.resetAt !== undefined && { resetsAt: c.resetAt }),
+    };
+  // Wordings the shared rules don't name, kept as billing: waiting doesn't bring them back.
+  if (/run out of your AI credits|additional usage limit/i.test(t))
     return { kind: "billing", billing: true };
-  let kind: string;
-  if (/weekly rate limit/i.test(t)) kind = "weekly";
-  else if (/session rate limit/i.test(t)) kind = "session";
-  else if (/rate limit for this model/i.test(t)) kind = "model";
-  else if (/rate limit/i.test(t)) kind = "other";
-  else return undefined;
-  const resetsAt = parseCopilotReset(t, now);
-  return { kind, billing: false, ...(resetsAt !== undefined && { resetsAt }) };
+  return undefined;
 }
