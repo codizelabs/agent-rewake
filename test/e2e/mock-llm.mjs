@@ -143,6 +143,15 @@ function userTexts(body) {
     .filter(Boolean);
 }
 
+/** The usage-limit response for a request: by its API family, and the profile on OpenAI's wire. */
+function limitFor(family, s) {
+  if (family === "anthropic") return LIMITS.anthropic(s);
+  if (family === "gemini") return LIMITS.gemini(s);
+  if (s.profile === "copilot") return LIMITS.copilot(s);
+  if (s.profile.startsWith("xai")) return LIMITS.xai(s);
+  return LIMITS.openai(s);
+}
+
 const json = (res, status, body, headers = {}) => {
   res.writeHead(status, { "content-type": "application/json", ...headers });
   res.end(JSON.stringify(body));
@@ -359,11 +368,7 @@ export function startMock() {
       if (/\/messages\/count_tokens$/.test(path)) return json(res, 200, { input_tokens: 10 });
       if (/:countTokens$/.test(path)) return json(res, 200, { totalTokens: 10 });
       if (refused) {
-        const wire =
-          family === "openai" && /^(xai|copilot)/.test(state.profile)
-            ? state.profile.split("-")[0]
-            : family;
-        const l = LIMITS[wire](state);
+        const l = limitFor(family, state);
         return json(res, l.status, l.body, l.headers);
       }
       if (family === "anthropic") return anthropic(res, body, state.reply);
