@@ -12,6 +12,7 @@ import {
   unanswered,
 } from "./hosts/closed.js";
 import { type SessionRecord, SessionRecords } from "./hosts/sessions.js";
+import { SLEEP_DOCS_URL, type SleepSettings, sleepRisks } from "./util/sleep-settings.js";
 
 /**
  * `agent-rewake continue`: continue a closed agent session after its usage limit resets. For the
@@ -31,6 +32,8 @@ export interface ContinueOptions {
   out: (text: string) => void;
   /** Ask a question; resolves with the typed answer. */
   ask: (question: string) => Promise<string>;
+  /** Reads this computer's own sleep settings; not checked when absent. */
+  sleepSettings?: () => SleepSettings;
 }
 
 interface Candidate {
@@ -159,6 +162,12 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
   }
   armClosed(chosen.host, chosen.record, at, o.deps);
   o.out(`${armedText(chosen.host, chosen.record.cwd, at, now)}\n`);
+  // Nothing of Rewake's runs while it waits here, so any sleep setting counts.
+  const risks = o.sleepSettings ? sleepRisks(o.sleepSettings(), "none") : [];
+  if (risks.length > 0)
+    o.out(
+      `This computer may sleep before then: ${risks.join("; ")}. To keep it awake: ${SLEEP_DOCS_URL}\n`,
+    );
   if (settings.newThreads !== "on")
     o.out(
       "To let Rewake do this by itself next time (when the reset is within a day): agent-rewake continue --always\n",
