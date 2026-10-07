@@ -7,7 +7,7 @@ import {
   withVersion,
 } from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
-import { codexProgram } from "./cli.js";
+import { codexProgram, listHooks } from "./cli.js";
 import {
   CODEX_HOOK_EVENTS,
   installPlugin,
@@ -46,6 +46,8 @@ export interface CodexInstallOptions {
   probe?: VersionProbe;
   install?: typeof installPlugin;
   uninstall_?: typeof uninstallPlugin;
+  /** Codex's `hooks/list` after install (tests replace it). */
+  list?: typeof listHooks;
 }
 
 /** The Codex to install with: the newest CLI, else the copy inside the ChatGPT app. */
@@ -128,6 +130,20 @@ export async function runCodexInstall(o: CodexInstallOptions): Promise<number> {
   const r = await (o.install ?? installPlugin)(program, dir, o.env);
   if (!r.ok) {
     o.out(`Codex couldn't add the plugin, so nothing was changed. ${r.detail ?? ""}\n`);
+    return 1;
+  }
+  // Check that Codex will run them: an organisation's policy can allow managed hooks only.
+  // (Tests that replace Codex's commands and give no list skip this.)
+  const list = o.list ?? (o.install ? async () => undefined : listHooks);
+  const listed = await list(program, o.env, home);
+  if (listed !== undefined && !listed.some((h) => h.command.includes(launcher))) {
+    o.out(
+      [
+        "",
+        "Codex added the plugin but doesn't list Rewake's hooks, so it won't run them. This usually means your organisation's settings allow only hooks it manages (allow_managed_hooks_only). Ask whoever manages Codex for you, or remove the plugin with: agent-rewake uninstall --only codex",
+        "",
+      ].join("\n"),
+    );
     return 1;
   }
   o.out(

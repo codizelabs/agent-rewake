@@ -497,6 +497,20 @@ describe("Codex plugin and install", () => {
     expect(r.installed).toEqual([]);
   });
 
+  it("says so when Codex doesn't list Rewake's hooks (an organisation's policy)", async () => {
+    const blocked = await install({ list: async () => [] });
+    expect(blocked.code).toBe(1);
+    expect(blocked.output).toContain("doesn't list Rewake's hooks, so it won't run them");
+    const listed = await install({
+      list: async () => [
+        { command: `"x" "${join(state, "bin", "agent-rewake.mjs")}" hook codex Stop` },
+      ],
+    });
+    expect(listed.code).toBe(0);
+    // Codex didn't answer: nothing to conclude, install stands.
+    expect((await install({ list: async () => undefined })).code).toBe(0);
+  });
+
   it("refuses a Codex that's too old or missing, with the fix", async () => {
     const old = await install({
       programs: [{ path: FAKE, surface: "terminal", version: "0.140.0" }],
