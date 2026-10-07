@@ -93,7 +93,7 @@ npx @codizelabs/agent-rewake doctor
 
 ### Updating
 
-From any version, the same two steps: run `npx @codizelabs/agent-rewake@latest install`, then quit Zed completely and open it again. Your threads, scheduled messages and settings stay. Details, and any version-specific steps (none so far), are in the [docs](https://codizelabs.github.io/agent-rewake/docs/#update).
+From any version, the same two steps: run `npx @codizelabs/agent-rewake@latest install`, then quit Zed completely and open it again. Your threads, scheduled messages and settings stay. Details, and any version-specific steps (none so far), are in the [docs](https://codizelabs.github.io/agent-rewake/docs/#update). To see which version you run, hover over the **Rewake** menu, or run `agent-rewake --version`. **Settings…**, the menu's **Rewake** entry (About) and the schedules page show it too.
 
 ### Requirements
 

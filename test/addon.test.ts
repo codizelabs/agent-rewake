@@ -13,6 +13,7 @@ import { callTool } from "../src/mcp.js";
 import type { Wake } from "../src/util/keep-awake.js";
 import { Logger } from "../src/util/log.js";
 import type { SleepSettings } from "../src/util/sleep-settings.js";
+import { VERSION } from "../src/version.js";
 
 const HOUR = 3_600_000;
 const T0 = new Date(2026, 9, 4, 14, 0, 0, 0).getTime(); // 4 Oct 2026 14:00 local
@@ -1441,6 +1442,9 @@ describe("the Rewake menu in the thread toolbar", () => {
     pick(h, 7, menuOf(latestOptions(h)), "settings");
     await settle();
     expect(formKeys(h)).toEqual(["autoResume", "clock", "keepAwake"]);
+    expect((forms(h).at(-1)?.params as { message?: string } | undefined)?.message).toBe(
+      `Agent Rewake ${VERSION} settings.`,
+    );
     const clock = (
       forms(h).at(-1)?.params as {
         requestedSchema: {
@@ -1784,6 +1788,7 @@ describe("the agent's tools (approved by the user)", () => {
     expect(about).toMatch(/^# Agent Rewake: what it is and how it behaves/);
     expect(about).toContain("| Zed is closed at that time | Nothing is sent.");
     expect(about).toContain("## Right now");
+    expect(about).toContain(`- Agent Rewake version: ${VERSION}.`);
     expect(about).toContain(
       "- This thread: automatic resume after usage limits is off; nothing is scheduled.",
     );
@@ -1960,6 +1965,11 @@ describe("the menu's own Rewake entry", () => {
         | { configOptions: Array<{ id: string; currentValue: string }> }
         | undefined
     )?.configOptions.find((o) => o.id === "rewake");
+    // The version is in the menu's tooltip, never in its short toolbar label.
+    expect(menu).toMatchObject({
+      name: "Rewake",
+      description: `Agent Rewake ${VERSION}: schedule messages in this thread`,
+    });
     h.client({
       id: 7,
       method: "session/set_config_option",
@@ -1968,6 +1978,7 @@ describe("the menu's own Rewake entry", () => {
     await settle();
     const about = h.texts().at(-1) ?? "";
     expect(about).toMatch(/^\*\*About Agent Rewake\*\*/);
+    expect(about.split("\n")[0]).toBe(`**About Agent Rewake** · ${VERSION}`);
     expect(about).toContain("[Agent Rewake on GitHub](https://github.com/codizelabs/agent-rewake)");
     expect(forms(h)).toEqual([]);
     h.addon.stop();
