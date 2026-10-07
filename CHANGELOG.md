@@ -69,6 +69,9 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **Claude Code preview:** `install --only claude-code` also uses the Claude desktop app's own Claude Code, so an older Claude Code in the terminal no longer stops the install; it says when the terminal one is too old to load the plugin. The plugin passes `claude plugin validate` on Claude Code 2.1.289 too (a name used twice in it was rejected there), and `/rewake-ask` has its reviewed description.
 
 - `install` in a terminal shows what's on your computer (Zed and each coding agent, with versions), what Rewake does in each, and a checklist: tick the places, see every change together, answer once, and get one result line per place with its next step. Agents too old for Rewake are shown with how to update them. `--all` picks every place found and `--skip` leaves some out; with `--yes` and no place named, `install` still sets up Zed only, and now says so.
+- **Gemini CLI preview:** type `/rewake` in a conversation after a usage limit (or `/rewake 3:30pm`, `/rewake cancel`). Rewake answers it itself, without a model request, and continues the conversation at that time once Gemini CLI is closed. After a limit, Gemini CLI shows the offer in the conversation.
+
+- **Copilot CLI preview:** a weekly limit is recognised from the code Copilot's service sends with the error, even though Copilot marks every retry "recoverable"; Rewake missed it before. When Copilot starts several hooks at once, none of them loses what another recorded, so a session always keeps the program Rewake resumes it with.
 
 - **Previews outside Zed:** with `AGENT_REWAKE_STATE_DIR` set, a resume's timer now uses that folder too. Timers run without Rewake's environment, so they used the default folder, found nothing to send and removed themselves.
 
