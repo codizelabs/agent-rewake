@@ -71,6 +71,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - `install` in a terminal shows what's on your computer (Zed and each coding agent, with versions), what Rewake does in each, and a checklist: tick the places, see every change together, answer once, and get one result line per place with its next step. Agents too old for Rewake are shown with how to update them. `--all` picks every place found and `--skip` leaves some out; with `--yes` and no place named, `install` still sets up Zed only, and now says so.
 - **Gemini CLI preview:** type `/rewake` in a conversation after a usage limit (or `/rewake 3:30pm`, `/rewake cancel`). Rewake answers it itself, without a model request, and continues the conversation at that time once Gemini CLI is closed. After a limit, Gemini CLI shows the offer in the conversation.
 
+- **Copilot CLI preview:** a weekly limit is recognised from the code Copilot's service sends with the error, even though Copilot marks every retry "recoverable"; Rewake missed it before. When Copilot starts several hooks at once, none of them loses what another recorded, so a session always keeps the program Rewake resumes it with.
+
 ### Changed
 
 - The README opens with what Rewake does for each agent ("Auto-resume Claude Code after a usage limit", "Auto-resume Codex when the usage limit resets", and the other previews). The npm description and keywords name the agents too.
