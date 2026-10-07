@@ -5,6 +5,8 @@ import { recogniseForHost } from "../../core/limits/recognise.js";
 import {
   type ClosedDeps,
   type ClosedHost,
+  ensureProgram,
+  FIRE_ENV,
   onLimit,
   onPrompt,
   onSessionEnd,
@@ -122,6 +124,8 @@ export function copilotHooks(deps: CopilotHookDeps): HookHandler {
       const id = ctx.input.sessionId as string;
       const cwd = typeof ctx.input.cwd === "string" ? ctx.input.cwd : "";
       const d = deps.closed(ctx);
+      // Rewake's own resume runs aren't the person's: no program lookup for them.
+      if (!ctx.env[FIRE_ENV]) ensureProgram(copilotHost, id, cwd, d, () => deps.program(ctx.env));
       switch (ctx.event) {
         case "sessionStart":
           onSessionStart(copilotHost, id, cwd, d, deps.program(ctx.env));
