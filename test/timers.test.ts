@@ -18,6 +18,7 @@ import {
   timerKind,
   timerName,
   timerNames,
+  timerStale,
   utcCalendar,
 } from "../src/timers/timers.js";
 
@@ -158,6 +159,27 @@ describe("re-arming from inside a timer: a new name", () => {
       [`codizelabs-agent-rewake-${ID}.timer`, `codizelabs-agent-rewake-${ID}-r1.timer`].sort(),
     );
     expect(timerNames(ID, h)).toEqual([ID]);
+  });
+});
+
+describe("a timer set for another time zone or Node.js", () => {
+  it("macOS: is stale when its plist no longer matches what arming it now would write", () => {
+    const { h } = fakeHost("darwin");
+    armTimer(ID, AT, h);
+    expect(timerStale(ID, AT, h)).toBe(false);
+    // The same instant falls on another wall-clock minute after a time-zone change.
+    expect(timerStale(ID, AT + 3_600_000, h)).toBe(true);
+    // Node.js moved.
+    expect(timerStale(ID, AT, { ...h, node: "/new/node" })).toBe(true);
+  });
+
+  it("Linux at: compares the local time it was armed with", () => {
+    const { h } = fakeHost("linux", (c) => (c.command === "at" ? { stderr: "job 9 at x\n" } : {}), {
+      systemd: false,
+    });
+    armTimer(ID, AT, h);
+    expect(timerStale(ID, AT, h)).toBe(false);
+    expect(timerStale(ID, AT + 3_600_000, h)).toBe(true);
   });
 });
 
