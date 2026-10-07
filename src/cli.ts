@@ -406,6 +406,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     ...agentIdentity(wrap?.target, env),
     env,
     allowAutomaticResume: env.AGENT_REWAKE_ALLOW_AUTO !== "0",
+    ...testTiming(env),
   });
   const code = await runProxy({
     agent,
@@ -465,6 +466,15 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
       when: doctorWhen,
     }),
   );
+  if (env.AGENT_REWAKE_TEST_TIMING)
+    findings.push({
+      area: "Rewake",
+      level: "info",
+      text: env.AGENT_REWAKE_STATE_DIR
+        ? "AGENT_REWAKE_TEST_TIMING is set: resumes here use test timings, for Rewake's own tests."
+        : "AGENT_REWAKE_TEST_TIMING is set but ignored: it applies only with AGENT_REWAKE_STATE_DIR.",
+      fix: "Unset AGENT_REWAKE_TEST_TIMING unless you're running Rewake's tests.",
+    });
   for (const id of toolsRefused(stateDir(env)))
     findings.push({
       area: "Recently",
@@ -547,6 +557,29 @@ function runInTerminal(cmd: AgentCommand): number {
     ...(run.windowsVerbatimArguments && { windowsVerbatimArguments: true }),
   });
   return r.status ?? 1;
+}
+
+/**
+ * Test seam (plan §10.4): `AGENT_REWAKE_TEST_TIMING="margin=0,jitter=0,heartbeat=1000"` shortens
+ * the add-on's waits for end-to-end tests. Honoured only with AGENT_REWAKE_STATE_DIR set (a test's
+ * own state folder), so it can't change a person's setup; `doctor` reports it.
+ */
+export function testTiming(env: NodeJS.ProcessEnv): {
+  resumeMarginMs?: number;
+  jitterMs?: number;
+  heartbeatMs?: number;
+} {
+  const spec = env.AGENT_REWAKE_TEST_TIMING;
+  if (!spec || !env.AGENT_REWAKE_STATE_DIR) return {};
+  const keys = { margin: "resumeMarginMs", jitter: "jitterMs", heartbeat: "heartbeatMs" } as const;
+  const out: { resumeMarginMs?: number; jitterMs?: number; heartbeatMs?: number } = {};
+  for (const part of spec.split(",")) {
+    const [k, v] = part.split("=");
+    const key = keys[(k ?? "").trim() as keyof typeof keys];
+    const n = Number(v);
+    if (key && Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out;
 }
 
 /** The Rewake that timers and detached runs start: the stable copy, made now if it's missing. */
