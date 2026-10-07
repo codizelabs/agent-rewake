@@ -141,9 +141,12 @@ export function findCodexLimit(tail: string, now: number = Date.now()): CodexLim
   return verdict;
 }
 
-/** The thread id in a rollout's file name: `rollout-<time>-<uuid>.jsonl`. */
+/**
+ * The thread id in a rollout's file name: `rollout-<time>-<uuid>.jsonl`, or
+ * `rollout-<time>-<uuid>_<rollout id>.jsonl` (research DC-R1).
+ */
 export function threadIdOf(transcriptPath: string): string | undefined {
-  return /rollout-.+-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i.exec(
+  return /rollout-.+-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_[^\\/]+)?\.jsonl$/i.exec(
     transcriptPath,
   )?.[1];
 }
@@ -154,4 +157,27 @@ export function isCodexRollout(path: unknown): path is string {
     typeof path === "string" &&
     /[\\/]sessions[\\/]\d{4}[\\/]\d\d[\\/]\d\d[\\/]rollout-[^\\/]+\.jsonl$/.test(path)
   );
+}
+
+/** The person's messages in a rollout's tail (`event_msg` / `user_message`), oldest first. */
+export function userMessages(tail: string): string[] {
+  const out: string[] = [];
+  for (const line of tail.split("\n")) {
+    if (!line.includes('"user_message"')) continue;
+    try {
+      const rec = JSON.parse(line) as {
+        type?: string;
+        payload?: { type?: string; message?: unknown };
+      };
+      if (
+        rec.type === "event_msg" &&
+        rec.payload?.type === "user_message" &&
+        typeof rec.payload.message === "string"
+      )
+        out.push(rec.payload.message);
+    } catch {
+      // A partial first line.
+    }
+  }
+  return out;
 }

@@ -8,6 +8,7 @@ import {
   isCodexRollout,
   readTail,
   threadIdOf,
+  userMessages,
 } from "../src/hosts/codex/rollout.js";
 
 // Synthetic lines in the 0.160.1 shapes (no real capture yet: experiment X-C2).
@@ -166,10 +167,23 @@ describe("rollout files", () => {
     }
   });
 
+  it("lists the person's messages in a session file", () => {
+    const tail = [
+      '{"type":"event_msg","payload":{"type":"user_message","message":"first"}}',
+      '{"type":"event_msg","payload":{"type":"token_count"}}',
+      '{"type":"event_msg","payload":{"type":"user_message","message":"Continue."}}',
+    ].join("\n");
+    expect(userMessages(tail)).toEqual(["first", "Continue."]);
+  });
+
   it("gets the thread id from the file name and recognises Codex's layout", () => {
     const p =
       "/h/.codex/sessions/2026/10/07/rollout-2026-10-07T11-58-00-0199a7f2-1b2c-7d3e-8f40-142dd9b73ad5.jsonl";
     expect(threadIdOf(p)).toBe("0199a7f2-1b2c-7d3e-8f40-142dd9b73ad5");
+    // The other form Codex writes: a rollout id after the thread id.
+    expect(threadIdOf(p.replace(".jsonl", "_0199a7f3-aaaa-7bbb-8ccc-0123456789ab.jsonl"))).toBe(
+      "0199a7f2-1b2c-7d3e-8f40-142dd9b73ad5",
+    );
     expect(isCodexRollout(p)).toBe(true);
     expect(isCodexRollout("C:\\u\\.codex\\sessions\\2026\\10\\07\\rollout-x.jsonl")).toBe(true);
     expect(isCodexRollout("/h/.claude/projects/p/abc.jsonl")).toBe(false);

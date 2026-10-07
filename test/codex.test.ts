@@ -73,12 +73,15 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-function hooks() {
+function hooks(noTimer = false) {
   const armed: [string, number][] = [];
   const disarmed: string[] = [];
   const notes: string[] = [];
   const handler = codexHooks({
-    arm: (id, at) => armed.push([id, at]),
+    arm: (id, at) => {
+      armed.push([id, at]);
+      return !noTimer;
+    },
     disarm: (id) => disarmed.push(id),
     notify: (_t, body) => notes.push(body),
     codexPath: () => FAKE,
@@ -110,7 +113,7 @@ describe("Codex hooks: typing rewake", () => {
     const r = blocked(await h.run("UserPromptSubmit", { prompt: "rewake" }));
     expect(r.decision).toBe("block");
     expect(r.reason).toMatch(
-      /^Rewake will continue this thread (at|on) .+\. Keep this computer on and awake until then\. Sending any other message here cancels that\.$/,
+      /^Rewake will continue this thread (at|on) .+\. Keep this computer on and awake until then\. If Codex is closed at that time, the thread continues when you next open it\. To cancel, send any other message in the thread\.$/,
     );
     const [s] = resumes();
     expect(s).toMatchObject({
@@ -189,8 +192,15 @@ describe("Codex hooks: when a session ends at a limit", () => {
     saveSettings(state, { ...DEFAULT_SETTINGS, newThreads: "on" });
     const h = hooks();
     await h.run("SessionEnd", { reason: "other" });
-    expect(h.notes).toEqual([]);
+    expect(h.notes).toEqual([expect.stringMatching(/: Rewake will continue this thread (at|on) /)]);
     expect(resumes()[0]?.dueAt).toBe(RESETS + 60_000);
+  });
+
+  it("says so, and keeps nothing planned, when no timer can be set", async () => {
+    const h = hooks(true);
+    const r = blocked(await h.run("UserPromptSubmit", { prompt: "rewake" }));
+    expect(r.reason).toMatch(/^Rewake couldn't set a timer on this computer/);
+    expect(resumes()[0]?.status).toBe("cancelled");
   });
 
   it("does nothing when automatic resume is off, or a resume is already set", async () => {
@@ -263,6 +273,19 @@ describe("Codex at fire time", () => {
           .split("\n")
           .map((l) => JSON.parse(l) as { args: string[]; thread?: string; message?: string })
       : [];
+
+  it("waits for the recorded reset when Codex can't say whether usage is back", async () => {
+    const s = await armed();
+    // A time the person chose before the reset.
+    new ScheduleStore(state).put({ ...s, dueAt: RESETS - 3_600_000 });
+    const early = {
+      ...deps({ FAKE_CODEX_USAGE: "unknown" }),
+      now: () => RESETS - 3_600_000 + 1000,
+    };
+    expect(await fire(s.scheduleId, early)).toBe("waiting");
+    expect(calls().filter((c) => c.args[0] === "queue")).toHaveLength(0);
+    expect(new ScheduleStore(state).get(s.scheduleId)?.dueAt).toBeGreaterThanOrEqual(RESETS);
+  });
 
   it("checks usage, then queues the message into the same thread, once", async () => {
     const s = await armed();

@@ -2,7 +2,7 @@
 // A stand-in for the `codex` CLI in tests, answering the way Codex 0.160.1 does (texts and exit
 // codes observed: research/impl-codex-grok-2026-10-06.md §3.1.3, §3.1.5). Every call is appended
 // to $FAKE_CODEX_LOG as one JSON line.
-//   FAKE_CODEX_USAGE = allowed | limited | signed-out | silent   (account/rateLimits/read)
+//   FAKE_CODEX_USAGE = allowed | limited | unknown | signed-out | silent   (account/rateLimits/read)
 //   FAKE_CODEX_QUEUE = ok | archived | deleted | daemon           (codex queue)
 import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -34,7 +34,7 @@ if (args[0] === "app-server") {
           `${JSON.stringify({
             id: m.id,
             result: {
-              ordinaryUsageAllowed: usage === "allowed",
+              ordinaryUsageAllowed: usage === "unknown" ? null : usage === "allowed",
               rateLimits: {
                 primary: {
                   usedPercent: usage === "allowed" ? 3 : 100,

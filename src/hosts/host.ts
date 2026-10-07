@@ -27,6 +27,11 @@ export interface HostAdapter {
    * person can fix: "signed-out", "archived" or "deleted".
    */
   send(resume: Schedule, idempotencyKey: string): Promise<SendResult>;
+  /**
+   * After a send was cut off (a crash, a restart): whether the agent's own files show the message
+   * arrived. True only when they do; undefined when they can't say.
+   */
+  delivered?(resume: Schedule): boolean | undefined;
 }
 
 export interface HostFacts {

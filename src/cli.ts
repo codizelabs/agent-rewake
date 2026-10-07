@@ -649,6 +649,7 @@ async function runHookCommand(
       arm: (id, at) => {
         const r = scheduleFire(id, at, sweepDeps(Date.now()));
         log.info("hook.arm", { host, via: r === "fired" ? "now" : r.ok ? r.via : r.reason });
+        return r === "fired" || r.ok;
       },
       disarm: (id) => cancelTimer(id, timers),
       notify: (title, body) => {

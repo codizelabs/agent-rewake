@@ -22,8 +22,11 @@ import { findCodexLimit, isCodexRollout, readTail, threadIdOf } from "./rollout.
  */
 
 export interface CodexHookDeps {
-  /** Arm a resume's timer, or fire it now when due (src/timers/sweep.ts scheduleFire). */
-  arm: (id: string, at: number) => void;
+  /**
+   * Arm a resume's timer, or fire it now when due (src/timers/sweep.ts scheduleFire). Returns
+   * false when this computer has no timer Rewake can use, or setting it failed.
+   */
+  arm: (id: string, at: number) => boolean | undefined;
   /** Remove a resume's timer. */
   disarm: (id: string) => void;
   notify: (title: string, body: string) => void;
@@ -49,11 +52,25 @@ function pendingFor(store: ScheduleStore, threadId: string): Schedule[] {
     );
 }
 
+/**
+ * What Rewake says once a Codex thread's continue is set. Codex runs the message when the thread is
+ * open: if Codex is closed at that time, the thread continues the next time it's opened.
+ */
+export function armedText(at: number, now: number): string {
+  return `Rewake will continue this thread ${formatAt(at, now)}. Keep this computer on and awake until then. If Codex is closed at that time, the thread continues when you next open it. To cancel, send any other message in the thread.`;
+}
+
+/** No timer could be set (no scheduler on this computer, or it refused). */
+export function noTimerText(at: number, now: number): string {
+  return `Rewake couldn't set a timer on this computer, so it can't continue this thread by itself. After the limit resets ${formatAt(at, now)}, send a message in the thread to continue.`;
+}
+
 /** Block Codex's prompt with a reason it shows to the person. */
 const block = (reason: string) => JSON.stringify({ decision: "block", reason });
 
 export function codexHooks(deps: CodexHookDeps): HookHandler {
-  const arm = (ctx: HookContext, thread: { id: string; path: string }, at: number): Schedule => {
+  /** Arm a resume; false (and the resume cancelled) when no timer could be set. */
+  const arm = (ctx: HookContext, thread: { id: string; path: string }, at: number): boolean => {
     const store = new ScheduleStore(ctx.stateDir);
     const settings = loadSettings(ctx.stateDir);
     const cwd = typeof ctx.input.cwd === "string" ? ctx.input.cwd : "";
@@ -79,8 +96,9 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
       },
     };
     store.put(resume);
-    deps.arm(resume.scheduleId, at);
-    return resume;
+    if (deps.arm(resume.scheduleId, at) !== false) return true;
+    store.update(resume.scheduleId, (x) => ({ ...x, status: "cancelled" }), ctx.now);
+    return false;
   };
 
   const cancelPending = (ctx: HookContext, threadId: string) => {
@@ -144,10 +162,8 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
             'Rewake doesn\'t know when this limit resets. Type "rewake" with a time, for example "rewake 3:30pm".',
           );
         cancelPending(ctx, thread.id);
-        arm(ctx, thread, at);
-        return block(
-          `Rewake will continue this thread ${formatAt(at, ctx.now)}. Keep this computer on and awake until then. Sending any other message here cancels that.`,
-        );
+        if (!arm(ctx, thread, at)) return block(noTimerText(at, ctx.now));
+        return block(armedText(at, ctx.now));
       }
 
       if (ctx.event === "SessionEnd") {
@@ -169,7 +185,11 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
         const cwd = typeof ctx.input.cwd === "string" ? basename(ctx.input.cwd) : "";
         const where = cwd ? `Codex in the "${cwd}" folder` : "Codex";
         if (decision.action === "arm") {
-          arm(ctx, thread, decision.fireAt);
+          const ok = arm(ctx, thread, decision.fireAt);
+          deps.notify(
+            "Agent Rewake",
+            `${where}: ${ok ? armedText(decision.fireAt, ctx.now) : noTimerText(decision.fireAt, ctx.now)}`,
+          );
           return undefined;
         }
         if (decision.action === "offer") {

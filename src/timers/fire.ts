@@ -333,6 +333,16 @@ function settleStale(
   try {
     const store = new ScheduleStore(deps.stateDir);
     if (store.get(id)?.status !== "sending") return "gone";
+    // The agent's own files show the message arrived: it was sent, nothing to tell.
+    if (host.delivered?.(s) === true) {
+      store.update(
+        id,
+        (x) => ({ ...x, status: "sent", lastRun: { at: now, outcome: "sent" } }),
+        now,
+      );
+      removeTimer();
+      return "sent";
+    }
     store.update(
       id,
       (x) => ({

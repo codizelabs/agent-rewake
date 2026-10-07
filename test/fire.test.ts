@@ -207,6 +207,19 @@ describe("fire", () => {
     expect(await fire(r.scheduleId, deps)).toBe("gone");
   });
 
+  it("settles a cut-off send as sent when the agent's files show the message arrived", async () => {
+    const r = resume({
+      status: "sending",
+      attempts: [{ n: 1, idempotencyKey: "k", startedAt: NOW, outcome: "sending" }],
+    });
+    const { deps, sent, notes } = setup({ now: NOW + SENDING_STALE_MS + 1 });
+    (deps.hosts.get("test") as HostAdapter).delivered = () => true;
+    expect(await fire(r.scheduleId, deps)).toBe("sent");
+    expect(sent).toEqual([]);
+    expect(notes).toEqual([]);
+    expect(store.get(r.scheduleId)?.status).toBe("sent");
+  });
+
   it("re-arms under a new timer name and retires its own (a timer can't replace itself)", async () => {
     const r = resume();
     const { deps, calls } = setup({ send: { ok: false, reason: "limited" } });
