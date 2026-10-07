@@ -12,7 +12,7 @@ import {
   launcherVersion,
   refreshLauncher,
 } from "../src/timers/launcher.js";
-import { appleString, osNotifier } from "../src/timers/notify.js";
+import { appleString, osNotifier, psString } from "../src/timers/notify.js";
 import { FIRE_NOW_MS, type SweepDeps, scheduleFire, sweep } from "../src/timers/sweep.js";
 import type { TimerHost } from "../src/timers/timers.js";
 
@@ -189,7 +189,7 @@ describe("notifications", () => {
     expect(appleString('a"b')).toBe('"a\\"b"');
   });
 
-  it("uses notify-send on Linux, and shows nothing on Windows yet", () => {
+  it("uses notify-send on Linux, and a PowerShell toast on Windows", () => {
     const calls: string[][] = [];
     const run = (c: string, a: string[]) => {
       calls.push([c, ...a]);
@@ -197,7 +197,20 @@ describe("notifications", () => {
     };
     expect(osNotifier("linux", run)("T", "B")).toBe(true);
     expect(calls).toEqual([["notify-send", "--app-name=Agent Rewake", "T", "B"]]);
-    expect(osNotifier("win32", run)("T", "B")).toBe(false);
+    calls.length = 0;
+    expect(osNotifier("win32", run)("Agent Rewake", "It's due at 3:05 PM")).toBe(true);
+    expect(calls[0]?.slice(0, 6)).toEqual([
+      "powershell.exe",
+      "-NoProfile",
+      "-NonInteractive",
+      "-WindowStyle",
+      "Hidden",
+      "-EncodedCommand",
+    ]);
+    const script = Buffer.from(calls[0]?.[6] ?? "", "base64").toString("utf16le");
+    // The text goes in as quoted strings, its own quotes doubled: nothing in it runs.
+    expect(script).toContain("CreateTextNode('It''s due at 3:05 PM')");
+    expect(psString("a'b\nc")).toBe("'a''b c'");
   });
 });
 

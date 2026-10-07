@@ -244,7 +244,11 @@ describe("Windows: Task Scheduler", () => {
     expect(localIso(AT)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
     expect(xml).toContain("<RunLevel>LeastPrivilege</RunLevel>");
     expect(xml).toContain("<StartWhenAvailable>true</StartWhenAvailable>");
-    expect(xml).toContain(`<Arguments>"C:\\state\\bin\\agent-rewake.js" fire ${ID}</Arguments>`);
+    // Under a headless console host: no window flashes when the timer runs.
+    expect(xml).toContain("<Command>conhost.exe</Command>");
+    expect(xml).toContain(
+      `<Arguments>--headless "C:\\node\\node.exe" "C:\\state\\bin\\agent-rewake.js" fire ${ID}</Arguments>`,
+    );
   });
 });
 
