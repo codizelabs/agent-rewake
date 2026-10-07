@@ -20,6 +20,8 @@ import {
   blockingKind,
   CONTINUE_TEXT,
   exampleTime,
+  expired,
+  FAR_RESET_MS,
   HOUR,
   MAX_REARMS,
   MAX_REHITS,
@@ -44,6 +46,8 @@ const QUESTION =
 
 let isInteractive = false;
 let surface = null;
+/** Sessions whose limit is being handled right now (a burst of StopFailures is one limit). */
+const handling = new Set();
 let busy = false;
 /** The person's clock in Rewake's settings: "12h" (default) or "24h". */
 let clock = "12h";
@@ -222,7 +226,7 @@ async function ask($, id, ep, now) {
   const prefs = (await $.store.get("prefs")) ?? {};
   let state = "armed";
   // A reset more than a day away is always asked about, even with "always".
-  if (mustAsk({ autoContinue: prefs.autoContinue, fireAt: ep.fireAt, now })) {
+  if (mustAsk({ autoContinue: prefs.autoContinue, fireAt: ep.fireAt, now, surface })) {
     const yes = `Continue at ${at(ep.fireAt, now)}`;
     const always = `${yes}, and from now on in every session when the reset is within a day`;
     try {
@@ -250,8 +254,23 @@ async function onLimit($, id) {
   // -p runs and Agent SDK hosts (Zed's Claude adapter among them) have no person at the prompt,
   // and Rewake's ACP add-on already resumes Zed's threads: only interactive sessions here.
   if (!isInteractive) return;
+  // StopFailure comes in bursts: a second one while the first is still being handled is the same.
+  if (handling.has(id)) return;
+  handling.add(id);
+  try {
+    await onLimitOnce($, id);
+  } finally {
+    handling.delete(id);
+  }
+}
+
+async function onLimitOnce($, id) {
   const now = await $.clock.now();
-  const prev = await $.store.get(limitKey(id));
+  let prev = await $.store.get(limitKey(id));
+  if (expired(prev, now)) {
+    await drop($, id);
+    prev = undefined;
+  }
   // StopFailure comes in bursts: one episode at a time.
   if (prev && prev.state !== "sent") return;
   const rehits =
@@ -350,7 +369,8 @@ async function fire($, id) {
       await offer($, CONTINUE_TEXT);
     } else {
       const still = blockedUntil((await $.session.usage()).rateLimits, now);
-      if (still !== undefined && ep.attempts < MAX_REARMS) {
+      // A later window more than a day away is asked about, never waited for silently (rule 2).
+      if (still !== undefined && ep.attempts < MAX_REARMS && still - now <= FAR_RESET_MS) {
         // Another window is still used up (a weekly limit behind a 5-hour one): wait for it.
         const next = {
           ...ep,
@@ -361,7 +381,8 @@ async function fire($, id) {
         await save($, id, next);
         await arm($, id, next);
       } else if (still !== undefined) {
-        // Still limited after the last re-check: offer it for the later reset instead.
+        // Still limited after the last re-check, or until more than a day from now: offer it for
+        // the later reset instead.
         disarm(id);
         await save($, id, {
           ...ep,
@@ -386,7 +407,12 @@ async function fire($, id) {
 async function tick($) {
   const id = await $.session.id();
   const now = await $.clock.now();
-  const ep = await $.store.get(limitKey(id));
+  let ep = await $.store.get(limitKey(id));
+  if (expired(ep, now)) {
+    await drop($, id);
+    ep = undefined;
+    await refreshStatus($, id, now);
+  }
   if (ep?.state === "armed" && ep.fireAt !== undefined && now >= ep.fireAt) return fire($, id);
   await updateWake($, ep, now);
   // Scheduled messages wait while a limit is pending; one per tick.
@@ -407,12 +433,23 @@ async function reopen($) {
   const id = await $.session.id();
   const now = await $.clock.now();
   const ep = await $.store.get(limitKey(id));
-  if (ep?.state === "armed" && ep.fireAt !== undefined) {
+  if (expired(ep, now)) {
+    await drop($, id);
+  } else if (ep?.state === "armed" && ep.fireAt !== undefined) {
     if (now >= ep.fireAt) {
       await drop($, id);
       await offer($, CONTINUE_TEXT);
     } else {
       await arm($, id, ep);
+    }
+  } else if (ep?.state === "native" && ep.fireAt !== undefined) {
+    // Claude Code's own wait ended with the process that was waiting: Rewake takes over.
+    if (now >= ep.fireAt) {
+      await drop($, id);
+      await offer($, CONTINUE_TEXT);
+    } else {
+      await ask($, id, ep, now);
+      return;
     }
   }
   await refreshStatus($, id, now);
@@ -564,6 +601,15 @@ export function register(on) {
       {
         name: "rewake-clear",
         description: "Delete this session's scheduled messages, after asking",
+      },
+      {
+        name: "rewake-schedule",
+        description: "Schedule a message for this session: choose when, then what",
+      },
+      {
+        name: "rewake-ask",
+        description:
+          "Ask before continuing after a usage limit (turns off continuing without asking)",
       },
     ])
       try {
