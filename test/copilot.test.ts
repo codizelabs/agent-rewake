@@ -15,6 +15,7 @@ import { runContinue, waiting } from "../src/continue.js";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { ScheduleStore } from "../src/core/store.js";
 import {
+  autoFor,
   type ClosedDeps,
   closedAdapter,
   FIRE_ENV,
@@ -218,6 +219,16 @@ describe("Copilot's hooks", () => {
     const h = harness();
     await h.event("userPromptSubmitted", { prompt: "continue" }, { [FIRE_ENV]: "x" });
     expect(new SessionRecords(state, "copilot-cli").get(SID)?.lastPromptAt).toBeUndefined();
+  });
+});
+
+describe("automatic resume outside Zed", () => {
+  it("follows the new-threads setting; Zed's bypass exception doesn't apply", () => {
+    expect(autoFor({ ...DEFAULT_SETTINGS, newThreads: "on", autoWhenPromptsSkipped: false })).toBe(
+      "always",
+    );
+    expect(autoFor({ ...DEFAULT_SETTINGS, newThreads: "ask" })).toBe("ask");
+    expect(autoFor({ ...DEFAULT_SETTINGS, newThreads: "off" })).toBe("never");
   });
 });
 
