@@ -5,6 +5,11 @@ on:
   pull_request:
   push:
     branches: [main, develop]
+  # Nightly (plan §10.5): the whole set on three systems, the package smoke test and the offline
+  # end-to-end loop, against develop as it is, so a change elsewhere (a runner, an npm release)
+  # shows up the next morning.
+  schedule:
+    - cron: "13 2 * * *"
   workflow_dispatch:
 
 permissions: {}

@@ -10,7 +10,7 @@ on:
       - "test/timers-os.test.ts"
       - ".github/workflows/timers.yml"
   schedule:
-    - cron: "17 4 * * 1"
+    - cron: "17 2 * * *" # nightly, with ci.yml (plan §10.5)
   workflow_dispatch:
 
 permissions: {}
