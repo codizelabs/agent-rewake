@@ -156,6 +156,8 @@ interface SessionState {
   /** The client's session/prompt currently being answered by the agent, if any. */
   userTurn: JsonRpcId | undefined;
   userTurnStartedAt: number;
+  /** The user's message is a slash command, which may be answered without the model. */
+  userTurnCommand: boolean;
   /** A scheduled message currently being delivered (out of turn). */
   delivering: string | undefined;
   /** User prompts held back while a scheduled reply runs. */
@@ -382,6 +384,7 @@ export class SchedulingAddon {
     }
     session.userTurn = m.id;
     session.userTurnStartedAt = this.now();
+    session.userTurnCommand = text.trim().startsWith("/");
     this.startTurn(session);
     if (session.needsReattach) {
       void this.reattach(session).then((ok) => this.forwardAfterReattach(session, m, ok));
@@ -688,7 +691,8 @@ export class SchedulingAddon {
       ) {
         setImmediate(() => this.onNotResumable(session));
       } else if (!response.error) {
-        setImmediate(() => this.onUserTurnSucceeded(session));
+        const stop = asObject(response.result).stopReason;
+        setImmediate(() => this.onUserTurnSucceeded(session, stop === "end_turn"));
       }
       setImmediate(() => this.deliverDue(session));
       return answer;
@@ -786,6 +790,7 @@ export class SchedulingAddon {
       cwd,
       userTurn: undefined,
       userTurnStartedAt: 0,
+      userTurnCommand: false,
       delivering: undefined,
       heldPrompts: [],
       agentCommands: [],
@@ -1437,17 +1442,19 @@ export class SchedulingAddon {
   }
 
   /** The user continued by hand after the reset: drop pending resumes for that limit. */
-  private onUserTurnSucceeded(session: SessionState): void {
+  private onUserTurnSucceeded(session: SessionState, answered: boolean): void {
     const limit = session.limit;
     // Claude says the limit is lifted before its reset: another account, another model, or bought
     // usage. The resume scheduled for the old reset would only interrupt the work later. This
-    // holds after a restart too, when Rewake no longer remembers the limit itself.
+    // holds after a restart too, when Rewake no longer remembers the limit itself. Other agents
+    // say nothing of the kind, so their full answer (not a stopped turn) to a message that isn't a
+    // slash command (a command may be answered without the model) is taken as the same sign.
     const rate = session.rateLimit;
-    const lifted =
-      this.claudeAgent &&
-      rate !== undefined &&
-      rate.at >= session.turnStartedAt - 1000 &&
-      (rate.info.status === "allowed" || rate.info.status === "allowed_warning");
+    const lifted = this.claudeAgent
+      ? rate !== undefined &&
+        rate.at >= session.turnStartedAt - 1000 &&
+        (rate.info.status === "allowed" || rate.info.status === "allowed_warning")
+      : answered && !session.userTurnCommand;
     if (!lifted && (!limit || limit.resetAt === undefined || this.now() < limit.resetAt)) return;
     // Claude says "allowed" on most turns: look for an old resume once, not on every turn.
     if (!limit && session.resumesChecked) return;
@@ -3030,7 +3037,8 @@ export class SchedulingAddon {
         this.refreshMarker(session);
         continue;
       }
-      if (now - s.dueAt > this.missedGraceMs && s.attempts.length === 0) {
+      // A resume paused again by the limit is held to its new time as well.
+      if (now - s.dueAt > this.missedGraceMs && (s.attempts.length === 0 || s.kind !== "user")) {
         this.store.update(s.scheduleId, (x) => ({ ...x, status: "missed" }), now);
         const when = formatWhen(s.dueAt, now, this.opts.locale);
         if (this.clientSupportsForms && !session.formOpen) {
@@ -3316,6 +3324,7 @@ export class SchedulingAddon {
     if (held) {
       session.userTurn = held.id ?? undefined;
       session.userTurnStartedAt = this.now();
+      session.userTurnCommand = promptText(asObject(held.params).prompt).trim().startsWith("/");
       this.startTurn(session);
       this.router?.forwardClientRequest(held);
     } else {
