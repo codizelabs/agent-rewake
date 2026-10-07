@@ -7,6 +7,7 @@ import {
   withVersion,
 } from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
+import { newerThanTested, untestedText, versionOf } from "../versions.js";
 import { codexProgram, listHooks } from "./cli.js";
 import {
   CODEX_HOOK_EVENTS,
@@ -26,7 +27,7 @@ import {
  */
 
 /** `codex queue` arrived in 0.149.0 (2026-08-20); hooks and hook trust are older. */
-export const MIN_CODEX = "0.149.0";
+export const MIN_CODEX = versionOf("codex").min;
 
 export interface CodexInstallOptions {
   uninstall: boolean;
@@ -100,6 +101,8 @@ export async function runCodexInstall(o: CodexInstallOptions): Promise<number> {
   }
   if (!o.uninstall && codex && !codex.version)
     o.out(unknownVersionText("Codex", MIN_CODEX, "npm install -g @openai/codex@latest", "codex"));
+  if (!o.uninstall && codex?.version && newerThanTested("codex", codex.version))
+    o.out(`${untestedText("codex", codex.version)}\n`);
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;

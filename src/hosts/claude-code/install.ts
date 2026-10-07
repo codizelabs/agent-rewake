@@ -20,6 +20,7 @@ import {
 } from "../../install/probe.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
+import { newerThanTested, untestedText, versionOf } from "../versions.js";
 
 /**
  * `agent-rewake install --only claude-code` (a preview, until the real-account checks of plan
@@ -84,7 +85,7 @@ export function refreshMod(stateDir: string, bundle: string, version: string): v
 }
 
 /** Mods load from Claude Code 2.1.287 in a terminal (2.1.286 in the desktop app). */
-export const MIN_CLAUDE_CODE = "2.1.287";
+export const MIN_CLAUDE_CODE = versionOf("claude-code").min;
 export const PLUGIN = "rewake@agent-rewake";
 export const MARKETPLACE = "agent-rewake";
 
@@ -247,6 +248,8 @@ export async function runClaudeInstall(o: ClaudeInstallOptions): Promise<number>
   }
   if (!o.uninstall && claude && !claude.version)
     o.out(unknownVersionText("Claude Code", MIN_CLAUDE_CODE, "claude update", "claude-code"));
+  if (!o.uninstall && claude?.version && newerThanTested("claude-code", claude.version))
+    o.out(`${untestedText("claude-code", claude.version)}\n`);
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;

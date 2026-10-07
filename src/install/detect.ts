@@ -346,6 +346,25 @@ function antigravity(h: DetectHost): Found | undefined {
 }
 
 /** Coding agents found on this computer, other than Zed (which `doctor` checks in detail). */
+/**
+ * Each preview's terminal program as the person runs it (the first on PATH, else a known install
+ * folder), with its version when a file records it. Desktop apps are left out: no preview runs
+ * there. For `doctor`'s version notes.
+ */
+export function terminalAgents(h: DetectHost): { id: PlaceId; version?: string }[] {
+  const found: [PlaceId, Program[]][] = [
+    ["claude-code", claudePrograms(h)],
+    ["codex", codexPrograms(h).filter((p) => p.surface === "terminal")],
+    ["copilot-cli", copilotPrograms(h)],
+    ["grok", grokPrograms(h)],
+    ["gemini-cli", geminiPrograms(h)],
+  ];
+  return found.flatMap(([id, ps]) => {
+    const p = ps[0];
+    return p ? [{ id, ...(p.version && { version: p.version }) }] : [];
+  });
+}
+
 export function detectAgents(h: DetectHost): Found[] {
   const local = (cmd: string) => join(h.home, ".local", "bin", cmd);
   const grokBin = h.env.GROK_BIN_DIR || join(h.home, ".grok", "bin");

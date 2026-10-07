@@ -134,6 +134,23 @@ To continue a Claude Code, Codex or other agent session after a usage limit outs
 | Codex (terminal) | `npx @codizelabs/agent-rewake install --only codex` | Trust Rewake's hooks in Codex once ("Hooks need review"). At a usage limit, type `rewake` in the thread; Rewake continues the thread after the reset. |
 | GitHub Copilot CLI, Grok Build, Gemini CLI, Antigravity CLI | `npx @codizelabs/agent-rewake install --only copilot-cli` (or `grok`, `gemini-cli`, `antigravity`) | Once the session is closed, run `npx @codizelabs/agent-rewake continue`; run it any time before the reset, and Rewake waits until then. Run `continue --always` once, and from then on Rewake continues closed sessions by itself when the reset is within a day. |
 
+Each preview needs a recent version of its agent:
+
+| Agent | Needs | Tested with |
+|---|---|---|
+| Claude Code | 2.1.287 or newer | 2.1.292 |
+| Codex | 0.149.0 or newer | 0.160.1 |
+| GitHub Copilot CLI | 1.0.92 or newer | Not yet |
+| Grok Build | 1.0.46 or newer | 1.0.46 |
+| Gemini CLI | 0.62.0 or newer | 0.62.0 |
+| Antigravity CLI | Any version (not checked) | Not yet |
+
+"Tested with" is the version Rewake's automated tests run against; "Not yet" means no real copy of that agent has been tested.
+
+- `install` won't set up an agent that's too old, and tells you how to update it.
+- `doctor` warns when an agent is too old.
+- `doctor` also notes when an agent is newer than any version tested. It should still work; if Rewake misses a usage limit there, [open an issue](https://github.com/codizelabs/agent-rewake/issues) with what `agent-rewake doctor --details` shows.
+
 For every preview, keep the computer on and awake until the time Rewake gives. On macOS the Claude Code preview keeps it from idling to sleep while a continue is due within six hours, and every preview does while the agent works on the resumed session (the **Keep this computer awake** setting decides). `install` and `doctor` list the previews you set up.
 
 In Claude Code, `/rewake-schedule` also schedules a message into the session. To remove a preview: `npx @codizelabs/agent-rewake uninstall --only <name>`.
