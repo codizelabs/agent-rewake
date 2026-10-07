@@ -338,10 +338,10 @@ describe.runIf(enabled)("Codex CLI, offline: limit → automatic resume", () => 
           (l) => l.event === "hook.arm" && l.via !== "no-scheduler" && l.via !== "failed",
         ),
       ).toBe(true);
-      // What the timer runs: `<node> <state>/bin/agent-rewake.mjs fire <id>`, from the loaded plist
+      // What the timer runs: `<node> <state>/bin/agent-rewake.mjs fire <id> --state-dir <state>`, from the loaded plist
       // on macOS (checked with Apple's plutil), at the minute of the resume.
       const launcher = join(state, "bin", "agent-rewake.mjs");
-      let command = [process.execPath, launcher, "fire", id];
+      let command = [process.execPath, launcher, "fire", id, "--state-dir", state];
       if (launchd) {
         const label = `codizelabs.agent-rewake.${id}`;
         const plist = join(launchd.loaded, label);
@@ -352,7 +352,7 @@ describe.runIf(enabled)("Codex CLI, offline: limit → automatic resume", () => 
         const xml = readFileSync(plist, "utf8");
         const args = /<key>ProgramArguments<\/key>\s*<array>(.*?)<\/array>/s.exec(xml)?.[1] ?? "";
         command = [...args.matchAll(/<string>(.*?)<\/string>/g)].map((m) => m[1] ?? "");
-        expect(command.slice(1)).toEqual([launcher, "fire", id]);
+        expect(command.slice(1)).toEqual([launcher, "fire", id, "--state-dir", state]);
         const due = new Date(Math.ceil(dueAt / 60_000) * 60_000);
         expect(xml).toContain(
           `<key>Hour</key><integer>${due.getHours()}</integer><key>Minute</key><integer>${due.getMinutes()}</integer>`,

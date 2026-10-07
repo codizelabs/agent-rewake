@@ -269,7 +269,13 @@ describe.runIf(enabled)("Grok Build in a terminal, offline: limit → continue (
         new RegExp(`^bootstrap gui/\\d+ ${join(state, "timers", `${label}.plist`)}$`, "m"),
       );
       const timer = programArguments(read(join(desk, `loaded-${label}.plist`)));
-      expect(timer.slice(1)).toEqual([join(state, "bin", "agent-rewake.mjs"), "fire", id]);
+      expect(timer.slice(1)).toEqual([
+        join(state, "bin", "agent-rewake.mjs"),
+        "fire",
+        id,
+        "--state-dir",
+        state,
+      ]);
 
       // 6. At that time, with the limit reset, run what the timer runs.
       await until(() => Date.now() >= dueAt, 90_000);

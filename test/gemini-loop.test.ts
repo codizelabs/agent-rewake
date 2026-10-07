@@ -301,6 +301,8 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
         join(state, "bin", "agent-rewake.mjs"),
         "fire",
         resume.scheduleId,
+        "--state-dir",
+        state,
       ]);
 
       // 5. After the reset: what the timer runs.
