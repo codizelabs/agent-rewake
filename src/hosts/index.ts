@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { registerHost } from "../core/store.js";
 import { ANTIGRAVITY_ID, antigravityHooks, antigravityHost } from "./antigravity/host.js";
 import { type ClosedDeps, type ClosedHost, closedAdapter } from "./closed.js";
@@ -5,6 +6,7 @@ import { codexAdapter } from "./codex/adapter.js";
 import { type CodexHookDeps, codexHooks } from "./codex/hooks.js";
 import { COPILOT_ID, copilotHooks, copilotHost } from "./copilot/host.js";
 import { GEMINI_ID, geminiHooks, geminiHost } from "./gemini/host.js";
+import { geminiApiKeyAuth } from "./gemini/install.js";
 import { GROK_ID, grokHooks, grokHost } from "./grok/host.js";
 import type { HookContext, HookHandler } from "./hook.js";
 import type { HostAdapter } from "./host.js";
@@ -54,7 +56,11 @@ export function hookHandler(host: string, deps: HookDeps): HookHandler | undefin
   if (host === GROK_ID)
     return grokHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   if (host === GEMINI_ID)
-    return geminiHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
+    return geminiHooks({
+      closed: deps.closed,
+      program: (env) => deps.program(host, env),
+      apiKey: (env) => geminiApiKeyAuth(env, env.HOME || env.USERPROFILE || homedir()),
+    });
   if (host === ANTIGRAVITY_ID)
     return antigravityHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   return undefined;

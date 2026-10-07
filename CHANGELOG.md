@@ -32,6 +32,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **Copilot CLI, Grok and Gemini CLI previews:** a session whose terminal was closed or crashed without ending the session is no longer taken as open for ever. Rewake remembers the agent's process at the start; once it's gone, a limit in that session is continued or offered as at a normal end, and `agent-rewake continue` lists it.
 - **Previews outside Zed:** a missed resume, or one that needed your attention, no longer blocks a later limit in the same session from being continued.
 - **Previews outside Zed:** `install --only <agent>` checks the agent's version even when it was installed with Homebrew, apt, WinGet or a standalone installer, by asking the agent (`--version`). Before, a version Rewake couldn't read skipped the check, so an agent too old for Rewake was set up anyway. When the version still can't be read, install says which version Rewake needs and how to update.
+- **Gemini CLI preview:** install no longer refuses a default Gemini CLI setup: Gemini runs extension hooks unless they're turned off, and Rewake read a missing setting as off. A session is followed through a switch to a fallback model (Gemini gives the hook a new id then; Rewake now uses the session file's own), a limit followed by Gemini's own bookkeeping lines is still seen, and with an API key a quota with no reset time is continued after midnight Pacific time, when Gemini API daily quotas reset.
 
 ### Changed
 

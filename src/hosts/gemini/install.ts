@@ -40,16 +40,32 @@ export function geminiSettingsFile(env: NodeJS.ProcessEnv, home: string): string
   return join(env.GEMINI_CLI_HOME || home, ".gemini", "settings.json");
 }
 
-/** Whether Gemini CLI runs extension hooks (`hooksConfig.enabled`), read-only. */
-export function geminiHooksOn(env: NodeJS.ProcessEnv, home: string): boolean {
+interface GeminiSettings {
+  hooksConfig?: { enabled?: unknown };
+  security?: { auth?: { selectedType?: unknown } };
+  selectedAuthType?: unknown;
+}
+
+function readGeminiSettings(env: NodeJS.ProcessEnv, home: string): GeminiSettings | undefined {
   try {
-    const s = parse(readFileSync(geminiSettingsFile(env, home), "utf8")) as {
-      hooksConfig?: { enabled?: unknown };
-    };
-    return s?.hooksConfig?.enabled === true;
+    return parse(readFileSync(geminiSettingsFile(env, home), "utf8")) as GeminiSettings;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+/**
+ * Whether Gemini CLI runs extension hooks, read-only. `hooksConfig.enabled` defaults to on
+ * (Gemini CLI settingsSchema.ts, research DG-X9): only an explicit `false` turns them off.
+ */
+export function geminiHooksOn(env: NodeJS.ProcessEnv, home: string): boolean {
+  return readGeminiSettings(env, home)?.hooksConfig?.enabled !== false;
+}
+
+/** Whether Gemini CLI signs in with an API key (whose daily quota resets at midnight Pacific). */
+export function geminiApiKeyAuth(env: NodeJS.ProcessEnv, home: string): boolean {
+  const s = readGeminiSettings(env, home);
+  return (s?.security?.auth?.selectedType ?? s?.selectedAuthType) === "gemini-api-key";
 }
 
 export function geminiHooksJson(node: string, launcher: string): string {
@@ -148,7 +164,7 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
     }
     if (!geminiHooksOn(o.env, home)) {
       o.out(
-        `Gemini CLI runs extension hooks only when they're turned on, and they're off. Turn them on with "hooksConfig": { "enabled": true } in ${geminiSettingsFile(o.env, home)}, then run "agent-rewake install --only gemini-cli" again. Nothing was changed.\n`,
+        `Gemini CLI's hooks are turned off ("hooksConfig": { "enabled": false } in ${geminiSettingsFile(o.env, home)}), and Rewake needs them. Nothing was changed. To use Rewake, change false to true there (this turns all Gemini CLI hooks back on, including any of your own), then run "agent-rewake install --only gemini-cli" again.\n`,
       );
       return 1;
     }
