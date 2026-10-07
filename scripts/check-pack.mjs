@@ -27,4 +27,19 @@ if (unexpected.length || forbidden.length) {
   ]);
   process.exit(1);
 }
+// Size budget (plan §10A.3 bundle-budget): a near-zero-dependency bundle stays small, and the
+// Claude Code mod stays readable. Raise these on purpose, never by accident.
+const BUDGET = { bundle: 768 * 1024, mod: 64 * 1024 };
+const size = (re) => pack.files.filter((f) => re.test(f.path)).reduce((n, f) => n + f.size, 0);
+const bundle = size(/^dist\/agent-rewake\.js$/);
+const mod = size(/^dist\/hosts\/claude-code\//);
+if (bundle > BUDGET.bundle || mod > BUDGET.mod) {
+  console.error(
+    `Over the size budget: bundle ${bundle} bytes (max ${BUDGET.bundle}), Claude Code mod ${mod} bytes (max ${BUDGET.mod}).`,
+  );
+  process.exit(1);
+}
 console.log(`npm package contents OK (${files.length} files): ${files.join(", ")}`);
+console.log(
+  `Size: bundle ${Math.round(bundle / 1024)} KB, Claude Code mod ${Math.round(mod / 1024)} KB.`,
+);

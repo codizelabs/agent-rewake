@@ -7,6 +7,24 @@ on:
   pull_request:
     paths:
       - "src/hosts/**"
+      - "src/adapters/**"
+      - "src/core/**"
+      - "src/timers/**"
+      - "src/install/**"
+      - "src/cli.ts"
+      - "test/agents/**"
+      - "test/*-contract.test.ts"
+      - "scripts/build.mjs"
+      - ".github/workflows/contracts.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "src/hosts/**"
+      - "src/adapters/**"
+      - "src/core/**"
+      - "src/timers/**"
+      - "src/install/**"
+      - "src/cli.ts"
       - "test/agents/**"
       - "test/*-contract.test.ts"
       - "scripts/build.mjs"

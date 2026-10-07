@@ -47,12 +47,45 @@ jobs:
       - name: Check npm package contents
         run: npm run check:pack
 
+  # The package as people get it (plan §10A.3 tarball-smoke): packed, installed on its own into an
+  # empty folder, and run. Nothing but the .tgz: no repository files, no dev dependencies.
+  tarball-smoke:
+    name: tarball-smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Pack, install the .tgz alone, and run it
+        shell: bash
+        run: node scripts/tarball-smoke.mjs "$RUNNER_TEMP/rewake-smoke"
+
   # The single status check to require in branch rulesets: it fails if any matrix job failed or
   # was cancelled, and passes only when all of them passed.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [check]
+    needs: [check, tarball-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
@@ -60,6 +93,8 @@ jobs:
       - name: Require every matrix job to pass
         env:
           RESULT: ${{ needs.check.result }}
+          SMOKE: ${{ needs.tarball-smoke.result }}
         run: |
-          echo "check result: $RESULT"
+          echo "check result: $RESULT; tarball-smoke result: $SMOKE"
           test "$RESULT" = "success"
+          test "$SMOKE" = "success"
