@@ -5,7 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerHost, ScheduleStore } from "../src/core/store.js";
 import type { HostAdapter } from "../src/hosts/host.js";
 import { OWNER_ENV, ownedByZed } from "../src/hosts/index.js";
-import { ensureLauncher, launcherPath } from "../src/timers/launcher.js";
+import { SENDING_STALE_MS } from "../src/timers/fire.js";
+import {
+  ensureLauncher,
+  launcherPath,
+  launcherVersion,
+  refreshLauncher,
+} from "../src/timers/launcher.js";
 import { appleString, osNotifier } from "../src/timers/notify.js";
 import { FIRE_NOW_MS, type SweepDeps, scheduleFire, sweep } from "../src/timers/sweep.js";
 import type { TimerHost } from "../src/timers/timers.js";
@@ -86,6 +92,19 @@ describe("sweep", () => {
     expect(armed).toEqual([lost]);
   });
 
+  it("hands a send cut off long ago to fire, which settles it (never re-sends)", () => {
+    const attempts = [{ n: 1, idempotencyKey: "k", startedAt: NOW - SENDING_STALE_MS - 1 }];
+    const stale = add(NOW - 3_600_000, { host: "test", status: "sending", attempts });
+    add(NOW - 3_600_000, {
+      host: "test",
+      status: "sending",
+      attempts: [{ n: 1, idempotencyKey: "k", startedAt: NOW - 60_000 }],
+    });
+    const { d, fired } = deps();
+    expect(sweep(d)).toEqual({ fired: 1, armed: 0 });
+    expect(fired).toEqual([stale]);
+  });
+
   it("does nothing when no integration outside Zed is installed", () => {
     add(NOW - 1000);
     const { d, fired } = deps();
@@ -122,6 +141,27 @@ describe("stable launcher", () => {
     writeFileSync(bundle, "console.log(2);\n");
     ensureLauncher(state, bundle);
     expect(readFileSync(launcherPath(state), "utf8")).toBe("console.log(2);\n");
+  });
+
+  it("is refreshed by a newer Rewake, never by an older one or another script", () => {
+    const state = join(dir, "state");
+    const bundle = join(dir, "agent-rewake.js");
+    writeFileSync(bundle, "v1\n");
+    // Nothing to refresh until an integration outside Zed has made the copy.
+    refreshLauncher(state, bundle, "0.2.0");
+    expect(existsSync(launcherPath(state))).toBe(false);
+    ensureLauncher(state, bundle, "0.2.0");
+    expect(launcherVersion(state)).toBe("0.2.0");
+    writeFileSync(bundle, "v2\n");
+    refreshLauncher(state, bundle, "0.1.9");
+    expect(readFileSync(launcherPath(state), "utf8")).toBe("v1\n");
+    const other = join(dir, "vitest.mjs");
+    writeFileSync(other, "not rewake\n");
+    refreshLauncher(state, other, "9.9.9");
+    expect(readFileSync(launcherPath(state), "utf8")).toBe("v1\n");
+    refreshLauncher(state, bundle, "0.3.0");
+    expect(readFileSync(launcherPath(state), "utf8")).toBe("v2\n");
+    expect(launcherVersion(state)).toBe("0.3.0");
   });
 
   it("does nothing when running from source", () => {

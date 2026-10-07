@@ -41,10 +41,10 @@ import { runMcp } from "./mcp.js";
 import { runProxy } from "./proxy.js";
 import { agentName } from "./setup.js";
 import { fire } from "./timers/fire.js";
-import { launcherPath } from "./timers/launcher.js";
+import { ensureLauncher, launcherPath, refreshLauncher } from "./timers/launcher.js";
 import { osNotifier } from "./timers/notify.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
-import { cancelTimer, defaultTimerHost } from "./timers/timers.js";
+import { cancelTimer, defaultTimerHost, parseTimerName } from "./timers/timers.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { Logger } from "./util/log.js";
@@ -127,6 +127,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
 
   // The clock (and later settings) apply to everything this process prints.
   applySettings(stateDir(env));
+  // A newer Rewake keeps the copy that hooks and timers run current (plan §3.6).
+  if (process.argv[1]) refreshLauncher(stateDir(env), process.argv[1], VERSION);
 
   const [first] = argv;
   if (first === "--version" || first === "-v") {
@@ -140,8 +142,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   if (first === "mcp")
     // The agent's tool server, started by the agent. stdout carries MCP.
     return runMcp({ stateDir: stateDir(env), link: env.AGENT_REWAKE_LINK });
-  if (first === "doctor") return doctor(env, argv.includes("--details"));
+  if (first === "doctor") {
+    sweepQuietly(env);
+    return doctor(env, argv.includes("--details"));
+  }
   if (first === "ui") {
+    sweepQuietly(env);
     const t = argv.indexOf("--thread");
     const threadId = t !== -1 ? argv[t + 1] : undefined;
     return runTui(stateDir(env), {
@@ -290,6 +296,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     };
     if (chosen.includes("gemini-cli")) code = Math.max(code, await runGeminiInstall(common));
     if (chosen.includes("antigravity")) code = Math.max(code, await runAntigravityInstall(common));
+    if (!dryRun) sweepQuietly(env);
     return code;
   }
   if (first === "continue") {
@@ -490,10 +497,22 @@ function runInTerminal(cmd: AgentCommand): number {
   return r.status ?? 1;
 }
 
-/** The Rewake that timers and detached runs start: the stable copy, or this script from source. */
+/** The Rewake that timers and detached runs start: the stable copy, made now if it's missing. */
 function rewakeCli(state: string): string {
   const stable = launcherPath(state);
-  return existsSync(stable) ? stable : (process.argv[1] ?? stable);
+  if (existsSync(stable)) return stable;
+  const bundle = process.argv[1] ?? "";
+  return (bundle && ensureLauncher(state, bundle)) || bundle || stable;
+}
+
+/** Re-arm lost timers and start due resumes (plan §5); never fails the command running it. */
+function sweepQuietly(env: NodeJS.ProcessEnv): void {
+  try {
+    const { sweepDeps } = timerDeps(env);
+    sweep(sweepDeps(Date.now()));
+  } catch {
+    // The next hook or command sweeps again.
+  }
 }
 
 /** Timers, the sweep and a detached `fire`, for this run. */
@@ -520,11 +539,13 @@ function timerDeps(env: NodeJS.ProcessEnv) {
  * `agent-rewake fire <id>`: run by a resume's OS timer (src/timers/). Exit status 0 unless the
  * id is malformed; what happened is in the schedule and the log.
  */
-async function runFire(id: string, env: NodeJS.ProcessEnv): Promise<number> {
-  if (!/^[a-z0-9-]{1,64}$/.test(id)) {
+async function runFire(name: string, env: NodeJS.ProcessEnv): Promise<number> {
+  if (!/^[a-z0-9-]{1,64}$/.test(name)) {
     process.stderr.write("agent-rewake: usage: agent-rewake fire <id>\n");
     return 2;
   }
+  // A timer re-armed from inside another runs as `<id>-r<n>` (src/timers/timers.ts).
+  const { id, gen } = parseTimerName(name);
   const { state, node, timers } = timerDeps(env);
   const log = new Logger(env);
   const outcome = await fire(id, {
@@ -535,6 +556,7 @@ async function runFire(id: string, env: NodeJS.ProcessEnv): Promise<number> {
     notify: osNotifier(),
     log: (event, fields) => log.info(event, fields),
     fromTimer: true,
+    timerGen: gen,
   });
   log.info("fire.done", { outcome });
   return 0;
@@ -616,6 +638,7 @@ async function runContinueCommand(
   mode?: "always" | "ask" | "cancel",
 ): Promise<number> {
   const { state, timers, sweepDeps } = timerDeps(env);
+  sweepQuietly(env);
   return runContinue({
     ...(mode && { mode }),
     hosts: CLOSED_HOSTS,
