@@ -35,3 +35,16 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: docs
+  # The agent CLIs the contract tests run (test/agents): an update is a pull request that runs
+  # the contracts against the new version.
+  - package-ecosystem: npm
+    directory: /test/agents
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 2
+    groups:
+      agents:
+        patterns: ["*"]
+    commit-message:
+      prefix: test

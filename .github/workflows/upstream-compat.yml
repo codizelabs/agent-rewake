@@ -1,0 +1,108 @@
+# Each agent CLI's newest release against Rewake's contract tests (plan §10.5, §10A.3
+# upstream-compat). The pinned versions (test/agents) can't catch an upstream change; this can.
+# Weekly and on demand; the job summary lists the versions tested. No account, no sign-in.
+name: upstream-compat
+
+on:
+  schedule:
+    - cron: "23 5 * * 3"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: upstream-compat
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    name: ${{ matrix.agent.name }} @latest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        agent:
+          - { name: codex, package: "@openai/codex", bin: codex, env: REWAKE_CODEX_BIN, test: codex-contract }
+          - { name: claude-code, package: "@anthropic-ai/claude-code", bin: claude, env: REWAKE_CLAUDE_BIN, test: claude-contract }
+          - { name: gemini-cli, package: "@google/gemini-cli", bin: gemini, env: REWAKE_GEMINI_BIN, test: gemini-contract }
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Install the agent's newest release, in a scratch folder
+        env:
+          PACKAGE: ${{ matrix.agent.package }}
+          OS: ${{ matrix.os }}
+        run: |
+          # The newest release is the point of this job: a scratch package that asks for "latest".
+          mkdir -p "$RUNNER_TEMP/latest"
+          node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ private: true, dependencies: { [process.env.PACKAGE]: "latest" } }))' "$RUNNER_TEMP/latest/package.json"
+          (cd "$RUNNER_TEMP/latest" && HOME="$RUNNER_TEMP/agentshome" npm install --no-audit --no-fund)
+          version=$(node -p "require(process.env.RUNNER_TEMP + '/latest/node_modules/' + process.env.PACKAGE + '/package.json').version")
+          echo "| $PACKAGE | $version | $OS |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Contract test against it
+        env:
+          BIN: ${{ matrix.agent.bin }}
+          VAR: ${{ matrix.agent.env }}
+          TEST: ${{ matrix.agent.test }}
+        run: env "$VAR=$RUNNER_TEMP/latest/node_modules/.bin/$BIN" npx vitest run "test/$TEST.test.ts"
+
+  grok:
+    name: grok @latest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # Grok's package installs its program into $HOME/.grok/bin: a scratch home keeps it there.
+      - name: Install Grok's newest release, in a scratch home
+        env:
+          OS: ${{ matrix.os }}
+        run: |
+          # The newest release is the point of this job: a scratch package that asks for "latest".
+          mkdir -p "$RUNNER_TEMP/latest"
+          echo '{"private":true,"dependencies":{"@xai-official/grok":"latest"}}' > "$RUNNER_TEMP/latest/package.json"
+          (cd "$RUNNER_TEMP/latest" && HOME="$RUNNER_TEMP/grokhome" npm install --no-audit --no-fund)
+          version=$(node -p "require(process.env.RUNNER_TEMP + '/latest/node_modules/@xai-official/grok/package.json').version")
+          echo "| @xai-official/grok | $version | $OS |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Contract test against it
+        env:
+          REWAKE_GROK_BIN: ${{ runner.temp }}/grokhome/.grok/bin/grok
+        run: npx vitest run test/grok-contract.test.ts
