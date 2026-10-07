@@ -45,6 +45,12 @@ import { overview, overviewMarkdown, STATUS_WORDS } from "./ui/overview.js";
 import { type Wake, Wakefulness } from "./util/keep-awake.js";
 import type { Logger } from "./util/log.js";
 import { ensurePrivateDir } from "./util/paths.js";
+import {
+  readSleepSettings,
+  SLEEP_DOCS_URL,
+  type SleepSettings,
+  sleepRisks,
+} from "./util/sleep-settings.js";
 import { REPO_URL, SUPPORT_URL, VERSION } from "./version.js";
 
 /** Sign-in kinds the Claude and Codex adapters report in `_auth/status_update`. */
@@ -130,6 +136,8 @@ export interface AddonOptions {
   firstUseNote?: boolean;
   /** Keeps the computer awake while a message is due (tests pass their own). */
   wake?: Wake;
+  /** Reads this computer's own sleep settings (tests pass their own). */
+  sleepSettings?: () => SleepSettings;
 }
 
 interface LimitEpisode {
@@ -242,8 +250,10 @@ export class SchedulingAddon {
   private readonly wake: Wake;
   /** Messages whose thread was told the computer is kept awake for them. */
   private readonly wakeAnnounced = new Set<string>();
-  /** The one-time "can't keep this computer awake here" line was shown. */
+  /** The one-time line about this computer's own sleep settings was shown. */
   private wakeUnsupportedSaid = false;
+  /** This computer's sleep settings, read at most every ten minutes (it runs system commands). */
+  private sleepRead: { at: number; settings: SleepSettings } | undefined;
   /** Claude-only extras: its rate-limit events, transcripts and own auto-continue setting. */
   private claudeAgent = false;
   /** How this agent reports a usage limit. */
@@ -2723,6 +2733,13 @@ export class SchedulingAddon {
     this.updateWake();
   }
 
+  /** This computer's sleep settings, re-read at most every ten minutes. */
+  private sleepSettingsNow(now: number): SleepSettings {
+    if (!this.sleepRead || now - this.sleepRead.at > 10 * 60_000)
+      this.sleepRead = { at: now, settings: (this.opts.sleepSettings ?? readSleepSettings)() };
+    return this.sleepRead.settings;
+  }
+
   /**
    * Keep the computer from idling to sleep while a thread this process owns has a message due
    * within a few hours, or a scheduled reply runs; otherwise let it sleep. One store read per call.
@@ -2747,17 +2764,29 @@ export class SchedulingAddon {
     const want = due.length > 0 || delivering !== undefined;
     const held = this.wake.set(want, settings.keepAwake);
     if (!want || settings.keepAwake === "never") return;
-    if (!held) {
-      if (this.wake.supported || this.wakeUnsupportedSaid) return;
-      this.wakeUnsupportedSaid = true;
+    if (!this.wakeUnsupportedSaid) {
+      // Rewake's own hold doesn't cover everything (battery, Linux, Windows): check what this
+      // computer's own settings will do, and say so once, with where to change them.
+      const hold = this.wake.supported ? settings.keepAwake : "none";
+      const sleep = this.sleepSettingsNow(now);
+      const known = sleep.pluggedInSleepMin !== undefined || sleep.onBattery !== undefined;
+      const risks = sleepRisks(sleep, hold);
       const where = this.sessions.get(due[0]?.sessionId ?? "") ?? delivering;
-      if (where)
+      const first = due[0];
+      if (where && (risks.length > 0 || (!known && !held))) {
+        this.wakeUnsupportedSaid = true;
+        const what = first
+          ? ` before ${first.kind === "user" ? "the scheduled message" : "the resume"} at ${formatWhen(first.dueAt, now, this.opts.locale)}`
+          : "";
         this.status(
           where,
-          "Rewake: Can't keep this computer awake on this system. If it sleeps, resumes and scheduled messages wait until it wakes; change its sleep settings to avoid that.",
+          risks.length > 0
+            ? `Rewake: This computer may sleep${what}: ${risks.join("; ")}. Change that so it stays awake while you're away; the best settings: ${SLEEP_DOCS_URL}`
+            : `Rewake: Make sure this computer won't sleep${what}: Rewake couldn't check its sleep settings. The best settings: ${SLEEP_DOCS_URL}`,
         );
-      return;
+      }
     }
+    if (!held) return;
     for (const s of due) {
       // Once per message, not per run: an hourly repeat would otherwise say it every hour.
       const key = s.scheduleId;
