@@ -57,6 +57,7 @@ export type Area =
   | "Sign-in"
   | "Scheduled messages"
   | "Sleep settings"
+  | "Outside Zed"
   | "Recently";
 
 export interface Finding {
@@ -571,7 +572,8 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   }
 
   // ---- Scheduled messages ------------------------------------------------------------------------
-  const schedules = new ScheduleStore(state).list();
+  // Zed's own; resumes of agents outside Zed are under "Outside Zed" (src/hosts/doctor.ts).
+  const schedules = new ScheduleStore(state).list().filter((x) => !x.host);
   const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
   const overdue = schedules.filter(
     (x) => (x.status === "scheduled" || x.status === "queued") && x.dueAt < now - 60_000,
@@ -769,6 +771,7 @@ const AREAS: Area[] = [
   "Sign-in",
   "Scheduled messages",
   "Sleep settings",
+  "Outside Zed",
   "Recently",
 ];
 
