@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -14,8 +15,10 @@ import {
   MIN_CLAUDE_CODE,
   modDir,
   modInstalled,
+  modVersion,
   pickClaude,
   type Run,
+  refreshMod,
   runClaudeInstall,
   shippedMod,
 } from "../src/hosts/claude-code/install.js";
@@ -181,4 +184,56 @@ describe("shippedMod", () => {
       );
     },
   );
+});
+
+describe("keeping the mod current", () => {
+  const writePlugin = (root: string, version: string) => {
+    mkdirSync(join(root, ".claude-plugin"), { recursive: true });
+    mkdirSync(join(root, "hooks"), { recursive: true });
+    writeFileSync(join(root, ".claude-plugin", "plugin.json"), JSON.stringify({ version }));
+    writeFileSync(join(root, "hooks", "register.js"), `// ${version}\n`);
+  };
+
+  it("a newer Rewake refreshes the installed mod's files and keeps its state link", () => {
+    const state = join(dir, "state");
+    writePlugin(modDir(state), "0.1.0");
+    writeFileSync(join(modDir(state), "rewake.json"), '{"stateDir":"x"}\n');
+    writePlugin(join(dir, "pkg", "dist", "hosts", "claude-code"), "0.2.0");
+    refreshMod(state, bundle, "0.2.0");
+    expect(modVersion(modDir(state))).toBe("0.2.0");
+    expect(readFileSync(join(modDir(state), "hooks", "register.js"), "utf8")).toBe("// 0.2.0\n");
+    expect(readFileSync(join(modDir(state), "rewake.json"), "utf8")).toBe('{"stateDir":"x"}\n');
+    // An older Rewake never replaces it.
+    writePlugin(join(dir, "pkg", "dist", "hosts", "claude-code"), "0.1.5");
+    refreshMod(state, bundle, "0.1.5");
+    expect(modVersion(modDir(state))).toBe("0.2.0");
+  });
+
+  it("does nothing where the mod isn't installed", () => {
+    const state = join(dir, "state");
+    refreshMod(state, bundle, "9.9.9");
+    expect(modVersion(modDir(state))).toBeUndefined();
+  });
+
+  it("installing again refreshes the files and never removes a working install", async () => {
+    const home = join(dir, "home");
+    const first = await install({
+      claude: fake({
+        installed: () => {
+          mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+          writeFileSync(
+            join(home, ".claude", "plugins", "installed_plugins.json"),
+            '{"plugins":{"rewake@agent-rewake":[]}}',
+          );
+        },
+      }),
+    });
+    expect(first.code).toBe(0);
+    const again = await install({ claude: fake({ fail: true }) });
+    expect(again.code).toBe(0);
+    expect(again.calls.filter((c) => !c.startsWith("plugin test"))).toEqual([
+      "plugin update rewake@agent-rewake --json",
+    ]);
+    expect(existsSync(join(modDir(again.state), ".claude-plugin", "plugin.json"))).toBe(true);
+  });
 });

@@ -17,7 +17,7 @@ import {
   render,
 } from "./doctor.js";
 import { runAntigravityInstall } from "./hosts/antigravity/install.js";
-import { runClaudeInstall } from "./hosts/claude-code/install.js";
+import { refreshMod, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { type ClosedDeps, reapClosed } from "./hosts/closed.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { runCopilotInstall } from "./hosts/copilot/install.js";
@@ -146,7 +146,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   // The clock (and later settings) apply to everything this process prints.
   applySettings(stateDir(env));
   // A newer Rewake keeps the copy that hooks and timers run current (plan §3.6).
-  if (process.argv[1]) refreshLauncher(stateDir(env), process.argv[1], VERSION);
+  if (process.argv[1]) {
+    refreshLauncher(stateDir(env), process.argv[1], VERSION);
+    refreshMod(stateDir(env), process.argv[1], VERSION);
+  }
 
   const [first] = argv;
   if (first === "--version" || first === "-v") {

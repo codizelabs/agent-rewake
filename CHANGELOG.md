@@ -49,6 +49,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **Codex preview:** typing "rewake" after the reset Codex recorded has passed continues the thread in a minute, instead of asking for a time; an earlier turn's usage figures no longer set the reset of a later limit.
 - Rewake's log no longer records an error's message for a failed hook or an agent that didn't start, only its kind: those messages can contain folders.
 
+- **Claude Code preview:** updating Rewake updates its plugin in Claude Code too (from the next session); before, it kept the version it was installed with until `install --only claude-code` ran again. Running that again only refreshes the plugin's files, so a failure can no longer remove a working install.
+
 ### Changed
 
 - Usage limits are recognised for every agent in Zed's registry, each from what it actually sends: Claude's rate-limit event (the same test Claude Code uses to continue on its own), Codex's error kinds, Gemini CLI, Qwen, Qoder, Kimi, Z.AI, MiniMax, Auggie, CodeBuddy, Devin, Junie, Mistral Vibe, goose, OpenCode, Kilo, Cline, Grok Build, Kimchi and Harn. Short-term rate limits, which the agent retries itself, are no longer treated as a usage limit.
