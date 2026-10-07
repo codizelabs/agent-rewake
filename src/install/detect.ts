@@ -175,6 +175,37 @@ export function claudePrograms(h: DetectHost): Program[] {
   });
 }
 
+/**
+ * The Claude desktop app's own Claude Code (macOS): `claude-code/<version>/<build>/claude.app`,
+ * a full CLI that can run `claude plugin …`. Only builds the app has finished checking (a
+ * `.verified` file beside them, research impl-claude-copilot A.1.1).
+ */
+export function claudeDesktopPrograms(h: DetectHost): Program[] {
+  if (h.platform !== "darwin") return [];
+  const root = join(h.home, "Library", "Application Support", "Claude", "claude-code");
+  const out: Program[] = [];
+  let names: string[] = [];
+  try {
+    names = readdirSync(root).filter((n) => VERSION.test(n));
+  } catch {
+    return out;
+  }
+  for (const version of names) {
+    let builds: string[] = [];
+    try {
+      builds = readdirSync(join(root, version));
+    } catch {
+      continue;
+    }
+    for (const b of builds) {
+      const path = join(root, version, b, "claude.app", "Contents", "MacOS", "claude");
+      if (existsSync(join(root, version, b, ".verified")) && isFile(path))
+        out.push({ path, surface: "desktop app", version });
+    }
+  }
+  return out;
+}
+
 function claudeCode(h: DetectHost): Found | undefined {
   const cli = claudePrograms(h);
   const bins = cli.map((p) => p.path);

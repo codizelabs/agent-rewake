@@ -11,7 +11,12 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
-import { claudePrograms, compareVersions, type Program } from "../../install/detect.js";
+import {
+  claudeDesktopPrograms,
+  claudePrograms,
+  compareVersions,
+  type Program,
+} from "../../install/detect.js";
 import {
   unknownVersionText,
   type VersionProbe,
@@ -195,7 +200,9 @@ export function pickClaude(programs: Program[]): Program | undefined {
 
 export async function runClaudeInstall(o: ClaudeInstallOptions): Promise<number> {
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
-  const programs = o.programs ?? claudePrograms({ env: o.env, home, platform: process.platform });
+  const host = { env: o.env, home, platform: process.platform };
+  // The terminal's Claude Code and the desktop app's own copy: either can run the plugin commands.
+  const programs = o.programs ?? [...claudePrograms(host), ...claudeDesktopPrograms(host)];
   const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
   const picked = pickClaude(programs);
   const claude = picked && !o.uninstall ? withVersion(picked, probe) : picked;
@@ -245,6 +252,14 @@ export async function runClaudeInstall(o: ClaudeInstallOptions): Promise<number>
         "",
       ].join("\n"),
     );
+    // Another Claude Code here (often the terminal's) too old to load plugins: say so.
+    const old = programs.find(
+      (p) => p.version && compareVersions(p.version, MIN_CLAUDE_CODE) < 0 && p.path !== claude.path,
+    );
+    if (old?.version)
+      o.out(
+        `Claude Code in your ${old.surface === "terminal" ? "terminal" : old.surface} is ${old.version}, too old to load the plugin (it needs ${MIN_CLAUDE_CODE}). Update it with "claude update" so Rewake works there too.\n`,
+      );
   }
   if (!o.uninstall && claude && !claude.version)
     o.out(unknownVersionText("Claude Code", MIN_CLAUDE_CODE, "claude update", "claude-code"));
