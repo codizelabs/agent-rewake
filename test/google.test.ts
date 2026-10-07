@@ -286,6 +286,23 @@ describe("Gemini CLI", () => {
     }
   });
 
+  it("knows a limited run from Gemini's JSON error on stderr", async () => {
+    const r = new SessionRecords(state, "gemini-cli").update(SID, dir, NOW, (x) => ({
+      ...x,
+      program: FAKE,
+    }));
+    if (!r) throw new Error("no session record");
+    const before = Date.now();
+    const result = await resumeGemini(r, "Continue.", {
+      ...process.env,
+      FAKE_RESUME: "limited-stderr",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "limited" });
+    const at = (result as { resetsAt?: number }).resetsAt ?? 0;
+    expect(at).toBeGreaterThanOrEqual(before + 2 * H - 1_000);
+    expect(at).toBeLessThanOrEqual(Date.now() + 2 * H);
+  });
+
   it("writes linkable hooks with millisecond timeouts", () => {
     const json = JSON.parse(geminiHooksJson("/n", "/l.mjs"));
     expect(Object.keys(json.hooks)).toEqual([
