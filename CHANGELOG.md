@@ -34,6 +34,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **Claude Code preview:** a gateway's daily spending cap, which resets within a day, is waited for; a monthly cap still isn't.
 - A Copilot CLI or Grok session that no longer exists is reported as deleted, not as a failure.
 - **Gemini CLI preview:** when a resume finds Gemini still at its usage limit, Rewake waits for the reset Gemini gives and tries again, instead of reporting that it couldn't continue the session. Gemini CLI writes that error to stderr, which Rewake didn't read.
+- **Gemini CLI, Copilot CLI, Grok and Antigravity CLI previews:** Rewake's own resume run no longer marks the session as open. When Gemini stopped that run at its limit again, the session stayed marked open, and the next try only said "The session is open, so Rewake didn't send anything".
 - **Previews outside Zed:** a resume that is still limited at its time is tried again later. Before, on macOS the new timer couldn't be set from inside the one that was running, so the resume was dropped. Each re-arm now gets its own timer.
 - **Previews outside Zed:** a resume can't be sent twice when two timers run at the same moment, and a resume cut off by a crash or restart is never sent again: Rewake tells you to check the session instead of leaving it stuck.
 - **Previews outside Zed:** a continued session whose agent is still working half an hour later (for example, waiting for your approval) is stopped, and you're told to check it.
