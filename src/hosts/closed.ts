@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { decideArm, RESET_MARGIN_MS } from "../core/resume.js";
+import { decideArm, FAR_RESET_MS, RESET_MARGIN_MS } from "../core/resume.js";
 import { loadSettings, type Settings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../core/threads.js";
@@ -51,9 +51,15 @@ export interface ClosedDeps {
   running?: (p: AgentProcess) => boolean;
 }
 
+/** The agent processes a record has seen open the session (one, in records of earlier versions). */
+function agentsOf(r: SessionRecord): AgentProcess[] {
+  if (r.agents) return r.agents;
+  return r.agentPid !== undefined && r.agentName ? [{ pid: r.agentPid, name: r.agentName }] : [];
+}
+
 /**
- * Whether a session is still open: its record says so and, when Rewake saw the agent's process at
- * session start, that process still runs. A session whose agent crashed or was killed never ran
+ * Whether a session is still open: its record says so and, when Rewake saw the agents' processes at
+ * session start, one of them still runs. A session whose agent crashed or was killed never ran
  * its session-end hook, and would otherwise stay "open" for ever.
  */
 export function stillOpen(
@@ -61,8 +67,8 @@ export function stillOpen(
   running: (p: AgentProcess) => boolean = (p) => stillRunning(p),
 ): boolean {
   if (!r.open) return false;
-  if (r.agentPid === undefined || !r.agentName) return true;
-  return running({ pid: r.agentPid, name: r.agentName });
+  const agents = agentsOf(r);
+  return agents.length === 0 || agents.some(running);
 }
 
 /** "GitHub Copilot CLI in shop": the agent and the project folder's name. */
@@ -138,14 +144,18 @@ export function onSessionStart(
   program?: string,
 ): void {
   const agent = d.env[FIRE_ENV] ? undefined : d.agent?.();
+  const running = d.running ?? ((p: AgentProcess) => stillRunning(p));
   new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (r) => {
-    const { agentPid: _p, agentName: _n, ...rest } = r;
+    const { agentPid: _p, agentName: _n, agents: _a, ...rest } = r;
+    // The same session still open in another terminal stays counted.
+    const others = r.open ? agentsOf(r).filter((p) => p.pid !== agent?.pid && running(p)) : [];
+    const agents = agent ? [...others, agent] : others;
     return {
       ...rest,
       open: true,
       openedAt: d.now,
       ...(program && { program }),
-      ...(agent && { agentPid: agent.pid, agentName: agent.name }),
+      ...(agents.length > 0 && { agents }),
     };
   });
 }
@@ -189,12 +199,17 @@ export function onSessionEnd(
   cwd: string,
   d: ClosedDeps,
 ): void {
-  const r = new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (x) => ({
-    ...x,
-    open: false,
-    closedAt: d.now,
-  }));
-  if (!r || d.env[FIRE_ENV]) return;
+  const agent = d.env[FIRE_ENV] ? undefined : d.agent?.();
+  const running = d.running ?? ((p: AgentProcess) => stillRunning(p));
+  const r = new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (x) => {
+    // Still open in another terminal: closing one isn't the end of the session.
+    const left = agent ? agentsOf(x).filter((p) => p.pid !== agent.pid && running(p)) : [];
+    if (x.open && left.length > 0) return { ...x, agents: left };
+    const { agentPid: _p, agentName: _n, agents: _a, ...rest } = x;
+    return { ...rest, open: false, closedAt: d.now };
+  });
+  if (!r || r.open || d.env[FIRE_ENV]) return;
+  followLaterReset(host, r, d);
   const limit = unanswered(d.stateDir, r);
   if (!limit) return;
   const settings = loadSettings(d.stateDir);
@@ -217,6 +232,29 @@ export function onSessionEnd(
     "Agent Rewake",
     `${placeOf(host, r.cwd)} hit its usage limit. Run "agent-rewake continue" ${how}.`,
   );
+}
+
+/**
+ * A limit seen after a resume was planned, with a later reset (Antigravity has no prompt hook, so
+ * carrying on into a new limit doesn't cancel the resume): the resume moves to the new reset, or,
+ * when that is more than a day away, is cancelled so the limit is offered like a new one.
+ */
+function followLaterReset(host: ClosedHost, r: SessionRecord, d: ClosedDeps): void {
+  const l = r.limit;
+  if (!l || l.billing || l.resetsAt === undefined) return;
+  const at = l.resetsAt + RESET_MARGIN_MS;
+  const store = new ScheduleStore(d.stateDir);
+  for (const s of pendingFor(d.stateDir, host.id, r.sessionId)) {
+    if (s.status !== "scheduled" || l.seenAt <= s.createdAt || at <= s.dueAt) continue;
+    if (l.resetsAt - d.now > FAR_RESET_MS) {
+      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
+      d.disarm(s.scheduleId);
+      continue;
+    }
+    store.update(s.scheduleId, (x) => ({ ...x, dueAt: at }), d.now);
+    d.arm(s.scheduleId, at);
+    d.notify("Agent Rewake", armedText(host, r.cwd, at, d.now));
+  }
 }
 
 /** The `fire` side for a closed-session host. */
@@ -255,7 +293,7 @@ export function reapClosed(hosts: readonly ClosedHost[], d: ClosedDeps): number 
   let n = 0;
   for (const host of hosts)
     for (const r of new SessionRecords(d.stateDir, host.id).list()) {
-      if (!r.open || r.agentPid === undefined || stillOpen(r, d.running)) continue;
+      if (!r.open || agentsOf(r).length === 0 || stillOpen(r, d.running)) continue;
       onSessionEnd(host, r.sessionId, r.cwd, { ...d, env: {} });
       n++;
     }

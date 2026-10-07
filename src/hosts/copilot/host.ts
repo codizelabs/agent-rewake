@@ -22,7 +22,8 @@ import { classifyCopilotError } from "./recognise.js";
  *
  * in the session's folder. No --allow-* or --yolo: a turn that needs approval stops there
  * (product rule 5; what it does exactly is experiment E-C3). The JSONL output says whether the run
- * hit the limit again (`session.error` with `errorType: "rate_limit"`).
+ * hit the limit again (`session.error` with `errorType: "rate_limit"`), and its message says
+ * when the limit resets.
  */
 
 export const COPILOT_ID = "copilot-cli";
@@ -49,6 +50,7 @@ export function resumeCopilot(
   const program = nodeAware(r.program, node);
   return new Promise((resolve) => {
     let limited = false;
+    let resetsAt: number | undefined;
     const child = spawn(
       program.command,
       [
@@ -74,8 +76,14 @@ export function resumeCopilot(
     });
     createInterface({ input: child.stdout }).on("line", (line) => {
       try {
-        const e = JSON.parse(line) as { type?: string; data?: { errorType?: string } };
-        if (e.type === "session.error" && e.data?.errorType === "rate_limit") limited = true;
+        const e = JSON.parse(line) as {
+          type?: string;
+          data?: { errorType?: string; message?: unknown };
+        };
+        if (e.type === "session.error" && e.data?.errorType === "rate_limit") {
+          limited = true;
+          resetsAt = classifyCopilotError(e.data.message, Date.now())?.resetsAt;
+        }
       } catch {
         // Not JSON: progress text.
       }
@@ -84,7 +92,7 @@ export function resumeCopilot(
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
     child.on("exit", (code) => {
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
-      if (limited) resolve({ ok: false, reason: "limited" });
+      if (limited) resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       else if (code === 0) resolve({ ok: true });
       else if (SESSION_GONE.test(err)) resolve({ ok: false, reason: "closed", detail: "deleted" });
       else resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
