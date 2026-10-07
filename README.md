@@ -4,9 +4,9 @@
 
 # Agent Rewake
 
-**Your Zed agent hits its usage limit. Rewake picks the thread back up the moment it resets.**
+**Auto-resume your AI coding agent when its usage limit resets.** Same session, same context, same thread.
 
-Works with Claude, Codex, Gemini CLI and every other external agent in [Zed](https://zed.dev), in the threads you already have.
+Works with Claude, Codex, Gemini CLI and every other external agent in [Zed](https://zed.dev), in the threads you already have, with previews for Claude Code, Codex, GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI outside Zed.
 
 [![npm](https://img.shields.io/npm/v/@codizelabs/agent-rewake?color=f4a949&label=npm)](https://www.npmjs.com/package/@codizelabs/agent-rewake)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -41,6 +41,26 @@ Coding agents stop at their usage limit: Claude's 5-hour session limit, Codex's 
 - **One place for everything.** A **Rewake** menu under the message box, and a schedules page for every thread and agent.
 
 No new agent to pick: Rewake sits in front of the agents you already use, under their own names, so your existing threads keep working.
+
+## Auto-resume for each agent
+
+Find your agent below. Outside Zed, each preview is installed on its own and may change; details are in the [docs](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews).
+
+### Auto-resume any agent in Zed
+
+Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and every other external agent in Zed's Agent Panel. At a usage limit the thread offers to resume, or resumes on its own with automatic resume on, in the same thread. `npx @codizelabs/agent-rewake install`
+
+### Auto-resume Claude Code after a usage limit (preview)
+
+In the terminal (the Claude desktop app's Code tab isn't supported yet): at a usage limit, Rewake offers to continue the session after the reset; keep Claude Code open. `/rewake-schedule` schedules a message into the session. `npx @codizelabs/agent-rewake install --only claude-code`
+
+### Auto-resume Codex when the usage limit resets (preview)
+
+In the Codex terminal app: trust Rewake's hooks once, then at a usage limit type `rewake` in the thread, and Rewake continues the thread after the reset. `npx @codizelabs/agent-rewake install --only codex`
+
+### Auto-resume GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI (preview)
+
+Once the session is closed, run `npx @codizelabs/agent-rewake continue`, any time before the reset, and Rewake continues the same session when the limit resets. Run `continue --always` once, and from then on Rewake continues closed sessions by itself when the reset is within a day. `npx @codizelabs/agent-rewake install --only copilot-cli` (or `grok`, `gemini-cli`, `antigravity`)
 
 ## Is it for you?
 
