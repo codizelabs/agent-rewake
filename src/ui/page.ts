@@ -6,7 +6,7 @@ import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.j
 import { type ThreadSettings, ThreadStore } from "../core/threads.js";
 import { formatClock, formatWhen, parseWhen } from "../core/time.js";
 import { ensurePrivateDir } from "../util/paths.js";
-import { REPO_URL } from "../version.js";
+import { REPO_URL, VERSION } from "../version.js";
 import type { InputEvent } from "./input.js";
 import { oneLine, STATUS_WORDS } from "./overview.js";
 
@@ -848,7 +848,22 @@ export class SchedulesPage {
         hint: t.hint,
       });
     }
-    out.push([{ text: " Rewake · Scheduled messages", style: "bold" }, { text: "   " }, ...tabs]);
+    const titleRow: Segment[] = [
+      { text: " Rewake · Scheduled messages", style: "bold" },
+      { text: "   " },
+      ...tabs,
+    ];
+    // The version at the right: in full where it fits next to the tabs, else the number alone.
+    const used = titleRow.reduce((n, seg) => n + seg.text.length, 0);
+    const version = [`Agent Rewake ${VERSION} `, `${VERSION} `].find(
+      (v) => used + 2 + v.length <= w,
+    );
+    if (version)
+      titleRow.push(
+        { text: " ".repeat(w - used - version.length) },
+        { text: version, style: "dim" },
+      );
+    out.push(titleRow);
     out.push([{ text: "─".repeat(w), style: "dim" }]);
 
     // Table.
@@ -994,7 +1009,7 @@ export class SchedulesPage {
     let title = "";
     switch (d.kind) {
       case "help": {
-        title = "Help · Agent Rewake";
+        title = `Help · Agent Rewake ${VERSION}`;
         for (const l of HELP)
           text(l.startsWith("#") ? l.slice(1).trim() : l, l.startsWith("#") ? "bold" : "plain");
         body.push([]);

@@ -185,6 +185,7 @@ function aboutRewake(opts: McpOptions, sessionId: string | undefined, now: numbe
     "## Right now",
     "",
     `- Current time: ${formatExact(now, opts.locale)}.`,
+    `- Agent Rewake version: ${VERSION}.`,
     `- Settings: automatic resume for new threads: ${auto}${
       settings.newThreads !== "on"
         ? `; threads that bypass permissions ${settings.autoWhenPromptsSkipped ? "included" : "excluded"}`

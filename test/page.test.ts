@@ -7,6 +7,7 @@ import { registerHost, ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import { type InputEvent, parseInput } from "../src/ui/input.js";
 import { SchedulesPage } from "../src/ui/page.js";
+import { VERSION } from "../src/version.js";
 
 const HOUR = 3_600_000;
 const T0 = new Date(2026, 9, 4, 14, 0, 0, 0).getTime(); // Sunday 4 Oct 2026 14:00 local
@@ -97,6 +98,7 @@ describe("the schedules page", () => {
     const frame = page().render(120, 30);
     const text = frame.lines.map(plain);
     expect(text[0]).toContain("Rewake · Scheduled messages");
+    expect(text[0]?.endsWith(`Agent Rewake ${VERSION} `)).toBe(true);
     expect(text[2]).toMatch(/When\s+Agent\s+Thread\s+Message\s+Repeats\s+Status/);
     expect(text[3]).toMatch(
       /^› 15:00 today\s+Claude Agent\s+Refactor auth\s+Run the tests\s+—\s+Scheduled/,
@@ -245,7 +247,18 @@ describe("the schedules page", () => {
     const text = page().render(60, 20).lines.map(plain);
     expect(text[2]).not.toContain("Agent");
     expect(text[2]).not.toContain("Thread");
+    expect(text[0]).not.toContain(VERSION); // the version only where it fits
     for (const l of text) expect(l.length).toBeLessThanOrEqual(60);
+  });
+
+  it("shows Rewake's version on the title line, shortened to the number when the tabs leave less room", () => {
+    seed();
+    const full = plain(page().render(80, 20).lines[0] ?? "");
+    expect(full.endsWith(` Agent Rewake ${VERSION} `)).toBe(true);
+    const short = plain(page({ threadId: "s-1" }).render(80, 20).lines[0] ?? "");
+    expect(short).not.toContain("Agent Rewake");
+    expect(short.endsWith(` ${VERSION} `)).toBe(true);
+    expect(short.length).toBeLessThanOrEqual(80);
   });
 
   it("hides tips for good with x, and opens help with ?", () => {
@@ -256,6 +269,9 @@ describe("the schedules page", () => {
     key(p, "?");
     expect(p.render(120, 40).lines.map(plain).join("\n")).toContain(
       "/schedule 09:00 Run the tests · /schedule list",
+    );
+    expect(p.render(120, 40).lines.map(plain).join("\n")).toContain(
+      `┌─ Help · Agent Rewake ${VERSION} ─`,
     );
     key(p, "q"); // closes help first
     expect(p.done).toBe(false);

@@ -1522,7 +1522,8 @@ export class SchedulingAddon {
     return {
       id: MENU_CONFIG_ID,
       name: "Rewake",
-      description: "Agent Rewake: schedule messages in this thread",
+      // Zed shows the description in the menu's hover tooltip, so the version fits there.
+      description: `Agent Rewake ${VERSION}: schedule messages in this thread`,
       category: "_rewake",
       type: "select",
       currentValue: value("home"),
@@ -2111,7 +2112,7 @@ export class SchedulingAddon {
             : "exceptBypass";
     const content = await this.form(
       session,
-      "Rewake settings.",
+      `Agent Rewake ${VERSION} settings.`,
       {
         autoResume: {
           type: "string",

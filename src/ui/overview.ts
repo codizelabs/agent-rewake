@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { ThreadStore } from "../core/threads.js";
 import { formatWhen, TEXT_LOCALE } from "../core/time.js";
+import { VERSION } from "../version.js";
 
 /** User-facing status words. */
 export const STATUS_WORDS: Record<Schedule["status"], string> = {
@@ -113,7 +114,7 @@ export function overviewMarkdown(groups: ProjectGroup[], now: number, locale?: s
   const lines = [
     "# Agent Rewake: scheduled messages",
     "",
-    `Snapshot taken ${generated}. To manage them, run the "Agent Rewake: schedules" task in Zed (\`agent-rewake ui\`), or use \`/schedule list\` in a thread.`,
+    `Snapshot taken ${generated} by Agent Rewake ${VERSION}. To manage them, run the "Agent Rewake: schedules" task in Zed (\`agent-rewake ui\`), or use \`/schedule list\` in a thread.`,
     "",
   ];
   if (groups.length === 0) lines.push("No scheduled messages.");
