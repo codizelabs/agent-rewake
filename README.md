@@ -52,15 +52,15 @@ Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and every other
 
 ### Auto-resume Claude Code after a usage limit (preview)
 
-In the terminal (the Claude desktop app's Code tab isn't supported yet): at a usage limit, Rewake offers to continue the session after the reset; keep Claude Code open. `/rewake-schedule` schedules a message into the session. `npx @codizelabs/agent-rewake install --only claude-code`
+In the terminal (the Claude desktop app's Code tab isn't supported yet): at a usage limit, Rewake offers to continue the session after the reset; keep Claude Code open. `/rewake` schedules a message into the session (`/rewake in 1h Run the tests`); `/rewake help` lists the rest. `npx @codizelabs/agent-rewake install --only claude-code`
 
 ### Auto-resume Codex when the usage limit resets (preview)
 
-In the Codex terminal app: trust Rewake's hooks once, then at a usage limit type `rewake` in the thread, and Rewake continues the thread after the reset. `npx @codizelabs/agent-rewake install --only codex`
+In the Codex terminal app: trust Rewake's hooks once, then at a usage limit type `rewake` in the thread (Codex refuses slash commands it doesn't know, so it's the one place without the slash), and Rewake continues the thread after the reset. `npx @codizelabs/agent-rewake install --only codex`
 
 ### Auto-resume GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI (preview)
 
-Once the session is closed, run `npx @codizelabs/agent-rewake continue`, any time before the reset, and Rewake continues the same session when the limit resets. Run `continue --always` once, and from then on Rewake continues closed sessions by itself when the reset is within a day. `npx @codizelabs/agent-rewake install --only copilot-cli` (or `grok`, `gemini-cli`, `antigravity`)
+Once the session is closed, run `npx @codizelabs/agent-rewake continue`, any time before the reset, and Rewake continues the same session when the limit resets. Run `continue --always` once, and from then on Rewake continues closed sessions by itself when the reset is within a day. In Gemini CLI you can also type `/rewake` in the conversation at the limit. `npx @codizelabs/agent-rewake install --only copilot-cli` (or `grok`, `gemini-cli`, `antigravity`)
 
 ## Is it for you?
 
@@ -114,12 +114,14 @@ Zed talks to external agents over the [Agent Client Protocol](https://agentclien
 
 | To… | In the thread | Or type |
 |---|---|---|
-| Resume after a limit | **Rewake → Resume after the usage limit…** (offered automatically) | `/schedule resume` |
-| Resume automatically | **Rewake → Turn on auto-resume after limits…** | `/schedule auto on` |
-| Schedule a message | **Rewake → Schedule a message…** | `/schedule in 3h Run the tests` |
-| Repeat a message | **Custom time…** in the schedule form | `/schedule every weekday 09:00 Check the build` |
-| See or change messages | **Rewake → Schedules**, **Change a scheduled message…** | `/schedule list` |
+| Resume after a limit | **Rewake → Resume after the usage limit…** (offered automatically) | `/rewake` (or `/rewake 3:30pm`) |
+| Resume automatically | **Rewake → Turn on auto-resume after limits…** | `/rewake auto on` |
+| Schedule a message | **Rewake → Schedule a message…** | `/rewake in 3h Run the tests` |
+| Repeat a message | **Custom time…** in the schedule form | `/rewake every weekday 09:00 Check the build` |
+| See or change messages | **Rewake → Schedules**, **Change a scheduled message…** | `/rewake list` |
 | See every thread | The Zed task **Agent Rewake: schedules** | `npx @codizelabs/agent-rewake ui` |
+
+**One command everywhere:** `/rewake` is the same in Zed, Claude Code and Gemini CLI (in Codex, type `rewake` without the slash). At a usage limit it continues after the reset; `/rewake <time>` continues then, `/rewake cancel` cancels it, and `/rewake help` lists what else works where you are. Rewake answers it itself, without using the model.
 
 Full guide: **[codizelabs.github.io/agent-rewake/docs](https://codizelabs.github.io/agent-rewake/docs/)**.
 

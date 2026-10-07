@@ -8,6 +8,17 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - **Rewake's version where you look for it:** in the Rewake menu's tooltip (next to its About, which had it already), at the top of **Settings…**, on the schedules page's title line and help, in the `/schedule page` snapshot, and in what `about_rewake` tells the agent, so it can say which version you run. The menu's label in the toolbar stays short.
 
+### Changed
+
+- **One command, `/rewake`, everywhere Rewake runs.** Zed (and other ACP clients), Claude Code and Gemini CLI all take `/rewake`, with the same words: `/rewake` at a usage limit continues after the reset, `/rewake 3:30pm` continues then, `/rewake in 1h Run the tests` sends a message later, `/rewake list`, `/rewake cancel` (the continue), `/rewake cancel N` or `all`, `/rewake auto on|off`, and `/rewake help`, which lists what works in that place. Anything a place can't do gets one line saying so. Rewake answers the command itself, without using the model. In Codex it's `rewake` without the slash (now also `rewake list`, `rewake cancel` and `rewake help`): the Codex terminal refuses slash commands it doesn't know before any hook sees them.
+- **Zed:** `/schedule` and `/stop` are replaced by `/rewake` and `/rewake stop`, with the same subcommands (`/schedule rm N` is `/rewake cancel N`, `/schedule resume` after a limit is `/rewake`). A bare `/rewake` at a limit opens the resume question. Zed shows one command, `/rewake`, in its `/` menu.
+- **Claude Code preview:** `/rewake-schedule`, `/rewake-cancel`, `/rewake-continue`, `/rewake-clear` and `/rewake-ask` are folded into `/rewake` (`/rewake` alone asks when, then what; `/rewake cancel`; `/rewake`; `/rewake cancel all`; `/rewake auto off`). `/rewake list` numbers messages so `/rewake cancel N` can delete one, and `/rewake auto on` turns on continuing without asking.
+
+### Upgrade notes
+
+- **Zed, if you typed commands:** `/schedule …` is now `/rewake …`, and `/stop` is `/rewake stop`. Zed refuses the old names as unknown commands, so nothing is sent by mistake; type the new name instead. Scheduled messages and settings are unchanged. The Rewake menu works as before.
+- **Claude Code preview:** the `/rewake-…` commands are gone; use `/rewake` as above. The plugin updates itself with Rewake, from the next session.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added

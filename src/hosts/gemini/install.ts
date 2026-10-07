@@ -107,7 +107,7 @@ export function writeExtension(stateDir: string, node: string, launcher: string)
   writeFileAtomic(
     ensurePrivateDir(join(dir, "commands")),
     "rewake.toml",
-    `description = "Continue this conversation after its usage limit resets. Also: /rewake 3:30pm, /rewake cancel"\nprompt = "${REWAKE_MARKER} {{args}}"\n`,
+    `description = "Agent Rewake: continue after the usage limit resets. Also: /rewake 3:30pm, /rewake cancel, /rewake help"\nprompt = "${REWAKE_MARKER} {{args}}"\n`,
   );
   return dir;
 }

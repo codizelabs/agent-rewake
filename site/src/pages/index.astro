@@ -44,7 +44,7 @@ const faq: Array<{ q: string; a: string[] }> = [
   {
     q: "What happens at a usage limit in Claude Code, Codex or another terminal agent?",
     a: [
-      "With its preview installed: Claude Code asks once whether to continue the session after the reset, then continues it; when Claude Code's own continue will do that, Rewake leaves it to Claude Code. In Codex, type `rewake` in the thread at the limit, and the thread continues after the reset. GitHub Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions are continued once they're closed: run `npx @codizelabs/agent-rewake continue` before the reset.",
+      "With its preview installed: Claude Code asks once whether to continue the session after the reset, then continues it; when Claude Code's own continue will do that, Rewake leaves it to Claude Code. In Codex, type `rewake` in the thread at the limit (in Claude Code and Gemini CLI, `/rewake`), and the thread continues after the reset. GitHub Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions are continued once they're closed: run `npx @codizelabs/agent-rewake continue` before the reset.",
     ],
   },
   {
@@ -409,7 +409,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             <div class="text" data-reveal>
               <p class="kicker">Also</p>
               <h2>Send a message later, once or on a repeat.</h2>
-              <p>In Zed, pick <b>Schedule a message…</b> in the Rewake menu, type the message and pick a time. Rewake sends it into the thread as if you typed it, right after the agent's current reply if it's busy. In Claude Code, type <code>/rewake-schedule</code>.</p>
+              <p>In Zed, pick <b>Schedule a message…</b> in the Rewake menu, type the message and pick a time. Rewake sends it into the thread as if you typed it, right after the agent's current reply if it's busy. In Claude Code, type <code>/rewake in 1h Run the tests</code>.</p>
               <ul>
                 <li><strong>Repeat it:</strong> hourly, on weekdays, or any cron schedule, read back in plain words before it's saved.</li>
                 <li><strong>Or ask the agent:</strong> it can propose a follow-up, and nothing is scheduled until you approve.</li>
@@ -463,7 +463,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
           }
           <div class="steps3">
             <div><h3>Install once</h3><p><code>npx @codizelabs/agent-rewake install</code> shows what it found, then every change, and asks once. Your agents keep their names, threads and sessions. <a href={href("docs/#install")}>The steps</a>.</p></div>
-            <div><h3>Use what's there</h3><p>In Zed, the Rewake menu under the message box, or <code>/schedule in 1h Run the tests</code>. In Claude Code, <code>/rewake-schedule</code>. In Codex, type <code>rewake</code> at a limit.</p></div>
+            <div><h3>One command</h3><p>In Zed, the Rewake menu under the message box. Everywhere, <code>/rewake</code>: at a limit it continues after the reset. In Zed and Claude Code, <code>/rewake in 1h Run the tests</code> sends a message later. In Codex, type <code>rewake</code> without the slash.</p></div>
             <div><h3>Keep it running</h3><p>Zed or Claude Code stays open while a resume waits. For the other previews, only the computer needs to stay on and awake. <a href="#when">When it sends</a>.</p></div>
           </div>
           <p class="sub"><a href={href("docs/")}>How it works, in detail</a></p>

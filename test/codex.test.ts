@@ -132,6 +132,34 @@ describe("Codex hooks: typing rewake", () => {
     expect(new Date(resumes()[0]?.dueAt ?? 0).getHours()).toBe(23);
   });
 
+  it("speaks the shared grammar: list, cancel, help, and one line for what Codex can't do", async () => {
+    const h = hooks();
+    const say = async (prompt: string) =>
+      blocked(await h.run("UserPromptSubmit", { prompt })).reason ?? "";
+    expect(await say("rewake list")).toBe(
+      'Rewake: Nothing is set to continue this thread. At a usage limit, type "rewake" to continue after the reset.',
+    );
+    await say("rewake");
+    expect(await say("rewake list")).toMatch(
+      /^Rewake will continue this thread (at|on) .+\. To cancel: rewake cancel$/,
+    );
+    expect(await say("rewake cancel")).toBe(
+      "Rewake: Cancelled. This thread won't be continued on its own.",
+    );
+    expect(resumes()[0]?.status).toBe("cancelled");
+    expect(h.disarmed).toHaveLength(1);
+    expect(await say("rewake cancel")).toBe("Rewake: Nothing is set to continue this thread.");
+    expect(await say("rewake in 1h Run the tests")).toBe(
+      "Rewake can't schedule messages in Codex. Type rewake help to see what it can do.",
+    );
+    expect(await say("rewake help")).toMatch(/^Rewake in Codex:\n\nrewake /);
+    expect(await say("rewake whenever")).toBe(
+      'Rewake: Didn\'t understand "whenever". Try rewake 3:30pm.',
+    );
+    // Accepted with a slash too, should a Codex surface pass it on.
+    expect(await say("/rewake 11pm")).toMatch(/^Rewake will continue this thread/);
+  });
+
   it("explains instead when there's no limit, it's billing, or no reset time is known", async () => {
     writeFileSync(rollout, `${LIMIT_LINES[0]}\n`);
     expect(blocked(await hooks().run("UserPromptSubmit", { prompt: "rewake" })).reason).toBe(

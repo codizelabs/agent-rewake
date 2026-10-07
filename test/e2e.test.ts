@@ -154,17 +154,17 @@ describe("agent-rewake bundle", () => {
     if (process.platform !== "win32") expect(statSync(logDir).mode & 0o777).toBe(0o700);
   });
 
-  it("handles /schedule inside a session without sending it to the agent", async () => {
+  it("handles /rewake inside a session without sending it to the agent", async () => {
     const p = start(["--", process.execPath, fakeAgent]);
     p.send({ id: 0, method: "initialize", params: { protocolVersion: 1 } });
     p.send({ id: 1, method: "session/new", params: { cwd: "/tmp", mcpServers: [] } });
-    await p.waitFor((l) => l.includes('"name":"schedule"'));
+    await p.waitFor((l) => l.includes('"name":"rewake"'));
     p.send({
       id: 2,
       method: "session/prompt",
       params: {
         sessionId: "s-1",
-        prompt: [{ type: "text", text: "/schedule in 2h Check the build" }],
+        prompt: [{ type: "text", text: "/rewake in 2h Check the build" }],
       },
     });
     await p.waitFor((l) => l.includes("Rewake: Scheduled for"));
@@ -407,7 +407,7 @@ describe("agent-rewake bundle", () => {
       method: "session/prompt",
       params: {
         sessionId: "s-1",
-        prompt: [{ type: "text", text: `/schedule in 2h ${privateText}` }],
+        prompt: [{ type: "text", text: `/rewake in 2h ${privateText}` }],
       },
     });
     await p.waitFor((l) => l.includes('"id":3'));
