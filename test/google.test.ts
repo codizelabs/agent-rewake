@@ -442,6 +442,40 @@ describe("Antigravity CLI", () => {
     expect(notes).toHaveLength(1);
   });
 
+  it("at a limit in the app or the IDE, says when it resets, once per reset", async () => {
+    const notes: string[] = [];
+    const handler = antigravityHooks({
+      closed: (ctx) => deps(notes, [])(ctx.env, ctx.now),
+      program: () => FAKE,
+    });
+    const home = join(dir, "h");
+    const stop = (surface: string, id = SID) =>
+      runHook(
+        handler,
+        "Stop",
+        JSON.stringify({
+          conversationId: id,
+          workspacePaths: [join(dir, "app")],
+          transcriptPath: join(home, ".gemini", surface, "brain", id, "t.jsonl"),
+          terminationReason: "error",
+          error: "Individual quota reached. Resets in 1h0m0s",
+        }),
+        { GEMINI_HOME: join(home, ".gemini") },
+        state,
+        NOW,
+      );
+    expect(await stop("antigravity")).toBe('{"decision":"allow"}');
+    expect(await stop("antigravity")).toBe('{"decision":"allow"}');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(
+      /^Antigravity hit its usage limit in the Antigravity app\. It resets (at|on) .+\. Rewake can't continue conversations there, so continue yours after the reset\.$/,
+    );
+    await stop("antigravity-ide", "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4c");
+    expect(notes[1]).toContain("in the Antigravity IDE");
+    // Nothing is recorded to continue: only the CLI's conversations can be.
+    expect(new SessionRecords(state, "antigravity").get(SID)).toBeUndefined();
+  });
+
   it("only notifies while an agy process runs, and judges a resume by its response", async () => {
     const log = join(dir, "resume.log");
     new SessionRecords(state, "antigravity").update(SID, dir, NOW, (r) => ({
@@ -480,7 +514,12 @@ describe("Antigravity CLI", () => {
   it("installs one plugin folder with a Stop hook, and removes it", async () => {
     const home = join(dir, "home");
     const env = { HOME: home };
-    const run = (uninstall: boolean, programs = [{ path: "/agy", surface: "terminal" }]) =>
+    let output = "";
+    const run = (
+      uninstall: boolean,
+      programs = [{ path: "/agy", surface: "terminal" }],
+      surfaces: string[] = [],
+    ) =>
       runAntigravityInstall({
         uninstall,
         yes: true,
@@ -490,11 +529,18 @@ describe("Antigravity CLI", () => {
         node: "/n",
         bundle: join(dir, "x.js"),
         interactive: false,
-        out: () => {},
+        out: (t) => {
+          output += t;
+        },
         ask: async () => true,
         programs,
+        surfaces,
       });
     expect(await run(false, [])).toBe(1);
+    // Only the app: the plugin goes in, to say when limits reset there.
+    output = "";
+    expect(await run(false, [], ["app"])).toBe(0);
+    expect(output).toContain("it can only tell you when a usage limit resets");
     expect(await run(false)).toBe(0);
     expect(JSON.parse(readFileSync(join(pluginDir(env, home), "hooks.json"), "utf8"))).toEqual(
       JSON.parse(antigravityHooksJson("/n", join(state, "bin", "agent-rewake.mjs"))),

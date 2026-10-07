@@ -2,7 +2,7 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
-import { agyPrograms, type Program } from "../../install/detect.js";
+import { agyPrograms, detectAgents, type Program } from "../../install/detect.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { geminiHome } from "./host.js";
@@ -44,6 +44,8 @@ export interface AntigravityInstallOptions {
   out: (text: string) => void;
   ask: (question: string) => Promise<boolean>;
   programs?: Program[];
+  /** Where Antigravity is installed ("terminal", "app", "IDE"); tests give their own. */
+  surfaces?: string[];
 }
 
 export async function runAntigravityInstall(o: AntigravityInstallOptions): Promise<number> {
@@ -58,18 +60,27 @@ export async function runAntigravityInstall(o: AntigravityInstallOptions): Promi
     o.out(`Agent Rewake will delete its plugin folder:\n  ${dir}\n`);
   } else {
     const programs = o.programs ?? agyPrograms({ env: o.env, home, platform: process.platform });
-    if (programs.length === 0) {
+    const surfaces =
+      o.surfaces ??
+      detectAgents({ env: o.env, home, platform: process.platform }).find(
+        (f) => f.id === "antigravity",
+      )?.surfaces ??
+      [];
+    const appOnly = programs.length === 0 && surfaces.some((x) => x === "app" || x === "IDE");
+    if (programs.length === 0 && !appOnly) {
       o.out(
-        "Antigravity CLI (agy) wasn't found on this computer. Rewake continues conversations only in the CLI, so there's nothing to set up.\n",
+        "Antigravity wasn't found on this computer (neither the CLI, agy, nor the app or IDE), so there's nothing to set up.\n",
       );
       return 1;
     }
     o.out(
       [
-        `Agent Rewake (preview) will ${installed ? "update" : "add"} its plugin for Antigravity CLI (agy), in Antigravity's settings folder:`,
+        `Agent Rewake (preview) will ${installed ? "update" : "add"} its plugin in Antigravity:`,
         `  ${dir}`,
         "",
-        "It adds one hook that notes when a conversation stops at a usage limit. Rewake continues conversations in the CLI (agy) only, not in the Antigravity app or IDE. Nothing else in Antigravity's settings changes.",
+        appOnly
+          ? "In the Antigravity app and IDE it can only tell you when a usage limit resets. It can continue conversations only in Antigravity CLI (agy), which isn't installed. Nothing else in Antigravity's settings changes."
+          : "It continues conversations in Antigravity CLI (agy). In the Antigravity app and IDE it only tells you when the limit resets. Nothing else in Antigravity's settings changes.",
         "",
       ].join("\n"),
     );
@@ -110,7 +121,7 @@ export async function runAntigravityInstall(o: AntigravityInstallOptions): Promi
   );
   writeFileAtomic(dir, "hooks.json", antigravityHooksJson(o.node, launcher));
   o.out(
-    "\nDone.\nNext, start a new conversation in Antigravity CLI; conversations that are open don't load new plugins.\n",
+    "\nDone.\nNext, start a new Antigravity conversation; conversations that are open don't load new plugins.\n",
   );
   return 0;
 }
