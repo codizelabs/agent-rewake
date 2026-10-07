@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
@@ -25,6 +33,55 @@ import { codexProgram as nodeAware } from "../codex/cli.js";
  * Rewake never edits them. The plugin loads in place, so updating Rewake updates the mod at the
  * next session start.
  */
+
+/** Replace the mod's files with `source`'s, keeping its `rewake.json` (the state folder). */
+export function copyMod(source: string, dir: string): void {
+  ensurePrivateDir(dir);
+  for (const entry of readdirSync(source)) {
+    if (entry === "rewake.json") continue;
+    rmSync(join(dir, entry), { recursive: true, force: true });
+    cpSync(join(source, entry), join(dir, entry), { recursive: true });
+  }
+}
+
+/** The mod's version, from its plugin.json. */
+export function modVersion(dir: string): string | undefined {
+  try {
+    const v = (
+      JSON.parse(readFileSync(join(dir, ".claude-plugin", "plugin.json"), "utf8")) as {
+        version?: unknown;
+      }
+    ).version;
+    return typeof v === "string" ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Keep an installed mod at this Rewake's version, like the stable launcher (plan §3.6): run by
+ * every newer Rewake that starts. It loads in place, so the next Claude Code session uses it.
+ * An older Rewake never replaces a newer mod; nothing happens where the mod isn't installed.
+ */
+export function refreshMod(stateDir: string, bundle: string, version: string): void {
+  const dir = modDir(stateDir);
+  const current = modVersion(dir);
+  if (!current || current === version || compareVersions(version, current) < 0) return;
+  let real: string;
+  try {
+    real = realpathSync(bundle);
+  } catch {
+    return;
+  }
+  if (!/[\\/]agent-rewake\.m?js$/.test(real)) return;
+  const source = shippedMod(real);
+  if (modVersion(source) !== version) return;
+  try {
+    copyMod(source, dir);
+  } catch {
+    // Best effort: the next run tries again.
+  }
+}
 
 /** Mods load from Claude Code 2.1.287 in a terminal (2.1.286 in the desktop app). */
 export const MIN_CLAUDE_CODE = "2.1.287";
@@ -221,6 +278,14 @@ export async function runClaudeInstall(o: ClaudeInstallOptions): Promise<number>
 
   // The mod, and where Rewake's state folder is (the mod has no other way to know).
   const dir = modDir(o.stateDir);
+  if (installed && existsSync(join(dir, ".claude-plugin", "plugin.json"))) {
+    // Already set up: the plugin loads in place, so new files are the update. Claude Code's
+    // marketplace and plugin entries stay as they are, so nothing here can undo a working install.
+    copyMod(shippedMod(o.bundle), dir);
+    await run(["plugin", "update", PLUGIN, "--json"]);
+    o.out("\nDone. Rewake's plugin in Claude Code is up to date; new sessions use it.\n");
+    return 0;
+  }
   rmSync(dir, { recursive: true, force: true });
   cpSync(shippedMod(o.bundle), ensurePrivateDir(dir), { recursive: true });
   writeFileAtomic(dir, "rewake.json", `${JSON.stringify({ stateDir: o.stateDir })}\n`);
