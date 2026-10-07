@@ -9,28 +9,37 @@ banner:
 
 import ResumeScene from "../../components/scenes/ResumeScene.astro";
 
-Agent Rewake picks your Zed agent threads back up **when a usage limit resets**, so the work continues while you're away. It can also send a message into a thread later, once or on a repeat. It runs on your machine, in the threads you already have; there's no new agent to pick.
+Agent Rewake picks your coding agent's work back up **when a usage limit resets**, so it continues while you're away: in Zed's Agent Panel for every external agent, and as previews for six agents in a terminal. In Zed it can also send a message into a thread later, once or on a repeat. It runs on your machine, in the threads and sessions you already have; there's no new agent to pick.
 
 ## Is it for you?
 
-Rewake works in **Zed's Agent Panel** (⌘? on macOS, Ctrl+? on Linux, Ctrl+Shift+/ on Windows), with an **external agent** such as Claude Agent, Codex or Gemini CLI. If that's where you chat with your agent, it's for you.
+Find where you use your agent. Every place needs Node.js 22 or newer, on macOS, Linux or Windows.
+
+| Where you use your agent | How Rewake works there | Needs |
+|---|---|---|
+| [**Zed's Agent Panel**](#zed), with an external agent such as Claude Agent, Codex or Gemini CLI | On the connection between Zed and the agent: the thread offers to resume at the reset, and you can schedule messages. Keep Zed open | Zed 1.22 or newer |
+| [**Claude Code**](#claude-code) in a terminal (preview) | A plugin inside the session asks once at the limit and continues the same session after the reset. Keep Claude Code open | Claude Code 2.1.287 or newer |
+| [**Codex**](#codex) in a terminal (preview) | Type `rewake` at the limit; a system timer continues the thread after the reset, or when you next open Codex | Codex 0.149.0 or newer |
+| [**GitHub Copilot CLI**](#github-copilot-cli), [**Gemini CLI**](#gemini-cli), [**Grok Build**](#grok-build) or [**Antigravity CLI**](#antigravity-cli) (previews) | Once the session is closed, `agent-rewake continue` has a system timer continue it after the reset | [Each one's version](#outside-zed-previews) |
+
+Each name links to that place's guide. Zed's Agent Panel opens with ⌘? on macOS, Ctrl+? on Linux and Ctrl+Shift+/ on Windows.
 
 It can't reach:
 
 - **Zed's own agent** (the panel's built-in one): Zed doesn't let add-ons into it. Start the thread with Claude Agent in the same panel instead.
-- **Claude's own apps**: claude.ai and the Claude desktop app's chat.
-
-Outside Zed, previews for [Claude Code](#claude-code), [Codex](#codex), [GitHub Copilot CLI](#github-copilot-cli), [Grok Build](#grok-build), [Gemini CLI](#gemini-cli) and [Antigravity CLI](#antigravity-cli) install one by one, each with its own guide: see [Outside Zed: previews](#outside-zed-previews).
+- **Claude's own apps**: claude.ai and the Claude desktop app's chat. The desktop app's Code tab isn't supported yet.
 
 ## Install
 
-You need Zed 1.22 or newer with its AI features on, an external agent in the Agent Panel (for example Claude Agent, signed in; `install` can add it for you) and Node.js 22 or newer. It works on macOS, Linux and Windows.
+You need Node.js 22 or newer. It works on macOS, Linux and Windows.
 
 ```sh
 npx @codizelabs/agent-rewake install
 ```
 
-`install` lists the agents it will add Rewake to and asks before writing anything. Rewake goes in front of each agent under the agent's own name, so your existing threads keep working. Each file is backed up first; comments and settings are kept.
+In a terminal, `install` shows what it found on your computer (Zed and each coding agent, with its version) and what Rewake does in each. Tick the places you want, see every change together, and answer once; then one line per place gives its next step. An agent too old for Rewake is shown with how to update it. Everything except Zed is a preview; each one's steps are in [its guide](#agents).
+
+The rest of this section is for Zed. You need Zed 1.22 or newer with its AI features on, and an external agent in the Agent Panel (for example Claude Agent, signed in; `install` can add it for you). For Zed, `install` lists the agents it will add Rewake to and asks before writing anything. Rewake goes in front of each agent under the agent's own name, so your existing threads keep working. Each file is backed up first; comments and settings are kept.
 
 **Then quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window), open the **Agent Panel**, and open or start a thread with one of your agents. Zed starts Rewake with that thread, not when Zed itself starts. `npx @codizelabs/agent-rewake doctor` confirms it: "Working: Zed last started it …".
 
@@ -160,6 +169,8 @@ Rewake works the same way in front of every external agent Zed runs: Claude Agen
 
 To continue a Claude Code, Codex or other agent session after a usage limit outside Zed, in a terminal, install a preview. Previews aren't installed by default, haven't been checked with every account type yet, and may change. Each agent's guide follows this section.
 
+In Gemini CLI you can also type `/rewake` in the conversation after a limit: Rewake answers without using the model, and continues the conversation at the reset once Gemini CLI is closed (`/rewake 3:30pm` for another time, `/rewake cancel`).
+
 Each preview needs a recent version of its agent:
 
 | Agent | Needs | Tested with |
@@ -193,7 +204,7 @@ Preview, for Claude Code in a terminal. The Claude desktop app's Code tab isn't 
 
    It adds Rewake's plugin with Claude Code's own plugin commands.
 2. Start a new Claude Code session, and work as usual.
-3. At a usage limit, Rewake asks once whether to continue the session after the reset: at that time, or at that time and from then on in every session when the reset is within a day. Keep Claude Code open: Rewake runs inside it. A continue that came due while it was closed is offered when you reopen the session, not sent.
+3. At a usage limit, Rewake asks once whether to continue the session after the reset: at that time, or at that time and from then on in every session when the reset is within a day. When Claude Code's own "Continue automatically at usage limit" will most likely continue the session (its setting on, a reset within a day), Rewake leaves it to Claude Code and doesn't ask. Keep Claude Code open: Rewake runs inside it. A continue that came due while it was closed is offered when you reopen the session, not sent.
 4. To cancel a planned continue, type `/rewake-cancel`. To be asked each time again, `/rewake-ask`.
 5. To send a message later, type `/rewake-schedule`: choose when, then what.
 6. Check the setup: `npx @codizelabs/agent-rewake doctor`.

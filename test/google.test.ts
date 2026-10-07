@@ -36,11 +36,14 @@ import {
   geminiHooks,
   geminiHost,
   lastErrorText,
+  offerText,
+  REWAKE_MARKER,
   resumeGemini,
+  rewakeCommand,
   transcriptSessionId,
   withApiKeyReset,
 } from "../src/hosts/gemini/host.js";
-import { geminiHooksJson, runGeminiInstall } from "../src/hosts/gemini/install.js";
+import { geminiHooksJson, runGeminiInstall, writeExtension } from "../src/hosts/gemini/install.js";
 import { runHook } from "../src/hosts/hook.js";
 import "../src/hosts/index.js";
 import { SessionRecords } from "../src/hosts/sessions.js";
@@ -604,5 +607,66 @@ describe("Antigravity CLI", () => {
     );
     expect(await run(true)).toBe(0);
     expect(existsSync(pluginDir(env, home))).toBe(false);
+  });
+});
+
+describe("Gemini CLI: /rewake, answered without a model call", () => {
+  const ask = (args: string, notes: string[] = [], armed: number[] = []) =>
+    rewakeCommand(args, SID, join(dir, "shop"), deps(notes, armed)({}, NOW));
+
+  it("continues at the recorded reset, at a time given, and cancels", () => {
+    const records = new SessionRecords(state, "gemini-cli");
+    expect(ask("")).toMatch(/isn't at a usage limit/);
+    records.update(SID, join(dir, "shop"), NOW, (r) => ({
+      ...r,
+      program: FAKE,
+      limit: { seenAt: NOW, kind: "daily", billing: false, resetsAt: NOW + H },
+    }));
+    const armed: number[] = [];
+    expect(ask("", [], armed)).toMatch(
+      /^Rewake will continue this conversation (at|on) .+, if Gemini CLI is closed by then and this computer is awake\. To cancel: \/rewake cancel$/,
+    );
+    expect(armed).toEqual([NOW + H + 60_000]);
+    // A new time replaces the planned one.
+    ask("in 3h", [], armed);
+    expect(new ScheduleStore(state).list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    expect(ask("cancel")).toBe(
+      "Rewake: Cancelled. This conversation won't be continued on its own.",
+    );
+    expect(ask("cancel")).toBe("Rewake: Nothing is scheduled for this conversation.");
+    expect(ask("whenever")).toBe('Rewake: Didn\'t understand "whenever". Try /rewake 3:30pm.');
+  });
+
+  it("blocks the marked prompt in BeforeAgent, so the model never sees it", async () => {
+    const handler = geminiHooks({
+      closed: (ctx) => deps([], [])(ctx.env, ctx.now),
+      program: () => FAKE,
+    });
+    const reply = await runHook(
+      handler,
+      "BeforeAgent",
+      JSON.stringify({
+        session_id: SID,
+        cwd: join(dir, "shop"),
+        prompt: `${REWAKE_MARKER} cancel`,
+      }),
+      { GEMINI_SESSION_ID: SID },
+      state,
+      NOW,
+    );
+    expect(JSON.parse(reply ?? "{}")).toEqual({
+      decision: "deny",
+      reason: "Rewake: Nothing is scheduled for this conversation.",
+    });
+  });
+
+  it("writes the command with the extension, and offers it after a limit", () => {
+    const dirOut = writeExtension(join(dir, "s2"), "/n", "/l.mjs");
+    expect(readFileSync(join(dirOut, "commands", "rewake.toml"), "utf8")).toContain(
+      `prompt = "${REWAKE_MARKER} {{args}}"`,
+    );
+    expect(offerText(NOW + H, NOW)).toMatch(
+      /^Rewake: Gemini hit its usage limit, which resets (at|on) .+\. To continue this conversation then, type \/rewake\.$/,
+    );
   });
 });
