@@ -1,13 +1,14 @@
 ---
 /** Settings: one question for automatic resume, and the time format. */
 import ZedWindow from "../zed/ZedWindow.astro";
+import { version } from "../../../../package.json";
 ---
 
 <figure class="scene not-content">
   <ZedWindow title="Split the scheduler" height={380}>
     <div class="zed-form">
       <header>Input Requested by Claude Agent</header>
-      <div class="q">Rewake settings.</div>
+      <div class="q">Agent Rewake {version} settings.</div>
       <div class="f">
         <span>Automatic resume after usage limits</span>
         <div class="radio">On, even when permissions are bypassed</div>

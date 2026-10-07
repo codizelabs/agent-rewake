@@ -10,7 +10,10 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "../src/core/settin
 import { ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import { callTool } from "../src/mcp.js";
+import type { Wake } from "../src/util/keep-awake.js";
 import { Logger } from "../src/util/log.js";
+import type { SleepSettings } from "../src/util/sleep-settings.js";
+import { VERSION } from "../src/version.js";
 
 const HOUR = 3_600_000;
 const T0 = new Date(2026, 9, 4, 14, 0, 0, 0).getTime(); // 4 Oct 2026 14:00 local
@@ -59,6 +62,10 @@ interface HarnessOptions {
   sessionResult?: Record<string, unknown>;
   /** Ask about automatic resume when the session opens (off in most tests). */
   askOnNewThreads?: boolean;
+  /** The keep-awake hold (most tests: one that never holds and says nothing). */
+  wake?: Wake;
+  /** This computer's sleep settings (most tests: read, and never sleeping). */
+  sleep?: SleepSettings;
 }
 
 async function harness(stateDir = dir, o: HarnessOptions = {}) {
@@ -82,6 +89,8 @@ async function harness(stateDir = dir, o: HarnessOptions = {}) {
     selfCommand: { command: "/node", args: ["/rewake.js"] },
     askOnNewThreads: o.askOnNewThreads ?? false,
     firstUseNote: o.firstUseNote ?? false,
+    wake: o.wake ?? { supported: true, set: () => false, release: () => {} },
+    sleepSettings: () => o.sleep ?? { os: "macos", pluggedInSleepMin: 0, onBattery: false },
   });
   const router = new Router({ clientIn, clientOut, agentIn, agentOut, hooks: addon.hooks() });
   addon.attach(router);
@@ -156,13 +165,13 @@ async function harness(stateDir = dir, o: HarnessOptions = {}) {
 }
 
 describe("session registration", () => {
-  it("advertises /schedule and /stop after the session response, merged with the agent's commands", async () => {
+  it("advertises /rewake after the session response, merged with the agent's commands", async () => {
     const h = await harness();
     const order = h.toClient.map((m) => (m.id === 1 ? "response" : m.method));
     expect(order).toEqual(["response", "session/update"]);
     const names = (cmds: unknown) => (cmds as Array<{ name: string }>).map((c) => c.name);
     const first = h.toClient[1]?.params as { update: { availableCommands: unknown } };
-    expect(names(first.update.availableCommands)).toEqual(["schedule", "stop"]);
+    expect(names(first.update.availableCommands)).toEqual(["rewake"]);
 
     h.agent({
       method: "session/update",
@@ -176,20 +185,20 @@ describe("session registration", () => {
     });
     await settle();
     const merged = h.toClient.at(-1)?.params as { update: { availableCommands: unknown } };
-    expect(names(merged.update.availableCommands)).toEqual(["compact", "schedule", "stop"]);
+    expect(names(merged.update.availableCommands)).toEqual(["compact", "rewake"]);
     h.addon.stop();
   });
 });
 
-describe("/schedule", () => {
+describe("/rewake", () => {
   it("creates a schedule without sending anything to the agent", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Continue the refactor");
+    h.prompt(2, "/rewake in 1h Continue the refactor");
     await settle();
     expect(h.toAgent.filter((m) => m.method === "session/prompt")).toEqual([]);
     expect(h.toClient.find((m) => m.id === 2)?.result).toEqual({ stopReason: "end_turn" });
     expect(h.texts().at(-1)).toBe(
-      "Rewake: Scheduled for 15:00 today. Type /schedule list to see or change it.",
+      "Rewake: Scheduled for 15:00 today. Type /rewake list to see or change it.",
     );
     const [s] = h.store.list();
     expect(s).toMatchObject({
@@ -201,9 +210,60 @@ describe("/schedule", () => {
     h.addon.stop();
   });
 
+  it("answers help, cancel all, and a time with no message outside a limit", async () => {
+    const h = await harness();
+    h.prompt(2, "/rewake help");
+    await settle();
+    expect(h.texts().at(-1)).toMatch(/^Rewake: \/rewake in this thread:\n\n```text\n\/rewake /);
+    expect(h.texts().at(-1)).toContain("/rewake every weekday 9:00 <message>");
+    h.prompt(3, "/rewake in 1h");
+    await settle();
+    expect(h.texts().at(-1)).toBe(
+      "Rewake: Couldn't do that. Add the message after the time, for example: /rewake 9:00 Continue the refactor.",
+    );
+    h.prompt(4, "/rewake in 1h One");
+    h.prompt(5, "/rewake in 2h Two");
+    await settle();
+    h.prompt(6, "/rewake cancel all");
+    await settle();
+    expect(h.texts().at(-1)).toBe("Rewake: Deleted 2 scheduled messages.");
+    expect(h.store.list()).toEqual([]);
+    h.addon.stop();
+  });
+
+  it("asks before /rewake cancel all deletes, where the client shows forms", async () => {
+    const h = await harness(undefined, { claude: true });
+    h.prompt(2, "/rewake in 1h One");
+    h.prompt(3, "/rewake in 2h Two");
+    await settle();
+    h.prompt(4, "/rewake cancel all");
+    await settle();
+    expect(formMessage(h)).toBe(
+      "Delete all 2 scheduled messages in this thread? Submit deletes them; Decline keeps them.",
+    );
+    await answer(h, "decline");
+    expect(h.texts().at(-1)).toBe("Rewake: Kept your scheduled messages.");
+    expect(h.store.list()).toHaveLength(2);
+    h.prompt(5, "/rewake cancel all");
+    await settle();
+    await answer(h, {});
+    expect(h.texts().at(-1)).toBe("Rewake: Deleted 2 scheduled messages.");
+    expect(h.store.list()).toEqual([]);
+    h.addon.stop();
+  });
+
+  it("no longer answers the old /schedule and /stop: they go to the agent like any message", async () => {
+    const h = await harness();
+    h.prompt(2, "/schedule in 1h Old habit");
+    await settle();
+    expect(h.toAgent.filter((m) => m.method === "session/prompt")).toHaveLength(1);
+    expect(h.store.list()).toEqual([]);
+    h.addon.stop();
+  });
+
   it("rejects an unknown time and stores nothing", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule whenever Do it");
+    h.prompt(2, "/rewake whenever Do it");
     await settle();
     expect(h.texts().at(-1)).toMatch(/^Rewake: Couldn't do that\./);
     expect(h.store.list()).toEqual([]);
@@ -212,25 +272,25 @@ describe("/schedule", () => {
 
   it("lists, moves, edits, pauses, resumes and deletes by number", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 2h Second");
-    h.prompt(3, "/schedule in 1h First");
+    h.prompt(2, "/rewake in 2h Second");
+    h.prompt(3, "/rewake in 1h First");
     await settle();
-    h.prompt(4, "/schedule list");
+    h.prompt(4, "/rewake list");
     await settle();
     expect(h.texts().at(-1)).toContain("| 1 | 15:00 today | First | Scheduled |");
     expect(h.texts().at(-1)).toContain("| 2 | 16:00 today | Second | Scheduled |");
 
-    h.prompt(5, "/schedule move 2 tomorrow 09:00");
-    h.prompt(6, "/schedule edit 1 First, edited");
-    h.prompt(7, "/schedule pause 1");
+    h.prompt(5, "/rewake move 2 tomorrow 09:00");
+    h.prompt(6, "/rewake edit 1 First, edited");
+    h.prompt(7, "/rewake pause 1");
     await settle();
-    h.prompt(8, "/schedule list");
+    h.prompt(8, "/rewake list");
     await settle();
     expect(h.texts().at(-1)).toContain("| 1 | 15:00 today | First, edited | Paused |");
     expect(h.texts().at(-1)).toContain("| 2 | 09:00 tomorrow (Monday) | Second | Scheduled |");
 
-    h.prompt(9, "/schedule resume 1");
-    h.prompt(10, "/schedule rm 2");
+    h.prompt(9, "/rewake resume 1");
+    h.prompt(10, "/rewake cancel 2");
     await settle();
     expect(h.store.list().map((s) => [s.text, s.status])).toEqual([["First, edited", "scheduled"]]);
     h.addon.stop();
@@ -240,7 +300,7 @@ describe("/schedule", () => {
 describe("delivery", () => {
   it("sends a due message into the same session, shows it as a user message, and marks it sent", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Continue the refactor");
+    h.prompt(2, "/rewake in 1h Continue the refactor");
     await settle();
     h.advance(HOUR);
     h.addon.tick();
@@ -258,7 +318,7 @@ describe("delivery", () => {
     );
     expect(user).toBeDefined();
     expect(h.texts()).toContain(
-      "Rewake: Sending your scheduled message. To stop the reply, type /stop.",
+      "Rewake: Sending your scheduled message. To stop the reply, type /rewake stop.",
     );
 
     h.agent({ id: sent?.id, result: { stopReason: "end_turn" } });
@@ -270,7 +330,7 @@ describe("delivery", () => {
 
   it("waits for the user's running turn, then sends", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Later");
+    h.prompt(2, "/rewake in 1h Later");
     await settle();
     h.prompt(3, "a normal message");
     await settle();
@@ -287,7 +347,7 @@ describe("delivery", () => {
 
   it("holds a user message typed during a scheduled reply, then forwards it", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Scheduled");
+    h.prompt(2, "/rewake in 1h Scheduled");
     await settle();
     h.advance(HOUR);
     h.addon.tick();
@@ -307,15 +367,15 @@ describe("delivery", () => {
     h.addon.stop();
   });
 
-  it("/stop cancels a running scheduled reply", async () => {
+  it("/rewake stop cancels a running scheduled reply", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Scheduled");
+    h.prompt(2, "/rewake in 1h Scheduled");
     await settle();
     h.advance(HOUR);
     h.addon.tick();
     await settle();
     const sent = h.toAgent.find((m) => m.method === "session/prompt");
-    h.prompt(3, "/stop");
+    h.prompt(3, "/rewake stop");
     await settle();
     expect(h.toAgent.some((m) => m.method === "session/cancel")).toBe(true);
     h.agent({ id: sent?.id, result: { stopReason: "cancelled" } });
@@ -326,7 +386,7 @@ describe("delivery", () => {
 
   it("marks a message missed instead of sending it hours late", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Too late");
+    h.prompt(2, "/rewake in 1h Too late");
     await settle();
     h.advance(3 * HOUR);
     h.addon.tick();
@@ -339,7 +399,7 @@ describe("delivery", () => {
 
   it("records a failure with the agent's error", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Will fail");
+    h.prompt(2, "/rewake in 1h Will fail");
     await settle();
     h.advance(HOUR);
     h.addon.tick();
@@ -354,7 +414,7 @@ describe("delivery", () => {
 
   it("lets only the process that owns the thread deliver", async () => {
     const a = await harness();
-    a.prompt(2, "/schedule in 1h Once");
+    a.prompt(2, "/rewake in 1h Once");
     await settle();
     const b = await harness(); // a second Zed window: same state dir, same session
     a.advance(HOUR);
@@ -386,7 +446,7 @@ describe("thread-title markers", () => {
       },
     });
     await settle();
-    h.prompt(2, "/schedule in 1h Continue");
+    h.prompt(2, "/rewake in 1h Continue");
     await settle();
     expect(titles(h).at(-1)).toBe("Scheduled 15:00 · Fix login");
 
@@ -414,18 +474,18 @@ describe("thread-title markers", () => {
 
   it("never sends a title before the agent has provided one", async () => {
     const h = await harness(dir, { titleMarkers: true });
-    h.prompt(2, "/schedule in 1h Continue");
+    h.prompt(2, "/rewake in 1h Continue");
     await settle();
     expect(titles(h)).toEqual([]);
     h.addon.stop();
   });
 });
 
-describe("/schedule page", () => {
+describe("/rewake page", () => {
   it("writes a Markdown overview and links to it", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Check CI");
-    h.prompt(3, "/schedule page");
+    h.prompt(2, "/rewake in 1h Check CI");
+    h.prompt(3, "/rewake page");
     await settle();
     const reply = h.texts().at(-1) ?? "";
     const url = /\((file:\/\/[^)]+Schedules\.md)\)/.exec(reply)?.[1];
@@ -439,7 +499,7 @@ describe("/schedule page", () => {
 describe("ownership on every delivery path", () => {
   it("a non-owner never delivers, even when its own user turn ends after the due time", async () => {
     const a = await harness();
-    a.prompt(2, "/schedule in 1h Owned by A");
+    a.prompt(2, "/rewake in 1h Owned by A");
     await settle();
     const b = await harness();
     b.advance(HOUR);
@@ -676,7 +736,7 @@ describe("resume after a usage limit", () => {
     };
     // The default: allowed.
     const h = await harness(dir, bypass);
-    h.prompt(2, "/schedule auto on");
+    h.prompt(2, "/rewake auto on");
     await settle();
     await hitLimit(h, 3);
     expect(h.store.list()[0]).toMatchObject({ kind: "auto_limit_resume" });
@@ -687,7 +747,7 @@ describe("resume after a usage limit", () => {
     const other = mkdtempSync(join(tmpdir(), "rewake-bypass-"));
     saveSettings(other, { ...loadSettings(other), autoWhenPromptsSkipped: false });
     const g = await harness(other, bypass);
-    g.prompt(2, "/schedule auto on");
+    g.prompt(2, "/rewake auto on");
     await settle();
     await hitLimit(g, 3);
     expect(g.store.list()).toEqual([]);
@@ -706,7 +766,7 @@ describe("resume after a usage limit", () => {
       JSON.stringify({ autoContinueAtUsageLimit: false }),
     );
     const h = await harness(dir, { claude: true });
-    h.prompt(2, "/schedule auto on");
+    h.prompt(2, "/rewake auto on");
     await settle();
     await hitLimit(h, 3);
     expect(h.store.list()).toEqual([]);
@@ -771,9 +831,34 @@ describe("resume after a usage limit", () => {
     h.addon.stop();
   });
 
+  it("asks before sending a resume that was paused again, when it's found well after its new time", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.advance(3 * HOUR + 60_000);
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt").at(-1);
+    h.agent(rateEvent(RESET + 5 * HOUR));
+    h.agent({ id: sent?.id, error: limitErr });
+    await settle();
+    expect(h.store.list()[0]).toMatchObject({ status: "scheduled", attempts: [{ n: 1 }] });
+
+    // The computer slept through the new time (22:01) and wakes two hours later.
+    h.advance(7 * HOUR);
+    h.addon.tick();
+    await settle();
+    expect(h.toAgent.filter((m) => m.method === "session/prompt")).toHaveLength(2); // not again
+    expect(h.store.list()[0]?.status).toBe("missed");
+    expect(formMessage(h)).toMatch(
+      /^Rewake: A message scheduled for Sunday 4 October at 22:01 wasn't sent, because Zed or this computer wasn't running then: "Resume"\. Send it now\?$/,
+    );
+    h.addon.stop();
+  });
+
   it("shows a message once when it's sent again after a usage limit", async () => {
     const h = await harness(dir, { claude: true });
-    h.prompt(2, "/schedule in 1h Run the tests");
+    h.prompt(2, "/rewake in 1h Run the tests");
     await settle();
     const echoes = () =>
       h.toClient.filter(
@@ -798,7 +883,7 @@ describe("resume after a usage limit", () => {
     expect(h.toAgent.filter((m) => m.method === "session/prompt").length).toBe(2);
     expect(echoes()).toBe(1); // not shown a second time
     expect(h.texts()).toContain(
-      'Rewake: Sending your scheduled message again (shown above). To stop the reply, pick "Stop the scheduled reply" in the Rewake menu, or type /stop.',
+      'Rewake: Sending your scheduled message again (shown above). To stop the reply, pick "Stop the scheduled reply" in the Rewake menu, or type /rewake stop.',
     );
     h.addon.stop();
   });
@@ -855,7 +940,7 @@ describe("resume after a usage limit", () => {
     expect(note).toMatch(/^How Rewake works:\n/);
     expect(note).toContain("- Zed must be running with this project open.");
     expect(note).toContain("- Ask Claude. It knows Rewake");
-    h.prompt(3, "/schedule in 1h Check the build");
+    h.prompt(3, "/rewake in 1h Check the build");
     await settle();
     expect(h.texts().filter((t) => t.startsWith("How Rewake works:"))).toHaveLength(1);
     h.addon.stop();
@@ -865,10 +950,45 @@ describe("resume after a usage limit", () => {
     const h = await harness(dir, { claude: true, forms: false });
     await hitLimit(h, 2);
     expect(forms(h)).toEqual([]);
-    expect(h.texts().at(-1)).toMatch(/Type \/schedule resume to schedule it\.$/);
-    h.prompt(3, "/schedule resume");
+    expect(h.texts().at(-1)).toMatch(/Type \/rewake to schedule it\.$/);
+    h.prompt(3, "/rewake");
     await settle();
     expect(h.store.list()[0]).toMatchObject({ kind: "limit_resume", dueAt: RESET + 60_000 });
+    h.addon.stop();
+  });
+
+  it("/rewake <time> resumes at that time instead, and /rewake cancel cancels it", async () => {
+    const h = await harness(dir, { claude: true, forms: false });
+    await hitLimit(h, 2);
+    h.prompt(3, "/rewake 18:00");
+    await settle();
+    const [s] = h.store.list();
+    expect(s).toMatchObject({ kind: "limit_resume" });
+    expect(new Date(s?.dueAt ?? 0).getHours()).toBe(18);
+    h.prompt(4, "/rewake at 19:00");
+    await settle();
+    expect(h.texts().at(-1)).toMatch(/^Rewake: Moved\. This thread will resume at 19:00 today\.$/);
+    h.prompt(5, "/rewake cancel");
+    await settle();
+    expect(h.texts().at(-1)).toBe(
+      "Rewake: Cancelled. This thread won't be resumed after the usage limit.",
+    );
+    expect(h.store.list()).toEqual([]);
+    h.prompt(6, "/rewake cancel");
+    await settle();
+    expect(h.texts().at(-1)).toMatch(/^Rewake: Nothing is set to continue this thread/);
+    h.addon.stop();
+  });
+
+  it("a bare /rewake at a limit opens the resume question", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2);
+    await answer(h, "decline");
+    const before = forms(h).length;
+    h.prompt(3, "/rewake");
+    await settle();
+    expect(forms(h).length).toBe(before + 1);
+    expect(formMessage(h)).toMatch(/hit its usage limit\. It resets at /);
     h.addon.stop();
   });
 
@@ -1066,6 +1186,25 @@ describe("the Rewake menu in the thread toolbar", () => {
       },
     });
 
+  it("offers keeping the computer awake in Settings only where Rewake can do it", async () => {
+    for (const supported of [true, false]) {
+      const wake: Wake = { supported, set: () => false, release: () => {} };
+      const h = await harness(dir, { claude: true, wake, configOptions: [MODEL] });
+      const opened = h.toClient.find((m) => m.id === 1)?.result as { configOptions: unknown };
+      pick(h, 7, menuOf(opened.configOptions), "settings");
+      await settle();
+      expect(formKeys(h).includes("keepAwake")).toBe(supported);
+      if (supported) {
+        await answer(h, { autoResume: "ask", clock: "24h", keepAwake: "always" });
+        expect(loadSettings(dir).keepAwake).toBe("always");
+        expect(h.texts().at(-1)).toContain(
+          "Rewake keeps this computer awake for resumes and scheduled messages, also on battery.",
+        );
+      }
+      h.addon.stop();
+    }
+  });
+
   it("says a resume is already scheduled, adds messages after it, and sends each when the reply before it finishes", async () => {
     const h = await harness(dir, { claude: true });
     await hitLimit(h, 2);
@@ -1208,7 +1347,7 @@ describe("the Rewake menu in the thread toolbar", () => {
       pick(h, 7, menuOf(opened.configOptions), "settings"); // the question is still open
       await settle();
       expect(forms(h)).toHaveLength(2);
-      expect(formKeys(h)).toEqual(["autoResume", "clock"]);
+      expect(formKeys(h)).toEqual(["autoResume", "clock", "keepAwake"]);
       h.client({ id: forms(h)[0]?.id, result: { action: "decline" } });
       await settle();
       expect(ThreadStoreFor().get("s-1")?.autoResume).not.toBe(true);
@@ -1332,7 +1471,7 @@ describe("the Rewake menu in the thread toolbar", () => {
 
   it("keeps the menu label short so Zed's toolbar doesn't wrap", async () => {
     const h = await harness(dir, { claude: true, configOptions: [MODEL] });
-    for (let i = 0; i < 12; i++) h.prompt(2 + i, `/schedule in ${i + 1}h Message ${i}`);
+    for (let i = 0; i < 12; i++) h.prompt(2 + i, `/rewake in ${i + 1}h Message ${i}`);
     await settle();
     const menu = menuOf(latestOptions(h));
     const label = menu.options.find((o) => o.value === menu.currentValue)?.name ?? "";
@@ -1382,13 +1521,16 @@ describe("the Rewake menu in the thread toolbar", () => {
   it("shows times in 12-hour format by default, and Settings switches to 24-hour", async () => {
     DEFAULT_SETTINGS.clock = "12h"; // the product default (test/setup.ts pins 24h for older tests)
     const h = await harness(dir, { claude: true, configOptions: [MODEL] });
-    h.prompt(2, "/schedule in 1h Run the tests");
+    h.prompt(2, "/rewake in 1h Run the tests");
     await settle();
     expect(h.texts().at(-1)).toContain("Scheduled for 3:00 PM today.");
 
     pick(h, 7, menuOf(latestOptions(h)), "settings");
     await settle();
-    expect(formKeys(h)).toEqual(["autoResume", "clock"]);
+    expect(formKeys(h)).toEqual(["autoResume", "clock", "keepAwake"]);
+    expect((forms(h).at(-1)?.params as { message?: string } | undefined)?.message).toBe(
+      `Agent Rewake ${VERSION} settings.`,
+    );
     const clock = (
       forms(h).at(-1)?.params as {
         requestedSchema: {
@@ -1419,7 +1561,7 @@ describe("the Rewake menu in the thread toolbar", () => {
     await answer(h, { autoResume: "exceptBypass", clock: "24h" });
     expect(loadSettings(dir)).toMatchObject({ newThreads: "on", autoWhenPromptsSkipped: false });
     expect(h.texts().at(-1)).toBe(
-      "Rewake: Saved. New threads resume automatically after usage limits, except threads that bypass permissions.",
+      "Rewake: Saved. New threads, and threads Rewake sees for the first time, resume automatically after usage limits, except threads that bypass permissions.",
     );
 
     pick(h, 8, menuOf(latestOptions(h)), "open");
@@ -1430,7 +1572,7 @@ describe("the Rewake menu in the thread toolbar", () => {
 
   it("Schedules shows only the table: no form", async () => {
     const h = await harness(dir, { claude: true, configOptions: [MODEL] });
-    h.prompt(2, "/schedule in 1h Run the tests");
+    h.prompt(2, "/rewake in 1h Run the tests");
     await settle();
     pick(h, 7, menuOf(latestOptions(h)), "open");
     await settle();
@@ -1443,8 +1585,8 @@ describe("the Rewake menu in the thread toolbar", () => {
 
   it("changes a message one step at a time: which one, what to do, then the details", async () => {
     const h = await harness(dir, { claude: true, configOptions: [MODEL] });
-    h.prompt(2, "/schedule in 1h Run the tests");
-    h.prompt(3, "/schedule in 2h Check CI");
+    h.prompt(2, "/rewake in 1h Run the tests");
+    h.prompt(3, "/rewake in 2h Check CI");
     await settle();
     pick(h, 7, menuOf(latestOptions(h)), "change");
     await settle();
@@ -1465,7 +1607,7 @@ describe("the Rewake menu in the thread toolbar", () => {
 
   it("skips choosing when there's one message, and asks before deleting", async () => {
     const h = await harness(dir, { claude: true, configOptions: [MODEL] });
-    h.prompt(2, "/schedule in 1h Run the tests");
+    h.prompt(2, "/rewake in 1h Run the tests");
     await settle();
     pick(h, 7, menuOf(latestOptions(h)), "change");
     await settle();
@@ -1477,9 +1619,9 @@ describe("the Rewake menu in the thread toolbar", () => {
     h.addon.stop();
   });
 
-  it("opens the form for a bare /schedule, and asks before sending a missed message", async () => {
+  it("opens the form for a bare /rewake, and asks before sending a missed message", async () => {
     const h = await harness(dir, { claude: true });
-    h.prompt(2, "/schedule");
+    h.prompt(2, "/rewake");
     await settle();
     expect(h.toClient.find((m) => m.id === 2)?.result).toEqual({ stopReason: "end_turn" });
     await answer(h, { what: "message" });
@@ -1508,7 +1650,7 @@ describe("the Rewake menu in the thread toolbar", () => {
 describe("deleting a thread in Zed", () => {
   it("removes that thread's scheduled messages and settings", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule in 1h Run the tests");
+    h.prompt(2, "/rewake in 1h Run the tests");
     await settle();
     expect(h.store.list()).toHaveLength(1);
     h.client({ id: 9, method: "session/delete", params: { sessionId: "s-1" } });
@@ -1558,7 +1700,7 @@ describe("Schedules… with nothing scheduled", () => {
 
 describe("scheduling in small steps, with custom cron", () => {
   const start = async (h: Awaited<ReturnType<typeof harness>>) => {
-    h.prompt(2, "/schedule");
+    h.prompt(2, "/rewake");
     await settle();
     await answer(h, { what: "message" });
   };
@@ -1606,13 +1748,13 @@ describe("scheduling in small steps, with custom cron", () => {
 
   it("turns on resume-after-limit in one step, and skips that step once it's on", async () => {
     const h = await harness(dir, { claude: true });
-    h.prompt(2, "/schedule");
+    h.prompt(2, "/rewake");
     await settle();
     await answer(h, { what: "resume" });
     expect(new ThreadStore(dir).get("s-1")?.autoResume).toBe(true);
     expect(h.texts().at(-1)).toMatch(/^Rewake: Done\. Whenever this thread hits a usage limit/);
     expect(h.store.list()).toEqual([]);
-    h.prompt(3, "/schedule");
+    h.prompt(3, "/rewake");
     await settle();
     expect(formKeys(h)).toEqual(["message", "time"]); // straight to the message
     h.addon.stop();
@@ -1638,20 +1780,20 @@ describe("scheduling in small steps, with custom cron", () => {
   });
 });
 
-describe("/schedule every and /schedule cron", () => {
+describe("/rewake every and /rewake cron", () => {
   it("creates repeating messages from a phrase or a cron expression, and says what it understood", async () => {
     const h = await harness();
-    h.prompt(2, "/schedule every weekday 9:30 Check the build");
+    h.prompt(2, "/rewake every weekday 9:30 Check the build");
     await settle();
     expect(h.texts().at(-1)).toMatch(
       /^Rewake: Scheduled to repeat\. Rewake understood "30 9 \* \* 1-5" as: Every weekday \(Monday to Friday\) at 09:30\. Next runs: 09:30 tomorrow \(Monday\)/,
     );
-    h.prompt(3, '/schedule cron "*/30 * * * *" Status update');
+    h.prompt(3, '/rewake cron "*/30 * * * *" Status update');
     await settle();
     expect(h.texts().at(-1)).toContain(
       '"*/30 * * * *" as: Every 30 minutes. Next runs: 14:30 today',
     );
-    h.prompt(4, "/schedule cron 0 9 * * Ping");
+    h.prompt(4, "/rewake cron 0 9 * * Ping");
     await settle();
     expect(h.texts().at(-1)).toMatch(/^Rewake: Couldn't do that\./);
     expect(h.store.list().map((s) => s.repeat?.cron)).toEqual(["*/30 * * * *", "30 9 * * 1-5"]);
@@ -1732,6 +1874,7 @@ describe("the agent's tools (approved by the user)", () => {
     expect(about).toMatch(/^# Agent Rewake: what it is and how it behaves/);
     expect(about).toContain("| Zed is closed at that time | Nothing is sent.");
     expect(about).toContain("## Right now");
+    expect(about).toContain(`- Agent Rewake version: ${VERSION}.`);
     expect(about).toContain(
       "- This thread: automatic resume after usage limits is off; nothing is scheduled.",
     );
@@ -1769,7 +1912,7 @@ describe("the agent's tools (approved by the user)", () => {
 
   it("lists and cancels on request, and changes nothing when the user declines", async () => {
     const { h, tool } = await setup();
-    h.prompt(2, "/schedule every day 09:00 Daily summary");
+    h.prompt(2, "/rewake every day 09:00 Daily summary");
     await settle();
     const list = (await tool("list_scheduled_messages", {})).content[0]?.text ?? "";
     expect(list).toMatch(/^Current time: Sun, 4 Oct 2026, 14:00 \(/);
@@ -1791,7 +1934,7 @@ describe("the agent's tools (approved by the user)", () => {
   });
   it("tells the agent when the user edited the message, and warns both about a duplicate", async () => {
     const { h, tool } = await setup();
-    h.prompt(2, "/schedule in 2h Run the tests");
+    h.prompt(2, "/rewake in 2h Run the tests");
     await settle();
     const result = tool("schedule_message", { message: "run the tests ", when: "in 1h" });
     await drive(h);
@@ -1836,7 +1979,7 @@ describe("the agent's tools (approved by the user)", () => {
 
   it("changes a message only after the user accepts: time, repeat end, pause", async () => {
     const { h, tool } = await setup();
-    h.prompt(2, "/schedule every day 09:00 Daily summary");
+    h.prompt(2, "/rewake every day 09:00 Daily summary");
     await settle();
     const moved = tool("update_scheduled_message", {
       number: 1,
@@ -1908,6 +2051,11 @@ describe("the menu's own Rewake entry", () => {
         | { configOptions: Array<{ id: string; currentValue: string }> }
         | undefined
     )?.configOptions.find((o) => o.id === "rewake");
+    // The version is in the menu's tooltip, never in its short toolbar label.
+    expect(menu).toMatchObject({
+      name: "Rewake",
+      description: `Agent Rewake ${VERSION}: schedule messages in this thread`,
+    });
     h.client({
       id: 7,
       method: "session/set_config_option",
@@ -1916,6 +2064,7 @@ describe("the menu's own Rewake entry", () => {
     await settle();
     const about = h.texts().at(-1) ?? "";
     expect(about).toMatch(/^\*\*About Agent Rewake\*\*/);
+    expect(about.split("\n")[0]).toBe(`**About Agent Rewake** · ${VERSION}`);
     expect(about).toContain("[Agent Rewake on GitHub](https://github.com/codizelabs/agent-rewake)");
     expect(forms(h)).toEqual([]);
     h.addon.stop();
@@ -2106,6 +2255,41 @@ describe("usage limits for every agent", () => {
     h.addon.stop();
   });
 
+  it("keeps and sends the resume of every thread limited at the same time", async () => {
+    const h = await harness(dir, CODEX);
+    const ids = ["s-1", "s-2", "s-3"];
+    for (const [i, sid] of ids.slice(1).entries()) {
+      h.client({ id: 10 + i, method: "session/new", params: { cwd: "/project", mcpServers: [] } });
+      await settle();
+      h.agent({ id: 10 + i, result: { sessionId: sid } });
+      await settle();
+    }
+    for (const [i, sid] of ids.entries()) {
+      new ThreadStore(dir).update(sid, "/project", { autoResume: true }, T0);
+      h.client({
+        id: 20 + i,
+        method: "session/prompt",
+        params: { sessionId: sid, prompt: [{ type: "text", text: "keep going" }] },
+      });
+      await settle();
+      h.agent({ id: 20 + i, error: codexLimit });
+      await settle();
+    }
+    const resumes = h.store.list().filter((s) => s.status === "scheduled");
+    expect(resumes.map((s) => s.sessionId).sort()).toEqual(ids);
+    expect(new Set(resumes.map((s) => s.scheduleId)).size).toBe(3);
+
+    h.advance(4 * HOUR + 35 * 60_000); // the reset, plus Rewake's margin
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt" && typeof m.id === "string");
+    expect(sent.map((m) => (m.params as { sessionId: string }).sessionId).sort()).toEqual(ids);
+    for (const m of sent) h.agent({ id: m.id, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().map((s) => s.status)).toEqual(["sent", "sent", "sent"]);
+    h.addon.stop();
+  });
+
   it("has Auto-resume in the menu for every agent", async () => {
     for (const o of [CODEX, { ...GEMINI, sessionResult: {} }]) {
       const h = await harness(mkdtempSync(join(tmpdir(), "rewake-auto-")), o);
@@ -2289,7 +2473,571 @@ describe("robust with every agent", () => {
           (m.params as { sessionId?: string }).sessionId === "s-9",
       )
       .at(-1)?.params as { update: { availableCommands: Array<{ name: string }> } } | undefined;
-    expect(last?.update.availableCommands.map((c) => c.name)).toEqual(["plan", "schedule", "stop"]);
+    expect(last?.update.availableCommands.map((c) => c.name)).toEqual(["plan", "rewake"]);
+    h.addon.stop();
+  });
+});
+
+// ---- limits in every agent's words --------------------------------------------------
+
+describe("limits that agents report in their own way", () => {
+  const chunk = (text: string) => ({
+    method: "session/update",
+    params: {
+      sessionId: "s-1",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+    },
+  });
+  const toolCall = {
+    method: "session/update",
+    params: {
+      sessionId: "s-1",
+      update: { sessionUpdate: "tool_call", toolCallId: "t-1", title: "Read file" },
+    },
+  };
+
+  it("Claude: a spend limit whose session limit resets is offered a resume", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent(rateEvent(RESET));
+    h.agent({
+      id: 2,
+      error: {
+        code: -32603,
+        message:
+          "Internal error: You've hit your individual spend limit · run /usage-credits to ask your admin for a higher limit · your session limit resets 5pm",
+        data: { errorKind: "rate_limit" },
+      },
+    });
+    await settle();
+    expect(formMessage(h)).toMatch(/^Claude hit its usage limit\. It resets at 17:00 today\./);
+    h.addon.stop();
+  });
+
+  it("Claude: says why it won't resume when only credits would help", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({
+      id: 2,
+      error: {
+        code: -32603,
+        message: "Internal error: You're out of usage credits",
+        data: { errorKind: "rate_limit" },
+      },
+    });
+    await settle();
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().at(-1)).toBe(
+      "Rewake: Not resuming. Claude stopped at a credit, billing or spending limit, which waiting won't fix.",
+    );
+    h.addon.stop();
+  });
+
+  it("Cursor: the limit line at the end of a normal turn", async () => {
+    const h = await harness(dir, {
+      agentName: "cursor-agent",
+      agentTitle: "Cursor",
+      agentId: "cursor",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent(chunk("Working on it."));
+    h.agent(toolCall);
+    h.agent(chunk("\n\nUpgrade your plan to continue"));
+    h.agent({ id: 2, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(formMessage(h)).toMatch(/^Cursor hit its usage limit\. It didn't say when/);
+    h.addon.stop();
+  });
+
+  it("Copilot: limit words in the middle of a turn are not a limit", async () => {
+    const h = await harness(dir, {
+      agentName: "copilot",
+      agentTitle: "GitHub Copilot",
+      agentId: "github-copilot-cli",
+    });
+    h.prompt(2, "what does the log say?");
+    await settle();
+    h.agent(
+      chunk(
+        "Error: You've hit your session rate limit. Please wait for your limit to reset in 3 hours.",
+      ),
+    );
+    h.agent(toolCall);
+    h.agent(chunk("That line is from yesterday's run; nothing is limited now."));
+    h.agent({ id: 2, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(forms(h)).toHaveLength(0);
+    h.addon.stop();
+  });
+
+  it("Droid: reads the message before its bare error, and doesn't repeat it", async () => {
+    const h = await harness(dir, {
+      agentName: "droid",
+      agentTitle: "Factory Droid",
+      agentId: "factory-droid",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    const limit =
+      'Error: 402 {"detail":"You\'ve reached your 5-hour standard usage limit (resets in 3h 0min).","status":402}';
+    h.agent(chunk(limit));
+    h.agent({
+      id: 2,
+      error: {
+        code: -32603,
+        message: "Internal error",
+        data: { details: "Internal error: Agent error" },
+      },
+    });
+    await settle();
+    expect(formMessage(h)).toMatch(
+      /^Factory Droid hit its usage limit\. It resets at 17:00 today\./,
+    );
+    expect(h.texts().filter((t) => t.includes("5-hour standard usage limit"))).toHaveLength(1);
+    h.addon.stop();
+  });
+});
+
+describe("the limit ends early", () => {
+  const allowed = {
+    method: "_claude/sdkMessage",
+    params: {
+      sessionId: "s-1",
+      message: { type: "rate_limit_event", rate_limit_info: { status: "allowed" } },
+    },
+  };
+
+  it("cancels the resume when Claude answers again before the reset (another account)", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.advance(HOUR); // still before the 17:00 reset
+    h.prompt(3, "carry on");
+    await settle();
+    h.agent(allowed);
+    h.agent({ id: 3, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(/^Rewake: Cancelled the scheduled resume/);
+    h.addon.stop();
+  });
+
+  it("keeps the resume when a turn succeeds without Claude saying the limit lifted", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.advance(HOUR);
+    h.prompt(3, "/context");
+    await settle();
+    h.agent({ id: 3, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.addon.stop();
+  });
+
+  it("cancels the resume when another agent answers again before the reset (another account)", async () => {
+    const h = await harness(dir, { agentName: "gemini-cli", agentTitle: "Gemini CLI" });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({ id: 2, error: { code: 429, message: "Quota exceeded. Try again in 3 hours." } });
+    await settle();
+    await answer(h, { prompt: "Resume" });
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.advance(HOUR); // still before the reset
+    // The agent's own command may not reach the model: it proves nothing.
+    h.prompt(3, "/stats");
+    await settle();
+    h.agent({ id: 3, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    // A turn the person stopped may never have reached the model either.
+    h.prompt(4, "carry on");
+    await settle();
+    h.agent({ id: 4, result: { stopReason: "cancelled" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.prompt(5, "carry on");
+    await settle();
+    h.agent({ id: 5, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(/^Rewake: Cancelled the scheduled resume/);
+    h.addon.stop();
+  });
+});
+
+describe("the limit text in the thread", () => {
+  it("isn't repeated when Claude already wrote it", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "keep going");
+    await settle();
+    const text = "You've hit your session limit · resets 5pm";
+    h.agent({
+      method: "session/update",
+      params: {
+        sessionId: "s-1",
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+      },
+    });
+    h.agent(rateEvent(RESET));
+    h.agent({ id: 2, error: limitErr });
+    await settle();
+    expect(h.texts().filter((t) => t === text)).toHaveLength(1);
+    h.addon.stop();
+  });
+});
+
+describe("resumes left from an earlier limit", () => {
+  it("cancels an old resume after a restart when Claude answers again (another account)", async () => {
+    const h = await harness(dir, { claude: true });
+    // Scheduled by an earlier process, which remembered the limit; this one doesn't.
+    h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Resume",
+      dueAt: RESET + 60_000,
+      kind: "auto_limit_resume",
+      createdBy: "auto",
+      now: T0,
+    });
+    h.advance(HOUR);
+    h.prompt(2, "carry on");
+    await settle();
+    h.agent({
+      method: "_claude/sdkMessage",
+      params: {
+        sessionId: "s-1",
+        message: { type: "rate_limit_event", rate_limit_info: { status: "allowed" } },
+      },
+    });
+    h.agent({ id: 2, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list()[0]?.status).toBe("cancelled");
+    h.addon.stop();
+  });
+
+  it("replaces a missed resume with this limit's resume", async () => {
+    const h = await harness(dir, { claude: true });
+    const old = h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Resume",
+      dueAt: T0 - HOUR,
+      kind: "auto_limit_resume",
+      createdBy: "auto",
+      now: T0 - 2 * HOUR,
+    });
+    h.store.update(old.scheduleId, (x) => ({ ...x, status: "missed" }), T0);
+    await hitLimit(h, 2);
+    expect(h.store.get(old.scheduleId)?.status).toBe("cancelled");
+    expect(formMessage(h)).toMatch(/^Claude hit its usage limit\. It resets at 17:00 today\./);
+    h.addon.stop();
+  });
+
+  it("moves a resume earlier when a sooner limit resets first (another model)", async () => {
+    const h = await harness(dir, { claude: true });
+    const weekly = h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Resume",
+      dueAt: T0 + 72 * HOUR,
+      kind: "auto_limit_resume",
+      createdBy: "auto",
+      now: T0,
+    });
+    await hitLimit(h, 2);
+    expect(h.store.get(weekly.scheduleId)?.dueAt).toBe(RESET + 60_000);
+    expect(h.texts().at(-1)).toBe(
+      "Rewake: Moved the resume from Wednesday at 14:00 to 17:01 today, just after this limit resets.",
+    );
+    h.addon.stop();
+  });
+
+  it("still offers the resume in a line when another Rewake question is open", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2); // its question stays open
+    h.prompt(3, "try again");
+    await settle();
+    h.agent(rateEvent(RESET));
+    h.agent({ id: 3, error: limitErr });
+    await settle();
+    expect(forms(h)).toHaveLength(1);
+    expect(h.texts().at(-1)).toMatch(
+      /^Rewake: Claude hit its usage limit; it resets at 17:00 today\. To resume when it resets,/,
+    );
+    h.addon.stop();
+  });
+
+  it("turns automatic resume on for a thread it first sees when Zed reopens it", async () => {
+    saveSettings(dir, { ...loadSettings(dir), newThreads: "on" });
+    const h = await harness(dir, { claude: true, askOnNewThreads: true });
+    h.client({
+      id: 7,
+      method: "session/load",
+      params: { sessionId: "s-9", cwd: "/project", mcpServers: [] },
+    });
+    await settle();
+    h.agent({ id: 7, result: {} });
+    await settle();
+    expect(new ThreadStore(dir).get("s-9")?.autoResume).toBe(true);
+    h.addon.stop();
+  });
+});
+
+describe("limits reported in a turn's metadata", () => {
+  it("DimCode: a plan window reached, from the refusal's error reason", async () => {
+    const h = await harness(dir, {
+      agentName: "dimcode",
+      agentTitle: "DimCode",
+      agentId: "dimcode",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({
+      id: 2,
+      result: {
+        stopReason: "refusal",
+        _meta: {
+          dimcode: { error: { type: "provider_error", reason: "window_rate_limit_reached" } },
+        },
+      },
+    });
+    await settle();
+    expect(formMessage(h)).toMatch(/^DimCode hit its usage limit\./);
+    h.addon.stop();
+  });
+
+  it("DimCode: says it won't resume when the balance is spent", async () => {
+    const h = await harness(dir, {
+      agentName: "dimcode",
+      agentTitle: "DimCode",
+      agentId: "dimcode",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({
+      id: 2,
+      result: {
+        stopReason: "refusal",
+        _meta: {
+          dimcode: { error: { reason: "insufficient_balance", message: "Insufficient balance" } },
+        },
+      },
+    });
+    await settle();
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(
+      /^Rewake: Not resuming\. DimCode stopped at a credit, billing or spending limit/,
+    );
+    h.addon.stop();
+  });
+
+  it("Harn: a billing stop at the end of a normal turn", async () => {
+    const h = await harness(dir, { agentName: "harn", agentTitle: "Harn", agentId: "harn" });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({
+      id: 2,
+      result: {
+        stopReason: "end_turn",
+        _meta: {
+          harn: {
+            terminal: {
+              kind: "provider_error",
+              terminalClass: "provider_billing",
+              message: "anthropic HTTP 429 [billing_limit]: credit balance is too low",
+            },
+          },
+        },
+      },
+    });
+    await settle();
+    expect(h.texts().at(-1)).toMatch(
+      /^Rewake: Not resuming\. Harn stopped at a credit, billing or spending limit/,
+    );
+    h.addon.stop();
+  });
+
+  it("an ordinary turn's metadata is not a limit", async () => {
+    const h = await harness(dir, { agentName: "harn", agentTitle: "Harn", agentId: "harn" });
+    h.prompt(2, "hello");
+    await settle();
+    h.agent({
+      id: 2,
+      result: { stopReason: "end_turn", _meta: { harn: { terminal: { kind: "completed" } } } },
+    });
+    await settle();
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().filter((t) => t.startsWith("Rewake:"))).toHaveLength(0);
+    h.addon.stop();
+  });
+});
+
+describe("keeping the computer awake", () => {
+  /** A hold that records what Rewake asked for. */
+  const recorder = (supported = true) => {
+    const calls: [boolean, string][] = [];
+    let held = false;
+    const wake: Wake = {
+      supported,
+      set: (want, mode) => {
+        calls.push([want, mode]);
+        held = supported && want && mode !== "never";
+        return held;
+      },
+      release: () => {
+        held = false;
+      },
+    };
+    return { wake, calls, held: () => held };
+  };
+
+  it("holds while a resume is due within a few hours, says so once, and lets go after", async () => {
+    const r = recorder();
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    await settle();
+    expect(r.held()).toBe(true);
+    expect(r.calls.at(-1)).toEqual([true, "plugged-in"]);
+    const said = h.texts().filter((t) => t.startsWith("Rewake: Keeping this computer awake"));
+    expect(said).toEqual([
+      "Rewake: Keeping this computer awake until the resume at 17:01 today, while it's plugged in. Closing the lid still puts it to sleep.",
+    ]);
+    h.addon.tick();
+    await settle();
+    expect(h.texts().filter((t) => t.startsWith("Rewake: Keeping"))).toHaveLength(1);
+    // Cancelled: nothing is due, so the computer may sleep again.
+    for (const s of h.store.list())
+      h.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), T0);
+    h.addon.tick();
+    await settle();
+    expect(r.held()).toBe(false);
+    h.addon.stop();
+  });
+
+  it("names the computer's own setting that would let it sleep, once, with where to change it", async () => {
+    const r = recorder(false);
+    const h = await harness(dir, {
+      claude: true,
+      wake: r.wake,
+      sleep: { os: "windows", pluggedInSleepMin: 15, batterySleepMin: 5, lid: "sleep" },
+    });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    h.addon.tick();
+    await settle();
+    expect(h.texts().filter((t) => t.startsWith("Rewake: This computer may sleep"))).toEqual([
+      "Rewake: This computer may sleep before the resume at 17:01 today: it's set to sleep after 15 minutes when plugged in. Change that so it stays awake while you're away; the best settings: https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake",
+    ]);
+    h.addon.stop();
+  });
+
+  it("says nothing about sleep settings that are already fine, even where it can't hold", async () => {
+    const h = await harness(dir, {
+      claude: true,
+      wake: recorder(false).wake,
+      sleep: { os: "windows", pluggedInSleepMin: 0, batterySleepMin: 10 },
+    });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    await settle();
+    expect(h.texts().some((t) => /This computer may sleep|Make sure this computer/.test(t))).toBe(
+      false,
+    );
+    h.addon.stop();
+  });
+
+  it("on a Mac on battery, says the hold only works while plugged in", async () => {
+    const r = recorder();
+    const h = await harness(dir, {
+      claude: true,
+      wake: r.wake,
+      sleep: { os: "macos", pluggedInSleepMin: 10, batterySleepMin: 5, onBattery: true },
+    });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    await settle();
+    expect(h.texts().find((t) => t.startsWith("Rewake: This computer may sleep"))).toContain(
+      "it's on battery and set to sleep after 5 minutes",
+    );
+    h.addon.stop();
+  });
+
+  it("says it once for a repeating message, not on every run", async () => {
+    const r = recorder();
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    const s = h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Check the build",
+      dueAt: T0 + HOUR,
+      createdBy: "command",
+      now: T0,
+    });
+    h.addon.tick();
+    await settle();
+    // The next run of the same message, an hour later.
+    h.store.update(s.scheduleId, (x) => ({ ...x, dueAt: T0 + 2 * HOUR }), T0);
+    h.addon.tick();
+    await settle();
+    expect(
+      h.texts().filter((t) => t.startsWith("Rewake: Keeping this computer awake")),
+    ).toHaveLength(1);
+    h.addon.stop();
+  });
+
+  it("doesn't hold for a message due more than a few hours away", async () => {
+    const r = recorder();
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    h.store.create({
+      sessionId: "s-1",
+      cwd: "/project",
+      text: "Run the tests",
+      dueAt: T0 + 30 * HOUR,
+      createdBy: "command",
+      now: T0,
+    });
+    h.addon.tick();
+    await settle();
+    expect(r.held()).toBe(false);
+    h.addon.stop();
+  });
+
+  it("follows the setting: never means never", async () => {
+    saveSettings(dir, { ...loadSettings(dir), keepAwake: "never" });
+    const r = recorder();
+    const h = await harness(dir, { claude: true, wake: r.wake });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    await settle();
+    expect(r.held()).toBe(false);
+    expect(h.texts().some((t) => t.startsWith("Rewake: Keeping"))).toBe(false);
+    h.addon.stop();
+  });
+
+  it("says once where it can't keep the computer awake and the settings can't be read", async () => {
+    const r = recorder(false);
+    const h = await harness(dir, { claude: true, wake: r.wake, sleep: { os: "linux" } });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    h.addon.tick();
+    await settle();
+    expect(
+      h.texts().filter((t) => t.startsWith("Rewake: Make sure this computer won't sleep")),
+    ).toEqual([
+      "Rewake: Make sure this computer won't sleep before the resume at 17:01 today: Rewake couldn't check its sleep settings. The best settings: https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake",
+    ]);
     h.addon.stop();
   });
 });

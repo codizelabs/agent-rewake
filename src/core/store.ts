@@ -68,6 +68,42 @@ export interface Schedule {
    *. Used for resumes: they wait with the resume if the limit moves.
    */
   followUps?: string[];
+  /**
+   * The integration that owns this schedule. Missing means the ACP add-on (every schedule written
+   * so far). Records from an integration this version doesn't know are ignored entirely: see
+   * `KNOWN_HOSTS`.
+   */
+  host?: string;
+  /** What the owning integration needs to reach the session again (thread id, session file, cwd). */
+  sessionRef?: Record<string, string>;
+  /** Times a resume was put back after the agent was still limited (missing = 0). */
+  rearms?: number;
+}
+
+/**
+ * Integrations this version can deliver for. A record naming any other host was written by a
+ * newer Rewake (for example before a rollback) and is skipped like an invalid file, so this
+ * version never sends, changes or deletes it.
+ */
+const knownHosts = new Set(["acp"]);
+export const KNOWN_HOSTS: ReadonlySet<string> = knownHosts;
+
+/** Called by each integration this version ships (src/hosts/), so its records are read. */
+export function registerHost(id: string): void {
+  knownHosts.add(id);
+}
+/** Bounds on `sessionRef`, so a hand-edited or hostile file stays small. */
+const MAX_SESSION_REF_KEYS = 8;
+const MAX_SESSION_REF_BYTES = 4096;
+
+function validSessionRef(r: unknown): boolean {
+  if (typeof r !== "object" || r === null || Array.isArray(r)) return false;
+  const entries = Object.entries(r);
+  return (
+    entries.length <= MAX_SESSION_REF_KEYS &&
+    entries.every(([, v]) => typeof v === "string") &&
+    Buffer.byteLength(JSON.stringify(r)) <= MAX_SESSION_REF_BYTES
+  );
 }
 
 export interface Repeat {
@@ -138,7 +174,11 @@ export function validateSchedule(value: unknown): Schedule | undefined {
     typeof s.createdAt === "number" &&
     typeof s.updatedAt === "number" &&
     (s.repeat === undefined || validRepeat(s.repeat)) &&
-    (s.followUps === undefined || validFollowUps(s.followUps));
+    (s.followUps === undefined || validFollowUps(s.followUps)) &&
+    (s.host === undefined || (typeof s.host === "string" && KNOWN_HOSTS.has(s.host))) &&
+    (s.sessionRef === undefined || validSessionRef(s.sessionRef)) &&
+    (s.rearms === undefined ||
+      (typeof s.rearms === "number" && Number.isInteger(s.rearms) && s.rearms >= 0));
   return ok ? (value as Schedule) : undefined;
 }
 
@@ -240,8 +280,13 @@ export class ScheduleStore {
     return out.sort((a, b) => a.dueAt - b.dueAt);
   }
 
-  listForSession(sessionId: string): Schedule[] {
-    return this.list().filter((s) => s.sessionId === sessionId);
+  /**
+   * One session's schedules, for the integration that owns them: the Zed add-on (`acp`, also
+   * records without a host) by default. Codex in Zed and Codex's own hooks can share a thread id,
+   * so each sees only its own records and a message is never delivered twice.
+   */
+  listForSession(sessionId: string, host = "acp"): Schedule[] {
+    return this.list().filter((s) => s.sessionId === sessionId && (s.host ?? "acp") === host);
   }
 
   remove(scheduleId: string): boolean {

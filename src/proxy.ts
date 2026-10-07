@@ -80,8 +80,16 @@ export function runProxy(opts: ProxyOptions): Promise<number> {
         ...(run.windowsVerbatimArguments && { windowsVerbatimArguments: true }),
       });
       opts.log.info("agent.spawned", { pid: child.pid, command: opts.agent.command });
+      // A write that reaches an agent that just died fails with EPIPE. Without a listener that
+      // error would end Rewake with status 1; the exit handler below reports the agent's own.
+      child.stdin.on("error", (err) => {
+        opts.log.warn("agent.stdin_error", { code: (err as NodeJS.ErrnoException).code ?? "" });
+      });
       child.on("error", (err) => {
-        opts.log.error("agent.spawn_failed", { message: err.message });
+        // The code only ("ENOENT"): the message names the agent's path.
+        opts.log.error("agent.spawn_failed", {
+          code: (err as NodeJS.ErrnoException).code ?? err.name,
+        });
         finish(1, "spawn_failed");
       });
       child.on("exit", (code, signal) => {
@@ -125,6 +133,13 @@ export function runProxy(opts: ProxyOptions): Promise<number> {
       setTimeout(() => {
         if (current.exitCode === null) killTree(current);
       }, 2000).unref();
+      // An agent that ignores SIGTERM (or hangs while cleaning up) must not keep this process,
+      // and the thread locks it holds, alive.
+      setTimeout(() => {
+        if (current.exitCode !== null || current.signalCode !== null) return;
+        killTree(current, undefined, "SIGKILL");
+        finish(1, "agent_killed");
+      }, 5000).unref();
     }
     if (opts.handleSignals)
       for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const)

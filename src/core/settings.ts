@@ -24,14 +24,21 @@ export interface Settings {
    * permissions", Codex's full access…). On by default.
    */
   autoWhenPromptsSkipped: boolean;
+  /**
+   * Keep the computer from idling to sleep while a message is due within a few hours or a
+   * scheduled reply runs: "plugged-in" (the default: only on mains power), "always", or "never".
+   */
+  keepAwake: KeepAwake;
 }
 
 export type NewThreads = "ask" | "on" | "off";
+export type KeepAwake = "plugged-in" | "always" | "never";
 
 export const DEFAULT_SETTINGS: Settings = {
   clock: "12h",
   newThreads: "ask",
   autoWhenPromptsSkipped: true,
+  keepAwake: "plugged-in",
 };
 
 export function loadSettings(stateDir: string): Settings {
@@ -49,7 +56,17 @@ export function loadSettings(stateDir: string): Settings {
         ? raw.resumePrompt
         : undefined;
     const autoWhenPromptsSkipped = raw.autoWhenPromptsSkipped !== false;
-    return { clock, newThreads, autoWhenPromptsSkipped, ...(resumePrompt && { resumePrompt }) };
+    const keepAwake =
+      raw.keepAwake === "always" || raw.keepAwake === "never"
+        ? raw.keepAwake
+        : DEFAULT_SETTINGS.keepAwake;
+    return {
+      clock,
+      newThreads,
+      autoWhenPromptsSkipped,
+      keepAwake,
+      ...(resumePrompt && { resumePrompt }),
+    };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

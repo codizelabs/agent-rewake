@@ -4,7 +4,12 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
+  # Nightly (plan §10.5): the whole set on three systems, the package smoke test and the offline
+  # end-to-end loop, against develop as it is, so a change elsewhere (a runner, an npm release)
+  # shows up the next morning.
+  schedule:
+    - cron: "13 2 * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -47,12 +52,85 @@ jobs:
       - name: Check npm package contents
         run: npm run check:pack
 
+  # The package as people get it (plan §10A.3 tarball-smoke): packed, installed on its own into an
+  # empty folder, and run. Nothing but the .tgz: no repository files, no dev dependencies.
+  tarball-smoke:
+    name: tarball-smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Pack, install the .tgz alone, and run it
+        shell: bash
+        run: node scripts/tarball-smoke.mjs "$RUNNER_TEMP/rewake-smoke"
+
+  # Every agent's whole loop, offline (plan §10.2 L3, §10A.3 e2e-hosts): the real agent programs
+  # (pinned in test/agents) against a local mock of their model APIs, with macOS's sandbox denying
+  # every other connection. Install Rewake, hit a usage limit, Rewake plans the resume, and at the
+  # reset the same session continues, once: Zed's Agent Panel with Claude, Claude Code in a
+  # terminal, Codex, Gemini CLI and Grok Build.
+  e2e-hosts:
+    name: e2e-hosts (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Install the pinned agent programs
+        working-directory: test/agents
+        run: HOME="$RUNNER_TEMP/grokhome" npm ci --no-audit --no-fund
+
+      - name: Limit, resume, same session, once (every agent)
+        env:
+          REWAKE_E2E: "1"
+          REWAKE_GROK_BIN: ${{ runner.temp }}/grokhome/.grok/bin/grok
+        run: >-
+          npx vitest run test/claude-loop.test.ts test/claude-code-loop.test.ts
+          test/codex-loop.test.ts test/gemini-loop.test.ts test/grok-loop.test.ts
+
   # The single status check to require in branch rulesets: it fails if any matrix job failed or
   # was cancelled, and passes only when all of them passed.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [check]
+    needs: [check, tarball-smoke, e2e-hosts]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
@@ -60,6 +138,10 @@ jobs:
       - name: Require every matrix job to pass
         env:
           RESULT: ${{ needs.check.result }}
+          SMOKE: ${{ needs.tarball-smoke.result }}
+          E2E: ${{ needs.e2e-hosts.result }}
         run: |
-          echo "check result: $RESULT"
+          echo "check: $RESULT; tarball-smoke: $SMOKE; e2e-hosts: $E2E"
           test "$RESULT" = "success"
+          test "$SMOKE" = "success"
+          test "$E2E" = "success"

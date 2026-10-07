@@ -1,18 +1,18 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeCron, nextRun, nextRuns, parseCron } from "../core/cron.js";
-import { applySettings } from "../core/settings.js";
+import { applySettings, loadSettings, saveSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { type ThreadSettings, ThreadStore } from "../core/threads.js";
 import { formatClock, formatWhen, parseWhen } from "../core/time.js";
 import { ensurePrivateDir } from "../util/paths.js";
-import { REPO_URL } from "../version.js";
+import { REPO_URL, VERSION } from "../version.js";
 import type { InputEvent } from "./input.js";
 import { oneLine, STATUS_WORDS } from "./overview.js";
 
 /**
  * The schedules page: a table of every scheduled message with clickable rows,
- * buttons for every action, hover hints that name the matching `/schedule` command, a tip line,
+ * buttons for every action, hover hints that name the matching `/rewake` command, a tip line,
  * a help screen and dialogs. Pure: it draws frames from the shared store and reacts to input
  * events; `tui.ts` connects it to a terminal. Keyboard and mouse can do everything.
  */
@@ -46,8 +46,10 @@ export interface Frame {
 interface Row {
   schedule: Schedule;
   thread: ThreadSettings | undefined;
-  /** Position among that thread's pending messages, as `/schedule list` numbers them. */
+  /** Position among that thread's pending messages, as `/rewake list` numbers them. */
   n: number;
+  /** For a resume of an agent outside Zed: that agent's name ("Codex"). */
+  host?: string;
 }
 
 type Dialog =
@@ -81,7 +83,7 @@ type Dialog =
 
 export const TIPS = [
   "In any thread, the Rewake menu under the message box does everything this page does.",
-  "Type /schedule in a thread to open the scheduling form, or /schedule 09:00 Run the tests to skip it.",
+  "Type /rewake in a thread to open the scheduling form, or /rewake 09:00 Run the tests to skip it.",
   "When Claude hits its usage limit, Rewake asks in the thread whether to resume after the reset.",
   "Hold Shift while dragging to select text on this page.",
   "Messages are sent while Zed is open with that thread's project. Missed ones wait for you here.",
@@ -100,43 +102,43 @@ const BUTTONS: Array<{ id: string; key: string; label: string; hint: string }> =
     id: "new",
     key: "n",
     label: "New",
-    hint: "New: schedule a message in a thread. In a thread, the Rewake menu or /schedule does the same.",
+    hint: "New: schedule a message in a thread. In a thread, the Rewake menu or /rewake does the same.",
   },
   {
     id: "edit",
     key: "e",
     label: "Edit",
-    hint: "Edit: change the message text. In its thread: /schedule edit {n} <text>",
+    hint: "Edit: change the message text. In its thread: /rewake edit {n} <text>",
   },
   {
     id: "time",
     key: "t",
     label: "Time",
-    hint: "Time: pick a new time. In its thread: /schedule move {n} <when>",
+    hint: "Time: pick a new time. In its thread: /rewake move {n} <when>",
   },
   {
     id: "now",
     key: "s",
     label: "Send now",
-    hint: "Send now: sends it within a few seconds if its thread is open in Zed. In its thread: /schedule now {n}",
+    hint: "Send now: sends it within a few seconds if its thread is open in Zed. In its thread: /rewake now {n}",
   },
   {
     id: "pause",
     key: "p",
     label: "Pause",
-    hint: "Pause: keep it, but don't send it until you resume it. In its thread: /schedule pause {n}",
+    hint: "Pause: keep it, but don't send it until you resume it. In its thread: /rewake pause {n}",
   },
   {
     id: "delete",
     key: "d",
     label: "Delete",
-    hint: "Delete: remove it (asks first). In its thread: /schedule rm {n}",
+    hint: "Delete: remove it (asks first). In its thread: /rewake cancel {n}",
   },
   {
     id: "auto",
     key: "a",
     label: "Auto-resume",
-    hint: "Auto-resume: resume this message's thread automatically after every usage limit (Claude). In a thread: /schedule auto on",
+    hint: "Auto-resume: resume this message's thread automatically after every usage limit (Claude). In a thread: /rewake auto on",
   },
   {
     id: "help",
@@ -170,6 +172,13 @@ export interface PageOptions {
   threadId?: string;
   /** Plain output: no colour (NO_COLOR). Bold, dim and reverse still mark state. */
   noColor?: boolean;
+  /** The name of an agent outside Zed whose resume a row is ("Codex"), by its host id. */
+  hostName?: (host: string) => string | undefined;
+  /**
+   * Called after a resume of an agent outside Zed changes, so its OS timer follows (re-armed at
+   * the new time, removed when paused or deleted). Zed's add-on needs no timer.
+   */
+  onHostChange?: (scheduleId: string) => void;
 }
 
 export class SchedulesPage {
@@ -222,6 +231,7 @@ export class SchedulesPage {
     this.rows = all.filter(keep).map((s) => ({
       schedule: s,
       thread: this.threads.get(s.sessionId),
+      ...(s.host !== undefined && { host: this.opts.hostName?.(s.host) ?? s.host }),
       n: (pendingByThread.get(s.sessionId) ?? []).indexOf(s) + 1,
     }));
     const again = this.rows.findIndex((r) => r.schedule.scheduleId === selectedId);
@@ -413,6 +423,15 @@ export class SchedulesPage {
 
   // ---- actions ---------------------------------------------------------------------------------
 
+  /** A row changed: an agent outside Zed's resume gets its timer moved or removed. */
+  private touched(s: Schedule): void {
+    if (s.host) this.opts.onHostChange?.(s.scheduleId);
+  }
+
+  private hostName(s: Schedule): string | undefined {
+    return s.host ? (this.opts.hostName?.(s.host) ?? s.host) : undefined;
+  }
+
   action(id: string): void {
     const row = this.current();
     const s = row?.schedule;
@@ -472,6 +491,7 @@ export class SchedulesPage {
               },
               this.now(),
             );
+            this.touched(s);
             this.toast = `Moved to ${formatWhen(at, this.now(), this.opts.locale)}.`;
           },
         );
@@ -482,7 +502,10 @@ export class SchedulesPage {
           return;
         }
         this.store.update(s.scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: now }), now);
-        this.toast = "Sending within a few seconds, if its thread is open in Zed.";
+        this.touched(s);
+        this.toast = s.host
+          ? `Resuming the ${this.hostName(s)} session within a few seconds. If it's open in ${this.hostName(s)}, Rewake won't send it and tells you in a desktop notification.`
+          : "Sending within a few seconds, if its thread is open in Zed.";
         break;
       case "pause":
         if (s.status === "paused") {
@@ -491,11 +514,13 @@ export class SchedulesPage {
             (x) => ({ ...x, status: "scheduled", ...(x.dueAt < now && { dueAt: now }) }),
             now,
           );
+          this.touched(s);
           this.toast = "Resumed. It will be sent at its time.";
         } else if (s.status === "sending") {
           this.toast = "It's being sent right now, so it can't be paused.";
         } else {
           this.store.update(s.scheduleId, (x) => ({ ...x, status: "paused" }), now);
+          this.touched(s);
           this.toast = "Paused. Press p again to resume it.";
         }
         break;
@@ -510,11 +535,40 @@ export class SchedulesPage {
           yes: "Delete",
           onYes: () => {
             this.store.remove(s.scheduleId);
+            this.touched(s);
             this.toast = "Deleted.";
           },
         };
         return;
       case "auto": {
+        if (s.host) {
+          // Outside Zed it's one setting, shared with Zed's new threads, not a thread's own (and a
+          // thread record written here would make that agent's hooks take the session for Zed's).
+          const settings = loadSettings(this.opts.stateDir);
+          if (settings.newThreads === "on") {
+            saveSettings(this.opts.stateDir, { ...settings, newThreads: "ask" });
+            this.toast = "Automatic resume is off: Rewake asks after each usage limit.";
+            return;
+          }
+          this.dialog = {
+            kind: "confirm",
+            title: "Resume automatically after every usage limit?",
+            body: [
+              "Applies to new Zed threads and to every session of the agents outside Zed",
+              "that Rewake is set up in. A reset more than a day away is always asked about.",
+              "Rewake never approves permission requests.",
+            ],
+            yes: "Turn on",
+            onYes: () => {
+              saveSettings(this.opts.stateDir, {
+                ...loadSettings(this.opts.stateDir),
+                newThreads: "on",
+              });
+              this.toast = "Automatic resume is on.";
+            },
+          };
+          return;
+        }
         const on = row.thread?.autoResume === true;
         const flip = () => {
           this.threads.update(s.sessionId, s.cwd, { autoResume: !on }, this.now());
@@ -577,7 +631,7 @@ export class SchedulesPage {
     }
     if (known.length === 0) {
       this.toast =
-        "Open a thread in Zed with an agent that has Rewake first, then schedule from here or with /schedule.";
+        "Open a thread in Zed with an agent that has Rewake first, then schedule from here or with /rewake.";
       return;
     }
     this.dialog = {
@@ -794,7 +848,22 @@ export class SchedulesPage {
         hint: t.hint,
       });
     }
-    out.push([{ text: " Rewake · Scheduled messages", style: "bold" }, { text: "   " }, ...tabs]);
+    const titleRow: Segment[] = [
+      { text: " Rewake · Scheduled messages", style: "bold" },
+      { text: "   " },
+      ...tabs,
+    ];
+    // The version at the right: in full where it fits next to the tabs, else the number alone.
+    const used = titleRow.reduce((n, seg) => n + seg.text.length, 0);
+    const version = [`Agent Rewake ${VERSION} `, `${VERSION} `].find(
+      (v) => used + 2 + v.length <= w,
+    );
+    if (version)
+      titleRow.push(
+        { text: " ".repeat(w - used - version.length) },
+        { text: version, style: "dim" },
+      );
+    out.push(titleRow);
     out.push([{ text: "─".repeat(w), style: "dim" }]);
 
     // Table.
@@ -881,7 +950,7 @@ export class SchedulesPage {
         b.id === "pause" && row?.schedule.status === "paused"
           ? "Resume"
           : b.id === "auto"
-            ? `Auto-resume: ${row?.thread?.autoResume ? "on" : "off"}`
+            ? `Auto-resume: ${(row?.schedule.host ? loadSettings(this.opts.stateDir).newThreads === "on" : row?.thread?.autoResume) ? "on" : "off"}`
             : b.label;
       const disabled = !row && !["new", "help", "quit"].includes(b.id);
       buttons.push({
@@ -918,7 +987,7 @@ export class SchedulesPage {
       { text: "[n] New", style: "accent", hit: "btn:new", hint: BUTTONS[0]?.hint },
     ]);
     say("• In a thread: the Rewake menu under the message box → Schedule a message…");
-    say("• In a thread: type /schedule 09:00 Run the tests");
+    say("• In a thread: type /rewake 09:00 Run the tests");
     say("");
     say(
       "When Claude hits its usage limit, Rewake asks in the thread whether to resume later.",
@@ -940,7 +1009,7 @@ export class SchedulesPage {
     let title = "";
     switch (d.kind) {
       case "help": {
-        title = "Help · Agent Rewake";
+        title = `Help · Agent Rewake ${VERSION}`;
         for (const l of HELP)
           text(l.startsWith("#") ? l.slice(1).trim() : l, l.startsWith("#") ? "bold" : "plain");
         body.push([]);
@@ -1060,7 +1129,7 @@ const HELP = [
   "",
   "# Schedule a message",
   "Here: [n] New, pick the thread, type the message, pick a time.",
-  "In a thread: the Rewake menu under the message box, or /schedule.",
+  "In a thread: the Rewake menu under the message box, or /rewake.",
   "",
   "# Change one",
   "Click a row (or use ↑ ↓), then a button below. Double-click a row to change its time.",
@@ -1070,8 +1139,8 @@ const HELP = [
   "a auto-resume · Tab switch view · f finished · x tips · ? help · q close",
   "",
   "# The same in a thread",
-  "/schedule 09:00 Run the tests · /schedule list · /schedule move 1 18:30",
-  "/schedule edit 1 <text> · /schedule now 1 · /schedule rm 1 · /stop",
+  "/rewake 09:00 Run the tests · /rewake list · /rewake move 1 18:30",
+  "/rewake edit 1 <text> · /rewake now 1 · /rewake cancel 1 · /rewake stop",
   "",
   "# Good to know",
   "Messages are sent while Zed is open with that thread's project.",
@@ -1115,12 +1184,13 @@ function columns(w: number): Column[] {
   const agent: Column = {
     title: "Agent",
     width: 14,
-    value: (r) => r.thread?.agentName ?? r.thread?.agentId ?? "—",
+    value: (r) => r.thread?.agentName ?? r.thread?.agentId ?? r.host ?? "—",
   };
   const thread: Column = {
     title: "Thread",
     width: 22,
-    value: (r) => r.thread?.title ?? `Thread ${r.schedule.sessionId.slice(0, 8)}`,
+    value: (r) =>
+      r.thread?.title ?? `${r.host ? "Session" : "Thread"} ${r.schedule.sessionId.slice(0, 8)}`,
   };
   const showRepeats = w >= 110;
   const fixed = [

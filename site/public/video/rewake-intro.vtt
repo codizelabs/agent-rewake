@@ -5,69 +5,109 @@ WEBVTT
 [calm electronic music]
 
 2
-00:00:03.000 --> 00:00:06.000
-Every coding agent has a usage limit.
+00:00:00.167 --> 00:00:02.600
+[keys typing]
 
 3
-00:00:08.333 --> 00:00:11.690
-And it always hits at the worst moment.
+00:00:03.333 --> 00:00:06.333
+Every coding agent has a usage limit.
 
 4
-00:00:13.333 --> 00:00:16.333
-[clock ticking]
+00:00:08.333 --> 00:00:10.400
+And it always hits at the worst moment.
 
 5
+00:00:10.500 --> 00:00:13.500
+Thousands of developers are asking for auto-resume.
+
+6
 00:00:13.667 --> 00:00:19.567
 Mid-task, your agent stops. The limit resets at three a.m., and nobody's there to say continue.
 
-6
+7
+00:00:16.000 --> 00:00:19.000
+[clock ticking]
+
+8
 00:00:18.667 --> 00:00:21.233
 [music rises]
 
-7
+9
 00:00:19.667 --> 00:00:21.267
 Meet Agent Rewake.
 
-8
-00:00:21.667 --> 00:00:26.452
-When your agent hits its limit, Rewake asks once whether to resume.
-
-9
-00:00:27.000 --> 00:00:29.286
-Line up what comes next.
-
 10
-00:00:31.700 --> 00:00:33.200
-[whoosh]
+00:00:21.667 --> 00:00:26.452
+It schedules your resume prompt automatically, for the moment the limit resets.
 
 11
-00:00:34.667 --> 00:00:36.167
+00:00:22.133 --> 00:00:23.633
 [chime]
 
 12
-00:00:35.000 --> 00:00:40.233
-At three oh one, it sends your message, and your agent decides for itself and keeps going.
+00:00:26.367 --> 00:00:27.867
+[whoosh]
 
 13
-00:00:40.333 --> 00:00:42.900
-Then the next message, and the next.
+00:00:26.667 --> 00:00:29.667
+[clock ticking]
 
 14
-00:00:43.000 --> 00:00:46.357
-Send later. Repeat on a schedule. Even cron.
+00:00:29.333 --> 00:00:30.833
+[chime]
 
 15
-00:00:48.167 --> 00:00:49.900
-Every thread, on one page.
+00:00:29.667 --> 00:00:34.900
+At three oh one, it sends your message. Same session, same context, same thread.
 
 16
-00:00:50.000 --> 00:00:52.500
-No more babysitting for your AI agents.
+00:00:35.000 --> 00:00:37.567
+Then the next message, and the next.
 
 17
-00:00:52.600 --> 00:00:55.800
-Agent Rewake. Free and open source, for Zed.
+00:00:37.667 --> 00:00:40.233
+Fully configurable, even the resume prompt.
 
 18
-00:00:52.667 --> 00:00:55.800
+00:00:40.333 --> 00:00:45.400
+Send later. Repeat on a schedule. Even cron, read back in plain words.
+
+19
+00:00:45.500 --> 00:00:47.786
+Every thread, on one page.
+
+20
+00:00:48.333 --> 00:00:51.567
+Rewake works with the coding agents you already use.
+
+21
+00:00:51.667 --> 00:00:54.310
+One plugin for all of them.
+
+22
+00:00:55.000 --> 00:00:56.933
+[keys typing]
+
+23
+00:00:55.000 --> 00:00:59.429
+One command finds your agents, shows every change, and asks first.
+
+24
+00:00:58.333 --> 00:00:58.933
+[keys typing]
+
+25
+00:00:58.667 --> 00:01:00.167
+[chime]
+
+26
+00:01:00.167 --> 00:01:02.500
+No more babysitting for your AI agents.
+
+27
+00:01:02.600 --> 00:01:06.671
+Agent Rewake. Free and open source, for your coding agents.
+
+28
+00:01:03.333 --> 00:01:07.800
 [music resolves and fades out]
