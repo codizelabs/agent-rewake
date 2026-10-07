@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   devinFile,
@@ -19,9 +19,10 @@ const launch = { command: "/usr/local/bin/node", args: ["/x/agent-rewake.js"] };
 
 describe("Devin Desktop: Rewake's agents in its ACP registry file", () => {
   it("adds its agents in the registry format and keeps the person's", async () => {
-    mkdirSync(join(home, ".windsurf", "acp"), { recursive: true });
-    const file = devinFile({}, home, "darwin");
-    expect(file).toBe(join(home, ".windsurf", "acp", "registry.json"));
+    expect(devinFile({}, home, "darwin")).toBe(join(home, ".windsurf", "acp", "registry.json"));
+    // The file and platform key install uses on the computer running the test.
+    const file = devinFile({}, home, process.platform);
+    mkdirSync(dirname(file), { recursive: true });
     writeFileSync(
       file,
       JSON.stringify({
@@ -35,6 +36,13 @@ describe("Devin Desktop: Rewake's agents in its ACP registry file", () => {
       'Add the agent "Claude Agent (with Rewake)"',
       'Add the agent "Codex (with Rewake)"',
     ]);
+    const planned = JSON.parse(("changes" in plan && plan.changes[0]?.after) || "{}");
+    expect(planned.agents[1].distribution.binary).toEqual({
+      "darwin-aarch64": {
+        cmd: "/usr/local/bin/node",
+        args: ["/x/agent-rewake.js", "--wrap-registry", "claude-acp"],
+      },
+    });
     let out = "";
     expect(
       await runDevinInstall({
@@ -54,7 +62,10 @@ describe("Devin Desktop: Rewake's agents in its ACP registry file", () => {
     ).toBe(0);
     const v = JSON.parse(readFileSync(file, "utf8"));
     expect(v.agents[0]).toEqual({ id: "mine" });
-    expect(v.agents[1].distribution.binary["darwin-aarch64"]).toEqual({
+    const os =
+      process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
+    const key = `${os}-${process.arch === "arm64" ? "aarch64" : "x86_64"}`;
+    expect(v.agents[1].distribution.binary[key]).toEqual({
       cmd: "/usr/local/bin/node",
       args: ["/x/agent-rewake.js", "--wrap-registry", "claude-acp"],
     });
