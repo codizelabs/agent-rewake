@@ -128,7 +128,7 @@ export function timerNames(id: string, h: TimerHost): string[] {
   for (const f of files) {
     const name = f
       .replace(/^codizelabs\.agent-rewake\./, "")
-      .replace(/\.(plist|systemd|task|at)$/, "");
+      .replace(/\.(plist|systemd|task|at|at-time)$/, "");
     if (name !== f && ID.test(name) && parseTimerName(name).id === id) names.add(name);
   }
   return [...names];
@@ -238,6 +238,10 @@ function atArm(id: string, at: number, h: TimerHost): ArmResult {
   const n = /job (\d+)/.exec(`${r.stderr}\n${r.stdout}`)?.[1];
   if (r.status !== 0 || !n) return { ok: false, reason: "failed", detail: r.stderr.trim() };
   writeFileSync(join(timersDir(h), `${id}.at`), n, { mode: 0o600 });
+  // What it was armed with, for timerStale (`at` takes local time).
+  writeFileSync(join(timersDir(h), `${id}.at-time`), `${atTime(at)} ${h.node} ${h.cli}`, {
+    mode: 0o600,
+  });
   return { ok: true, via: "at" };
 }
 
@@ -254,6 +258,7 @@ function atCancel(id: string, h: TimerHost): void {
   const n = atJob(id, h);
   if (n) h.run("atrm", [n]);
   rmSync(join(h.stateDir, "timers", `${id}.at`), { force: true });
+  rmSync(join(h.stateDir, "timers", `${id}.at-time`), { force: true });
 }
 
 // ---- Windows: Task Scheduler (documented, untested) ---------------------------------------------
@@ -359,6 +364,33 @@ function nameArmed(name: string, kind: TimerKind, h: TimerHost): boolean {
     return n !== undefined && new RegExp(`^${n}\\s`, "m").test(h.run("atq", []).stdout);
   }
   return h.run("schtasks", ["/Query", "/TN", taskName(name)]).status === 0;
+}
+
+/**
+ * Whether `id`'s timer would fire at the wrong moment or run the wrong program: launchd and `at`
+ * take local wall-clock times, so a change of time zone moves them, and a timer keeps the Node.js
+ * path it was armed with. True when the timer on file no longer matches what arming it for `at`
+ * now would write (systemd and Task Scheduler take absolute times and are checked by name only).
+ */
+export function timerStale(id: string, at: number, h: TimerHost): boolean {
+  checkId(id);
+  const kind = timerKind(h);
+  const dir = join(h.stateDir, "timers");
+  if (kind === "launchd") {
+    const names = timerNames(id, h).filter((n) => existsSync(join(dir, `${label(n)}.plist`)));
+    if (names.length === 0) return false;
+    return !names.some(
+      (n) =>
+        readFileSync(join(dir, `${label(n)}.plist`), "utf8") === launchdPlist(n, at, h.node, h.cli),
+    );
+  }
+  if (kind === "at") {
+    const marks = timerNames(id, h).filter((n) => existsSync(join(dir, `${n}.at-time`)));
+    if (marks.length === 0) return false;
+    const want = `${atTime(at)} ${h.node} ${h.cli}`;
+    return !marks.some((n) => readFileSync(join(dir, `${n}.at-time`), "utf8") === want);
+  }
+  return false;
 }
 
 /** Whether `id` has a live timer, under any of its names. */

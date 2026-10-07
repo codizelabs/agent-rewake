@@ -1,7 +1,7 @@
 import { ScheduleStore } from "../core/store.js";
 import type { HostAdapter } from "../hosts/host.js";
 import { SENDING_STALE_MS } from "./fire.js";
-import { type ArmResult, armTimer, type TimerHost, timerArmed } from "./timers.js";
+import { type ArmResult, armTimer, type TimerHost, timerArmed, timerStale } from "./timers.js";
 
 /**
  * Keeping resumes on time without a background process (plan §5). Timers can be lost: macOS
@@ -53,7 +53,11 @@ export function sweep(deps: SweepDeps): { fired: number; armed: number } {
     if (s.dueAt - deps.now <= FIRE_NOW_MS) {
       deps.fireDetached(s.scheduleId);
       fired++;
-    } else if (deps.timers && !timerArmed(s.scheduleId, deps.timers)) {
+    } else if (
+      deps.timers &&
+      (!timerArmed(s.scheduleId, deps.timers) || timerStale(s.scheduleId, s.dueAt, deps.timers))
+    ) {
+      // Lost, or set for another time zone or Node.js: armed again for the right moment.
       if (armTimer(s.scheduleId, s.dueAt, deps.timers).ok) armed++;
     }
   }
