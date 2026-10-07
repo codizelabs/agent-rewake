@@ -4,6 +4,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-07
+
 ### Added
 
 - **A guide for each agent:** the website's "Works with" section shows every supported agent with its logo, each linking to a step-by-step guide in the docs (install, what happens at the limit, scheduling, checking and removing, the version it needs and what it can't do): Zed, Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI. The site's title and summary name the terminal agents too, not only Zed.
