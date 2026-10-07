@@ -45,7 +45,7 @@ export function codexProgram(path: string, node: string = process.execPath): Pro
 
 export type Usage =
   | { ok: true; allowed?: boolean; resetsAt?: number }
-  | { ok: false; reason: "signed-out" | "timeout" | "spawn" | "error" };
+  | { ok: false; reason: "signed-out" | "timeout" | "spawn" | "unsupported" | "error" };
 
 /** A window in `account/rateLimits/read` (app-server v2, camelCase). */
 interface UsageWindow {
@@ -105,7 +105,11 @@ export function readUsage(
       }
     };
     createInterface({ input: child.stdout }).on("line", (line) => {
-      let m: { id?: number; error?: { message?: string }; result?: Record<string, unknown> };
+      let m: {
+        id?: number;
+        error?: { code?: number; message?: string };
+        result?: Record<string, unknown>;
+      };
       try {
         m = JSON.parse(line);
       } catch {
@@ -116,11 +120,21 @@ export function readUsage(
         send({ method: "initialized" });
         send({ id: 2, method: "account/rateLimits/read" });
       } else if (m.id === 2) {
-        if (m.error)
+        if (m.error) {
+          const text = m.error.message ?? "";
+          // A Codex without this request (older than the app-server's v2) says so: not "offline".
+          const unsupported =
+            m.error.code === -32601 ||
+            /method not found|unknown variant|unknown method/i.test(text);
           return done({
             ok: false,
-            reason: /authentication required/i.test(m.error.message ?? "") ? "signed-out" : "error",
+            reason: /authentication required/i.test(text)
+              ? "signed-out"
+              : unsupported
+                ? "unsupported"
+                : "error",
           });
+        }
         const r = (m.result ?? {}) as {
           ordinaryUsageAllowed?: boolean | null;
           rateLimits?: { primary?: UsageWindow | null; secondary?: UsageWindow | null };

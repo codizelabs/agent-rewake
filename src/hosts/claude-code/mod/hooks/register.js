@@ -4,11 +4,13 @@
 // Everything runs inside this Claude Code process: nothing runs once it exits. A pending continue
 // is kept in $.store and offered again when the session is reopened.
 //
-// $.store keys (each written only by the session that owns it):
+// $.store keys ($.store is one file shared by every Claude Code process, so two with the same
+// session open both see its record; only the claim decides which one sends):
 //   prefs         { autoContinue?: 'always' }
-//   limit:<id>    { state, kind?, resetAt?, fireAt?, createdAt, sentAt?, rehits, attempts }
+//   limit:<id>    { state, kind?, resetAt?, fireAt?, createdAt, sentAt?, rehits, attempts, claim? }
 //                 state: waiting (no reset time yet) | native (Claude Code's own wait) |
 //                        offered (not answered) | armed | sent
+//                 claim: { by, at }, the process sending the armed continue right now
 //   sched:<id>    [{ at, text }]
 // A copy of each limit record (no message text) goes to Rewake's shared state folder, so
 // `agent-rewake doctor` and the schedules page can show it. Installed by `agent-rewake install`,
@@ -55,6 +57,10 @@ let clock = "12h";
 let armed;
 /** `<stateDir>/hosts/claude-code/sessions`, when the installer said where the state folder is. */
 let mirrorDir;
+/** This process, in a send's claim: two Claude Code processes can have one session open. */
+const ME = Math.random().toString(36).slice(2);
+/** A claim older than this was left by a process that stopped mid-send. */
+const CLAIM_MS = 5 * MINUTE;
 /** Rewake's keep-awake setting: "plugged-in" (default), "always" or "never". */
 let keepAwake = "plugged-in";
 /** Claude Code's PID when this Mac has caffeinate; null where Rewake can't keep it awake. */
@@ -368,7 +374,14 @@ async function fire($, id) {
       await drop($, id);
       await offer($, CONTINUE_TEXT);
     } else {
+      // $.store is one file shared by every Claude Code process: another one with this session
+      // open has the same continue armed. Claim it, and go on only if the claim is still ours
+      // after the usage check.
+      if (ep.claim && ep.claim.by !== ME && now - ep.claim.at < CLAIM_MS) return;
+      await $.store.set(limitKey(id), { ...ep, claim: { by: ME, at: now } });
       const still = blockedUntil((await $.session.usage()).rateLimits, now);
+      const mine = await $.store.get(limitKey(id));
+      if (mine?.state !== "armed" || mine.claim?.by !== ME) return disarm(id);
       // A later window more than a day away is asked about, never waited for silently (rule 2).
       if (still !== undefined && ep.attempts < MAX_REARMS && still - now <= FAR_RESET_MS) {
         // Another window is still used up (a weekly limit behind a 5-hour one): wait for it.
