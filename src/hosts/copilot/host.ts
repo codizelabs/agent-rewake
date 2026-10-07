@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { classifyCopilotError } from "../../core/limits/agents.js";
+import { recogniseForHost } from "../../core/limits/recognise.js";
 import {
   type ClosedDeps,
   type ClosedHost,
@@ -12,7 +14,6 @@ import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { resumeDeadline, type SendResult } from "../host.js";
 import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
-import { classifyCopilotError } from "./recognise.js";
 
 /**
  * GitHub Copilot CLI in a terminal (plan §9.3): hooks record the session and its limit; when the
@@ -136,7 +137,15 @@ export function copilotHooks(deps: CopilotHookDeps): HookHandler {
           const recoverable =
             ctx.input.recoverable === true ||
             (typeof e === "object" && (e as { recoverable?: unknown })?.recoverable === true);
-          const limit = classifyCopilotError(text, ctx.now, recoverable);
+          const limit = recogniseForHost(
+            {
+              agent: "copilot",
+              source: "hook",
+              ...(typeof text === "string" && { text }),
+              recovered: recoverable,
+            },
+            ctx.now,
+          );
           if (limit) onLimit(copilotHost, id, cwd, limit, d);
           break;
         }

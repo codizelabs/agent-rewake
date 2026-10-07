@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { HostLimit } from "../core/limits/types.js";
 import { writeFileAtomic } from "../core/store.js";
 import { ensurePrivateDir } from "../util/paths.js";
 
@@ -35,13 +36,9 @@ export interface SessionRecord {
   updatedAt: number;
 }
 
-export interface SessionLimit {
+/** A limit as recognised (src/core/limits), and when it was seen. */
+export interface SessionLimit extends HostLimit {
   seenAt: number;
-  /** "session", "weekly", "model", "other", or "billing". */
-  kind: string;
-  /** Credits, spending caps: waiting doesn't fix them, so they're never resumed. */
-  billing: boolean;
-  resetsAt?: number;
 }
 
 /** Session ids become file names: only the shapes agents use. */
