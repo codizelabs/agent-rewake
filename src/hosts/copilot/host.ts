@@ -10,7 +10,7 @@ import {
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import type { SendResult } from "../host.js";
+import { resumeDeadline, type SendResult } from "../host.js";
 import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 import { classifyCopilotError } from "./recognise.js";
 
@@ -80,8 +80,10 @@ export function resumeCopilot(
         // Not JSON: progress text.
       }
     });
+    const timedOut = resumeDeadline(child);
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
     child.on("exit", (code) => {
+      if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       if (limited) resolve({ ok: false, reason: "limited" });
       else if (code === 0) resolve({ ok: true });
       else if (SESSION_GONE.test(err)) resolve({ ok: false, reason: "closed", detail: "deleted" });

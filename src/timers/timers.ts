@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensurePrivateDir } from "../util/paths.js";
 
@@ -18,6 +18,10 @@ import { ensurePrivateDir } from "../util/paths.js";
  *     removes both transient units afterwards; a duplicate unit name is refused; a time in the past
  *     never fires, so such a resume is fired directly. Without a user manager ("No medium found",
  *     WSL without systemd, containers): `at` if atd runs, else no timer.
+ *   - A timer can't safely replace itself (launchd kills a job booted out from inside it; systemd
+ *     refuses a unit name whose service is still running), so a resume re-armed from inside its own
+ *     `fire` gets a new name, `<id>-r<n>`, and the older names are removed. Each armed name leaves a
+ *     file in `<stateDir>/timers`, which is how every name of a resume is found again.
  *   - Windows (Task Scheduler): from Microsoft's documentation, untested. `schtasks /Create /XML`
  *     (an ISO time, not the locale-dependent /SD date), StartWhenAvailable for missed starts,
  *     an EndBoundary with DeleteExpiredTaskAfter so Windows removes a task that never ran.
@@ -81,6 +85,17 @@ export function defaultTimerHost(stateDir: string, node: string, cli: string): T
 }
 
 export const label = (id: string) => `codizelabs.agent-rewake.${id}`;
+
+/** A timer's name: the resume's id, then `-r<n>` for the n-th re-arm from inside a timer. */
+export function timerName(id: string, gen = 0): string {
+  return gen > 0 ? `${id}-r${gen}` : id;
+}
+
+/** The resume id and generation in a timer's name (UUIDs never contain "-r<digits>" at the end). */
+export function parseTimerName(name: string): { id: string; gen: number } {
+  const m = /^(.+)-r(\d{1,3})$/.exec(name);
+  return m?.[1] ? { id: m[1], gen: Number(m[2]) } : { id: name, gen: 0 };
+}
 export const unit = (id: string) => `codizelabs-agent-rewake-${id}`;
 export const taskName = (id: string) => `\\AgentRewake\\${id}`;
 
@@ -90,6 +105,32 @@ function timersDir(h: TimerHost): string {
 
 function checkId(id: string): void {
   if (!ID.test(id)) throw new Error(`invalid timer id: ${id}`);
+}
+
+/** Marker files for timers that leave no file of their own (systemd units, scheduled tasks). */
+const MARK: Partial<Record<TimerKind, string>> = { systemd: ".systemd", schtasks: ".task" };
+
+function mark(name: string, kind: TimerKind, h: TimerHost): void {
+  const ext = MARK[kind];
+  if (ext) writeFileSync(join(timersDir(h), `${name}${ext}`), "", { mode: 0o600 });
+}
+
+/** Every timer name armed for `id` (the bare id always included, for timers armed before names). */
+export function timerNames(id: string, h: TimerHost): string[] {
+  const names = new Set([id]);
+  let files: string[] = [];
+  try {
+    files = readdirSync(join(h.stateDir, "timers"));
+  } catch {
+    // No timers yet.
+  }
+  for (const f of files) {
+    const name = f
+      .replace(/^codizelabs\.agent-rewake\./, "")
+      .replace(/\.(plist|systemd|task|at)$/, "");
+    if (name !== f && ID.test(name) && parseTimerName(name).id === id) names.add(name);
+  }
+  return [...names];
 }
 
 // ---- macOS: launchd ------------------------------------------------------------------------------
@@ -128,8 +169,8 @@ function launchdArm(id: string, at: number, h: TimerHost): ArmResult {
   const domain = launchdTarget(h);
   if (!domain) return { ok: false, reason: "no-scheduler" };
   const plist = join(timersDir(h), `${label(id)}.plist`);
-  // Re-arming: take the old one out first (a loaded label can't be bootstrapped again).
-  h.run("launchctl", ["bootout", `${domain}/${label(id)}`]);
+  // A loaded label can't be bootstrapped again: armTimer has already taken out the resume's
+  // timers (generation 0), and a higher generation's name is new.
   writeFileSync(plist, launchdPlist(id, at, h.node, h.cli), { mode: 0o600 });
   const r = h.run("launchctl", ["bootstrap", domain, plist]);
   if (r.status === 0) return { ok: true, via: "launchd" };
@@ -152,6 +193,8 @@ export function utcCalendar(at: number): string {
 
 function systemdArm(id: string, at: number, h: TimerHost): ArmResult {
   h.run("systemctl", ["--user", "stop", `${unit(id)}.timer`]);
+  // A finished one-shot unit can linger as "failed" and block its name.
+  h.run("systemctl", ["--user", "reset-failed", `${unit(id)}.timer`, `${unit(id)}.service`]);
   const r = h.run("systemd-run", [
     "--user",
     `--unit=${unit(id)}`,
@@ -164,9 +207,9 @@ function systemdArm(id: string, at: number, h: TimerHost): ArmResult {
     "fire",
     id,
   ]);
-  return r.status === 0
-    ? { ok: true, via: "systemd" }
-    : { ok: false, reason: "failed", detail: r.stderr.trim() };
+  if (r.status !== 0) return { ok: false, reason: "failed", detail: r.stderr.trim() };
+  mark(id, "systemd", h);
+  return { ok: true, via: "systemd" };
 }
 
 /** `at -t` time: [[CC]YY]MMDDhhmm, local time, rounded up to the next minute. */
@@ -179,8 +222,12 @@ export function atTime(at: number): string {
 /** A path quoted for sh: `at` runs its job through the shell (the id is checked against ID). */
 const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/** `at` only helps when its daemon runs: `atq` answers without it, and jobs would never start. */
 function atAvailable(h: TimerHost): boolean {
-  return h.run("atq", []).status === 0;
+  if (h.run("atq", []).status !== 0) return false;
+  const pg = h.run("pgrep", ["-x", "atd"]);
+  // No pgrep (status null, or 127 from a shell): trust atq, as before.
+  return pg.status === 0 || pg.status === null || pg.status === 127;
 }
 
 function atArm(id: string, at: number, h: TimerHost): ArmResult {
@@ -252,9 +299,9 @@ function schtasksArm(id: string, at: number, h: TimerHost): ArmResult {
   writeFileSync(file, Buffer.from(`﻿${taskXml(id, at, h.node, h.cli)}`, "utf16le"));
   const r = h.run("schtasks", ["/Create", "/TN", taskName(id), "/XML", file]);
   rmSync(file, { force: true });
-  return r.status === 0
-    ? { ok: true, via: "schtasks" }
-    : { ok: false, reason: "failed", detail: r.stderr.trim() };
+  if (r.status !== 0) return { ok: false, reason: "failed", detail: r.stderr.trim() };
+  mark(id, "schtasks", h);
+  return { ok: true, via: "schtasks" };
 }
 
 // ---- The three operations --------------------------------------------------------------------------
@@ -270,55 +317,89 @@ export function timerKind(h: TimerHost): TimerKind | undefined {
   return undefined;
 }
 
-/** Arm (or re-arm) the timer for `id` at `at`. Callers fire directly instead of arming a time
- * that has passed or is under 30 s away (systemd never fires a past time). */
-export function armTimer(id: string, at: number, h: TimerHost): ArmResult {
+/**
+ * Arm the timer for `id` at `at`. Generation 0 (any caller outside a timer) first removes every
+ * timer the resume has; a higher generation (`fire` re-arming from inside its own timer) arms a new
+ * name and leaves the running one alone, for `fire` to remove. Callers fire directly instead of
+ * arming a time that has passed or is under 30 s away (systemd never fires a past time).
+ */
+export function armTimer(id: string, at: number, h: TimerHost, gen = 0): ArmResult {
   checkId(id);
+  const name = timerName(id, gen);
+  checkId(name);
   const kind = timerKind(h);
-  if (kind === "launchd") return launchdArm(id, at, h);
-  if (kind === "systemd") return systemdArm(id, at, h);
-  if (kind === "at") return atArm(id, at, h);
-  if (kind === "schtasks") return schtasksArm(id, at, h);
-  return { ok: false, reason: "no-scheduler" };
+  if (!kind) return { ok: false, reason: "no-scheduler" };
+  if (gen === 0) cancelTimer(id, h);
+  if (kind === "launchd") return launchdArm(name, at, h);
+  if (kind === "systemd") return systemdArm(name, at, h);
+  if (kind === "at") return atArm(name, at, h);
+  return schtasksArm(name, at, h);
 }
 
-/** Whether `id` has a live timer. */
-export function timerArmed(id: string, h: TimerHost): boolean {
-  checkId(id);
-  const kind = timerKind(h);
+/** The next free generation for a re-arm from inside a timer running generation `current`. */
+export function nextGen(id: string, current: number, h: TimerHost): number {
+  const used = timerNames(id, h).map((n) => parseTimerName(n).gen);
+  return Math.max(current, ...used) + 1;
+}
+
+function nameArmed(name: string, kind: TimerKind, h: TimerHost): boolean {
   if (kind === "launchd") {
     const domain = launchdTarget(h);
     return (
-      domain !== undefined && h.run("launchctl", ["print", `${domain}/${label(id)}`]).status === 0
+      domain !== undefined && h.run("launchctl", ["print", `${domain}/${label(name)}`]).status === 0
     );
   }
   if (kind === "systemd")
     return (
-      h.run("systemctl", ["--user", "is-active", `${unit(id)}.timer`]).stdout.trim() === "active"
+      h.run("systemctl", ["--user", "is-active", `${unit(name)}.timer`]).stdout.trim() === "active"
     );
   if (kind === "at") {
-    const n = atJob(id, h);
+    const n = atJob(name, h);
     return n !== undefined && new RegExp(`^${n}\\s`, "m").test(h.run("atq", []).stdout);
   }
-  if (kind === "schtasks") return h.run("schtasks", ["/Query", "/TN", taskName(id)]).status === 0;
-  return false;
+  return h.run("schtasks", ["/Query", "/TN", taskName(name)]).status === 0;
+}
+
+/** Whether `id` has a live timer, under any of its names. */
+export function timerArmed(id: string, h: TimerHost): boolean {
+  checkId(id);
+  const kind = timerKind(h);
+  if (!kind) return false;
+  return timerNames(id, h).some((name) => nameArmed(name, kind, h));
 }
 
 /**
- * Remove `id`'s timer. `fromInsideTimer`: called by the timer's own `fire` on macOS, where a job
- * can't boot itself out without being killed, so a detached child does it after a second.
+ * Remove `id`'s timers, every name but `keep`. `fromInsideTimer`: called by a timer's own `fire` on
+ * macOS, where a job can't boot itself out without being killed, so a detached child does it after
+ * two seconds, once `fire` has exited.
  */
-export function cancelTimer(id: string, h: TimerHost, fromInsideTimer = false): void {
+export function cancelTimer(
+  id: string,
+  h: TimerHost,
+  fromInsideTimer = false,
+  keep?: string,
+): void {
   checkId(id);
   const kind = timerKind(h);
-  if (kind === "launchd") {
-    rmSync(join(h.stateDir, "timers", `${label(id)}.plist`), { force: true });
-    const domain = launchdTarget(h);
-    if (!domain) return;
-    if (fromInsideTimer)
-      h.detached("/bin/sh", ["-c", `sleep 1; launchctl bootout ${domain}/${label(id)}`]);
-    else h.run("launchctl", ["bootout", `${domain}/${label(id)}`]);
-  } else if (kind === "systemd") h.run("systemctl", ["--user", "stop", `${unit(id)}.timer`]);
-  else if (kind === "at") atCancel(id, h);
-  else if (kind === "schtasks") h.run("schtasks", ["/Delete", "/TN", taskName(id), "/F"]);
+  for (const name of timerNames(id, h)) {
+    if (name === keep) continue;
+    const dir = join(h.stateDir, "timers");
+    if (kind === "launchd") {
+      const plist = join(dir, `${label(name)}.plist`);
+      const had = existsSync(plist);
+      rmSync(plist, { force: true });
+      const domain = launchdTarget(h);
+      if (!domain || (!had && name !== id)) continue;
+      if (fromInsideTimer)
+        h.detached("/bin/sh", ["-c", `sleep 2; launchctl bootout ${domain}/${label(name)}`]);
+      else h.run("launchctl", ["bootout", `${domain}/${label(name)}`]);
+    } else if (kind === "systemd") {
+      h.run("systemctl", ["--user", "stop", `${unit(name)}.timer`]);
+      rmSync(join(dir, `${name}.systemd`), { force: true });
+    } else if (kind === "at") atCancel(name, h);
+    else if (kind === "schtasks") {
+      h.run("schtasks", ["/Delete", "/TN", taskName(name), "/F"]);
+      rmSync(join(dir, `${name}.task`), { force: true });
+    }
+  }
 }

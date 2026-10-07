@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import type { Schedule } from "../core/store.js";
 
 /**
@@ -48,3 +49,21 @@ export type SendResult =
       reason: "busy" | "closed" | "limited" | "unsupported" | "failed";
       detail?: string;
     };
+
+/** The longest a headless resume run may take before Rewake stops it. */
+export const RESUME_TIMEOUT_MS = 30 * 60_000;
+
+/**
+ * Stop a resume run that is still going after `ms` (waiting on an approval, hung). Returns a check,
+ * read when the child exits, of whether it was stopped this way.
+ */
+export function resumeDeadline(child: ChildProcess, ms = RESUME_TIMEOUT_MS): () => boolean {
+  let stopped = false;
+  const timer = setTimeout(() => {
+    stopped = true;
+    child.kill();
+  }, ms);
+  child.once("exit", () => clearTimeout(timer));
+  child.once("error", () => clearTimeout(timer));
+  return () => stopped;
+}

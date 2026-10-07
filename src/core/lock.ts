@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
+import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { renameWithRetry } from "../util/fs.js";
@@ -70,6 +70,9 @@ export class SessionLock {
         if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
         const owner = readOwner(path);
         if (owner && owner.hostname === hostname() && this.alive(owner.pid)) return false;
+        // Empty or half-written: its owner may be between creating and writing it. Only a file
+        // that has stayed unreadable for a while counts as stale.
+        if (!owner && youngerThan(path, UNREADABLE_GRACE_MS)) return false;
         // Stale: claim by renaming aside; whoever renames first wins, the other retries and loses.
         try {
           renameWithRetry(path, `${path}.stale.${this.token}`);
@@ -90,6 +93,17 @@ export class SessionLock {
 
   releaseAll(): void {
     for (const s of [...this.held]) this.release(s);
+  }
+}
+
+/** How long an unreadable lock file is presumed to be mid-write rather than abandoned. */
+const UNREADABLE_GRACE_MS = 10_000;
+
+function youngerThan(path: string, ms: number): boolean {
+  try {
+    return Date.now() - statSync(path).mtimeMs < ms;
+  } catch {
+    return false;
   }
 }
 

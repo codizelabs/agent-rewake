@@ -13,7 +13,7 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { durationMs } from "../gemini/host.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import type { SendResult } from "../host.js";
+import { resumeDeadline, type SendResult } from "../host.js";
 import { type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -111,8 +111,10 @@ export function resumeAgy(
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < 1 << 20) out += d.toString("utf8");
     });
+    const timedOut = resumeDeadline(child);
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
     child.on("exit", () => {
+      if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       // Judged by the response, not the exit status: Antigravity has reported a resumed
       // conversation's old quota error after a successful turn, and exited 0 on a new one.
       let json: { response?: unknown; error?: unknown } | undefined;
