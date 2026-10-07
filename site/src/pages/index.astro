@@ -11,13 +11,26 @@ import AfterResumeScene from "../components/scenes/AfterResumeScene.astro";
 import ResumeScene from "../components/scenes/ResumeScene.astro";
 import ScheduleScene from "../components/scenes/ScheduleScene.astro";
 import SettingsScene from "../components/scenes/SettingsScene.astro";
+import antigravityLogo from "../assets/agents/antigravity-color.svg?raw";
+import claudeLogo from "../assets/agents/claude-color.svg?raw";
+import clineLogo from "../assets/agents/cline.svg?raw";
+import codexLogo from "../assets/agents/codex-color.svg?raw";
+import geminiLogo from "../assets/agents/gemini-color.svg?raw";
+import copilotLogo from "../assets/agents/githubcopilot.svg?raw";
+import gooseLogo from "../assets/agents/goose.svg?raw";
+import grokLogo from "../assets/agents/grok.svg?raw";
+import kimiLogo from "../assets/agents/kimi.svg?raw";
+import mistralLogo from "../assets/agents/mistral-color.svg?raw";
+import opencodeLogo from "../assets/agents/opencode.svg?raw";
+import qwenLogo from "../assets/agents/qwen-color.svg?raw";
+import zedLogo from "../assets/agents/zedindustries.svg?raw";
 
 const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
 const site = new URL(base, Astro.site);
 const href = (path = "") => `${base}${path}`;
-const title = "Agent Rewake: resume Claude after usage limits and schedule messages in Zed";
+const title = "Agent Rewake: auto-resume Claude Code, Codex and other coding agents after a usage limit";
 const description =
-  "Free, open-source add-on for Zed's agent threads: Claude, Codex or Gemini picks the work back up on its own when a usage limit resets. It can also send messages later, once or on a repeat.";
+  "Free, open-source add-on: when Claude, Codex, Gemini or another coding agent hits its usage limit, the work picks back up on its own when the limit resets. In Zed's Agent Panel for every external agent, and as previews for Claude Code, Codex, Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI in the terminal.";
 const image = new URL("social-preview.png", site).href;
 const updated = "2026-10-06";
 
@@ -37,7 +50,7 @@ const faq: Array<{ q: string; a: string[] }> = [
   {
     q: "Does it work with Codex, Gemini CLI and other agents?",
     a: [
-      "Yes. Rewake goes in front of every external agent Zed runs and works the same way with each: the menu, scheduling, the schedules page and resume after a limit. Claude and Codex say when the limit resets; for agents that don't (Gemini CLI, for example), you pick when to resume.",
+      "Yes. Rewake goes in front of every external agent Zed runs and works the same way with each: the menu, scheduling, the schedules page and resume after a limit. Claude and Codex say when the limit resets; for agents that don't (Gemini CLI, for example), you pick when to resume. Outside Zed, previews cover Codex, Gemini CLI, GitHub Copilot CLI, Grok Build and Antigravity CLI in a terminal.",
     ],
   },
   {
@@ -65,9 +78,9 @@ const faq: Array<{ q: string; a: string[] }> = [
     ],
   },
   {
-    q: "Does it work with the Claude desktop app, Claude Code in a terminal, or Zed's own agent?",
+    q: "Does it work with Claude Code in a terminal, the Claude desktop app, or Zed's own agent?",
     a: [
-      "No. Rewake works in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI. Zed doesn't let add-ons into its own agent, and the Claude desktop app, claude.ai and Claude Code in a terminal run outside the Agent Panel. Claude Code and the desktop app each have their own setting to continue after a usage limit.",
+      "Claude Code in a terminal: yes, as a preview. Install it with `npx @codizelabs/agent-rewake install --only claude-code`, and at a usage limit Rewake offers to continue the session after the reset. The Claude desktop app's Code tab isn't supported yet. Claude's own apps (claude.ai and the desktop app's chat) and Zed's own agent can't be reached: Zed doesn't let add-ons into its own agent. Claude Code and the desktop app also each have their own setting to continue after a usage limit.",
     ],
   },
   {
@@ -91,14 +104,15 @@ const jsonLd = [
     name: "Agent Rewake",
     description,
     applicationCategory: "DeveloperApplication",
-    operatingSystem: "macOS, Linux",
+    operatingSystem: "macOS, Linux, Windows",
     url: site.href,
     downloadUrl: "https://github.com/codizelabs/agent-rewake",
     license: "https://www.apache.org/licenses/LICENSE-2.0",
     isAccessibleForFree: true,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     dateModified: updated,
-    softwareRequirements: "Zed 1.22 or later; Node.js 22 or later",
+    softwareRequirements:
+      "Node.js 22 or later; Zed 1.22 or later, or (previews) Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI",
   },
   {
     "@context": "https://schema.org",
@@ -109,6 +123,39 @@ const jsonLd = [
       acceptedAnswer: { "@type": "Answer", text: f.a.join(" ") },
     })),
   },
+];
+
+/**
+ * An agent's logo, inlined so single-colour logos take the text colour. The file's own <title> is
+ * dropped (the tile names the agent) and its ids get a suffix, so a logo used twice stays valid.
+ */
+const logo = (svg: string, key: string) =>
+  svg
+    .replace(/<title>.*?<\/title>/s, "")
+    .replace("<svg ", '<svg aria-hidden="true" focusable="false" ')
+    .replace(/id="([^"]+)"/g, `id="$1-${key}"`)
+    .replace(/url\(#([^)]+)\)/g, `url(#$1-${key})`);
+
+/** The "Works with" tiles. Every line is in the docs section the tile links to. */
+const previews = [
+  { name: "Claude Code", id: "claude-code", svg: claudeLogo, what: "Asks once at the limit, then continues the session at the reset." },
+  { name: "Codex", id: "codex", svg: codexLogo, what: "Type rewake at the limit; the thread continues at the reset." },
+  { name: "GitHub Copilot CLI", id: "github-copilot-cli", svg: copilotLogo, what: "Continues a closed session after the reset." },
+  { name: "Gemini CLI", id: "gemini-cli", svg: geminiLogo, what: "Continues a closed session after the reset." },
+  { name: "Grok Build", id: "grok-build", svg: grokLogo, what: "Continues a closed session after the reset." },
+  { name: "Antigravity CLI", id: "antigravity-cli", svg: antigravityLogo, what: "Continues a closed session after the reset." },
+];
+const zedAgents = [
+  { name: "Claude Agent", svg: claudeLogo },
+  { name: "Codex", svg: codexLogo },
+  { name: "Gemini CLI", svg: geminiLogo },
+  { name: "GitHub Copilot", svg: copilotLogo },
+  { name: "OpenCode", svg: opencodeLogo },
+  { name: "goose", svg: gooseLogo },
+  { name: "Qwen Code", svg: qwenLogo },
+  { name: "Cline", svg: clineLogo },
+  { name: "Kimi", svg: kimiLogo },
+  { name: "Mistral Vibe", svg: mistralLogo },
 ];
 
 const words = "When your agent hits its limit, Rewake picks the thread back up.".split(" ");
@@ -153,6 +200,7 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
           <a class="opt" href="#install">Install</a>
           <a class="opt" href="#film">Watch</a>
           <a class="opt" href="#features">Features</a>
+          <a class="opt" href="#agents">Agents</a>
           <a href={href("docs/#install")}>Docs</a>
           <a href="https://github.com/codizelabs/agent-rewake">GitHub</a>
           <a href="https://www.npmjs.com/package/@codizelabs/agent-rewake">npm</a>
@@ -168,7 +216,7 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
             <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v0.1 · free and open source</a>
             <h1 class="rise">{words.map((w, i) => <><span style={`--i:${i}`}>{w}</span>{" "}</>)}</h1>
             <p class="lede">
-              A free, open-source add-on for Zed. Claude, Codex, Gemini or any other agent picks the work back up on its own when its usage limit resets.
+              A free, open-source add-on for your coding agents. In Zed, Claude, Codex, Gemini or any other agent picks the work back up on its own when its usage limit resets. Previews bring it to Claude Code, Codex and four more agents in the terminal.
             </p>
             <p class="install-label">Install in one line</p>
             <div class="install-cmd">
@@ -181,7 +229,7 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
               <a class="btn primary" href={href("docs/#install")}>Get started</a>
               <a class="btn" href="#film"><span aria-hidden="true">▶</span> Watch the 1-minute intro</a>
             </div>
-            <p class="note">Works in the threads you already have, with Claude, Codex, Gemini and every other agent in Zed.</p>
+            <p class="note">Works in the threads you already have, with every agent in Zed. Using an agent in a terminal? <a href="#agents">Find your agent's guide</a>.</p>
           </div>
           <ResumeScene />
         </div>
@@ -332,12 +380,35 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
       <section id="agents">
         <div class="wrap" data-reveal>
           <p class="kicker">Works with</p>
-          <h2>Every external agent Zed runs, the same way.</h2>
-          <p class="sub">The same menu, scheduling, schedules page and resume after a limit, whichever agent a thread uses. What differs is whether the agent says when its limit resets.</p>
-          <ul class="chips" aria-label="Agents">
-            <li>Claude Agent</li><li>Codex</li><li>Gemini CLI</li><li>GitHub Copilot</li><li>OpenCode</li><li>goose</li><li>Qwen Code</li><li>Cline</li><li>Kimi</li><li>Mistral Vibe</li><li>Amp</li><li>and the rest of the ACP Registry</li>
+          <h2>Your coding agent, in Zed or in a terminal.</h2>
+          <p class="sub">In Zed's Agent Panel, Rewake works the same way with every external agent. In a terminal, previews for six agents install one by one. Pick yours for its step-by-step guide.</p>
+          <ul class="agent-grid">
+            <li class="agent-tile agent-zed">
+              <span class="agent-logo" role="img" aria-label="Zed" set:html={logo(zedLogo, "zed")} />
+              <div class="agent-body">
+                <h3><a href={href("docs/#zed")}>Zed<span class="agent-go" aria-hidden="true"> →</span></a></h3>
+                <p>Resumes the thread at the reset, and sends messages later, with every external agent in the Agent Panel.</p>
+                <ul class="agent-mini" aria-label="Agents in Zed">
+                  {zedAgents.map((a, i) => <li><span class="agent-logo" set:html={logo(a.svg, `zed-${i}`)} />{a.name}</li>)}
+                  <li class="more">and every agent in the ACP Registry</li>
+                </ul>
+              </div>
+              <span class="agent-tag">Zed 1.22+</span>
+            </li>
+            {
+              previews.map((a) => (
+                <li class="agent-tile">
+                  <span class="agent-logo" role="img" aria-label={a.name} set:html={logo(a.svg, a.id)} />
+                  <div class="agent-body">
+                    <h3><a href={href(`docs/#${a.id}`)}>{a.name}<span class="agent-go" aria-hidden="true"> →</span></a></h3>
+                    <p>{a.what}</p>
+                  </div>
+                  <span class="agent-tag">Preview · terminal</span>
+                </li>
+              ))
+            }
           </ul>
-          <p class="sub"><a href={href("docs/#agents")}>What each agent supports</a></p>
+          <p class="sub"><a href={href("docs/#agents")}>Every agent's guide, with the versions it needs</a></p>
         </div>
       </section>
 
@@ -366,12 +437,12 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
         <div class="wrap" data-reveal>
           <p class="kicker">Compared</p>
           <h2>Other ways to get past a limit.</h2>
-          <p class="sub">Good tools exist for the terminal. Rewake is for the agent panel in Zed. Checked {updated}.</p>
+          <p class="sub">Good tools exist for the terminal. Rewake is built for the agent panel in Zed, with previews for terminal agents. Checked {updated}.</p>
           <div class="table-wrap">
             <table>
               <thead><tr><th scope="col">Option</th><th scope="col">Where it works</th><th scope="col">Agents</th><th scope="col">Send later and repeats</th></tr></thead>
               <tbody>
-                <tr><td><b>Agent Rewake</b></td><td>The Zed thread you already have</td><td>Every external agent in Zed</td><td>Yes: once, repeating, and after a resume</td></tr>
+                <tr><td><b>Agent Rewake</b></td><td>The Zed thread you already have; previews in a terminal</td><td>Every external agent in Zed; six terminal agents in preview</td><td>Yes: once, repeating, and after a resume</td></tr>
                 <tr><td><a href="https://code.claude.com/docs/en/interactive-mode">Claude Code auto-continue</a></td><td>Claude Code's own interactive sessions; inside Zed not documented</td><td>Claude</td><td>No</td></tr>
                 <tr><td><a href="https://code.claude.com/docs/en/scheduled-tasks">Claude Code /loop and scheduled tasks</a></td><td>A running Claude Code session; recurring tasks end after 7 days</td><td>Claude</td><td>Yes, in that session</td></tr>
                 <tr><td><a href="https://github.com/topics/auto-resume">Community auto-resume scripts</a></td><td>A terminal or tmux pane</td><td>Usually one</td><td>Varies</td></tr>
@@ -389,7 +460,7 @@ const words = "When your agent hits its limit, Rewake picks the thread back up."
             <div><dt>Price</dt><dd>Free</dd></div>
             <div><dt>License</dt><dd>Apache-2.0</dd></div>
             <div><dt>Status</dt><dd><a href={href("docs/#status")}>Early release (0.1)</a></dd></div>
-            <div><dt>Works with</dt><dd>Zed 1.22 and later</dd></div>
+            <div><dt>Works with</dt><dd>Zed 1.22 and later; <a href="#agents">previews</a> for Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI</dd></div>
             <div><dt>Needs</dt><dd>Node.js 22 or later</dd></div>
             <div><dt>Systems</dt><dd>macOS, Linux, Windows</dd></div>
             <div><dt>Your data</dt><dd>Stays on your computer</dd></div>
