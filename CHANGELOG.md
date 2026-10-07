@@ -67,6 +67,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - **Claude Code preview:** `install --only claude-code` also uses the Claude desktop app's own Claude Code, so an older Claude Code in the terminal no longer stops the install; it says when the terminal one is too old to load the plugin. The plugin passes `claude plugin validate` on Claude Code 2.1.289 too (a name used twice in it was rejected there), and `/rewake-ask` has its reviewed description.
 
+- `install` in a terminal shows what's on your computer (Zed and each coding agent, with versions), what Rewake does in each, and a checklist: tick the places, see every change together, answer once, and get one result line per place with its next step. Agents too old for Rewake are shown with how to update them. `--all` picks every place found and `--skip` leaves some out; with `--yes` and no place named, `install` still sets up Zed only, and now says so.
+
 ### Changed
 
 - Usage limits are recognised for every agent in Zed's registry, each from what it actually sends: Claude's rate-limit event (the same test Claude Code uses to continue on its own), Codex's error kinds, Gemini CLI, Qwen, Qoder, Kimi, Z.AI, MiniMax, Auggie, CodeBuddy, Devin, Junie, Mistral Vibe, goose, OpenCode, Kilo, Cline, Grok Build, Kimchi and Harn. Short-term rate limits, which the agent retries itself, are no longer treated as a usage limit.

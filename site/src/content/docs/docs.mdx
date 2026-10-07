@@ -243,7 +243,8 @@ Everything here is also in the Rewake menu.
 |---|---|
 | `agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]…` | Add Rewake to your Zed agents (shows the changes and asks first) |
 | `agent-rewake uninstall [--yes] [--dry-run]` | Put every agent back the way it was |
-| `agent-rewake install --only <place>`, `uninstall --only <place>` | Add or remove a preview outside Zed: `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity` (`zed` is the default) |
+| `agent-rewake install` (in a terminal) | Shows what's on your computer and lets you tick the places to set up; then shows every change and asks once |
+| `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`. With `--yes` and no place named: Zed |
 | `agent-rewake continue [--always \| --ask \| --cancel]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit. `--always` does it from now on, `--ask` asks again, `--cancel` cancels all planned resumes |
 | `agent-rewake doctor [--details]` | Whether Rewake can work in your Zed, and what to do next; `--details` adds versions and folders for bug reports |
 | `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |

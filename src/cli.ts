@@ -27,6 +27,7 @@ import { runGrokInstall } from "./hosts/grok/install.js";
 import { readStdin, runHook } from "./hosts/hook.js";
 import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
+import { AGENT_VERSIONS } from "./hosts/versions.js";
 import {
   agyPrograms,
   codexPrograms,
@@ -35,8 +36,10 @@ import {
   detectAgents,
   geminiPrograms,
   grokPrograms,
+  type PlaceId,
   terminalAgents,
 } from "./install/detect.js";
+import { choosePlaces, type Place, placesFrom } from "./install/select.js";
 import {
   keyChord,
   launchCommand,
@@ -111,9 +114,10 @@ Usage:
   agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]...
                                    Add Rewake to the agents you already use in Zed, keeping
                                    their threads (shows the changes and asks first)
-  agent-rewake install --only <place>[,<place>...]
-                                   Add a preview outside Zed: claude-code, codex, copilot-cli,
-                                   grok, gemini-cli, antigravity (zed is the default)
+  agent-rewake install            In a terminal: pick the places to set up from what's found
+  agent-rewake install --only <place>[,<place>...] | --all | --skip <place>[,<place>...]
+                                   Places: zed, claude-code, codex, copilot-cli, grok, gemini-cli,
+                                   antigravity. Without a terminal or with --yes: Zed only
   agent-rewake uninstall [--yes] [--dry-run]
                                    Take Rewake out of your agents and remove its Zed entries
   agent-rewake setup zed           Print the Zed settings, task and keybinding (to add by hand)
@@ -197,16 +201,17 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     return 0;
   }
   if (first === "install" || first === "uninstall") {
-    const known = new Set(["--yes", "-y", "--dry-run", "--keybinding"]);
+    const known = new Set(["--yes", "-y", "--dry-run", "--keybinding", "--all"]);
     const only: string[] = [];
     const places: string[] = [];
+    const skip: string[] = [];
     const unknown: string[] = [];
     const rest = argv.slice(1);
     for (let i = 0; i < rest.length; i++) {
       const a = rest[i] ?? "";
       if (a === "--agent" && first === "install" && rest[i + 1]) only.push(rest[++i] ?? "");
-      else if (a === "--only" && rest[i + 1])
-        places.push(
+      else if ((a === "--only" || a === "--skip") && rest[i + 1])
+        (a === "--only" ? places : skip).push(
           ...(rest[++i] ?? "")
             .split(",")
             .map((p) => p.trim())
@@ -218,116 +223,126 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       process.stderr.write(`agent-rewake: unknown option for ${first}: ${unknown.join(" ")}\n`);
       return 2;
     }
-    const chosen = places.length > 0 ? [...new Set(places)] : ["zed"];
-    const bad = chosen.filter((p) => !INSTALL_PLACES.has(p));
+    const yes = argv.includes("--yes") || argv.includes("-y");
+    const dryRun = argv.includes("--dry-run");
+    let chosen: string[];
+    // Chosen on the screen or with --all: changes are shown together and asked about once.
+    let picked = false;
+    if (places.length > 0) chosen = [...new Set(places)];
+    else if (argv.includes("--all")) {
+      chosen = pickablePlaces(env, first === "uninstall");
+      picked = true;
+    } else if (
+      first === "install" &&
+      only.length === 0 &&
+      !yes &&
+      process.stdin.isTTY &&
+      process.stdout.isTTY
+    ) {
+      // No place named, in a terminal: show what's here and let the person pick (plan §4.1).
+      const pickedPlaces = await pickPlaces(env);
+      if (!pickedPlaces) {
+        process.stdout.write("Nothing was changed.\n");
+        return 1;
+      }
+      chosen = pickedPlaces;
+      picked = true;
+    } else {
+      // Scripts and `--yes` keep today's default, Zed, and say so.
+      chosen = ["zed"];
+      if (first === "install" && only.length === 0)
+        process.stdout.write(
+          "Setting up Zed (the default). To choose other places, run install in a terminal without --yes, or name them: --only claude-code,codex\n",
+        );
+    }
+    chosen = chosen.filter((p) => !skip.includes(p));
+    const bad = [...chosen, ...skip].filter((p) => !INSTALL_PLACES.has(p));
     if (bad.length > 0) {
       process.stderr.write(
         `agent-rewake: ${bad.join(", ")}: not a place Rewake can ${first === "install" ? "install into" : "remove from"}. Choose from: ${[...INSTALL_PLACES].join(", ")}.\n`,
       );
       return 2;
     }
-    const yes = argv.includes("--yes") || argv.includes("-y");
-    const dryRun = argv.includes("--dry-run");
-    let code = 0;
-    if (chosen.includes("zed"))
-      code = Math.max(
-        code,
-        await runInstall({
-          uninstall: first === "uninstall",
+    if (chosen.length === 0) {
+      process.stdout.write("No places chosen: nothing was changed.\n");
+      return 0;
+    }
+    const uninstall = first === "uninstall";
+    const ask = async (q: string) => /^y(es)?$/i.test((await prompt(q)).trim());
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    /** One place's install (or uninstall), with how it asks and where it prints. */
+    const runPlace = (
+      id: string,
+      o: { yes: boolean; dryRun: boolean; out: (t: string) => void },
+    ): Promise<number> => {
+      if (id === "zed")
+        return runInstall({
+          uninstall,
           ...(only.length > 0 && { only }),
-          yes,
-          dryRun,
+          yes: o.yes,
+          dryRun: o.dryRun,
           keybinding: argv.includes("--keybinding"),
           env,
-        }),
-      );
-    const ask = async (q: string) => {
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      try {
-        return /^y(es)?$/i.test((await rl.question(q)).trim());
-      } finally {
-        rl.close();
+          out: o.out,
+        });
+      const common = {
+        uninstall,
+        yes: o.yes,
+        dryRun: o.dryRun,
+        env,
+        stateDir: stateDir(env),
+        node: stableNode(),
+        bundle: process.argv[1] ?? "",
+        interactive,
+        out: o.out,
+        ask,
+      };
+      if (id === "claude-code") return runClaudeInstall(common);
+      if (id === "codex") return runCodexInstall(common);
+      if (id === "copilot-cli") return runCopilotInstall(common);
+      if (id === "grok") return runGrokInstall(common);
+      if (id === "gemini-cli") return runGeminiInstall(common);
+      return runAntigravityInstall(common);
+    };
+    const order = [...INSTALL_PLACES].filter((p) => chosen.includes(p));
+    const print = (t: string) => {
+      process.stdout.write(t);
+    };
+    let code = 0;
+    if (picked && !dryRun && order.length > 1) {
+      // Several places from the screen: every change first, one question, then a line each
+      // (plan §4.1: two decisions, which places and apply).
+      for (const id of order) {
+        print(`\n${placeName(id)}\n`);
+        await runPlace(id, {
+          yes: false,
+          dryRun: true,
+          // Each place's own dry-run line would read as if nothing will happen: left out here.
+          out: (t) => print(t.replace(/^Dry run: nothing was (changed|written)\.\n/gm, "")),
+        });
       }
-    };
-    if (chosen.includes("claude-code"))
-      code = Math.max(
-        code,
-        await runClaudeInstall({
-          uninstall: first === "uninstall",
-          yes,
-          dryRun,
-          env,
-          stateDir: stateDir(env),
-          node: stableNode(),
-          bundle: process.argv[1] ?? "",
-          interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-          out: (t) => process.stdout.write(t),
-          ask,
-        }),
-      );
-    if (chosen.includes("codex"))
-      code = Math.max(
-        code,
-        await runCodexInstall({
-          uninstall: first === "uninstall",
-          yes,
-          dryRun,
-          env,
-          stateDir: stateDir(env),
-          node: stableNode(),
-          bundle: process.argv[1] ?? "",
-          interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-          out: (t) => process.stdout.write(t),
-          ask,
-        }),
-      );
-    if (chosen.includes("copilot-cli"))
-      code = Math.max(
-        code,
-        await runCopilotInstall({
-          uninstall: first === "uninstall",
-          yes,
-          dryRun,
-          env,
-          stateDir: stateDir(env),
-          node: stableNode(),
-          bundle: process.argv[1] ?? "",
-          interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-          out: (t) => process.stdout.write(t),
-          ask: async (q) => /^y(es)?$/i.test((await prompt(q)).trim()),
-        }),
-      );
-    if (chosen.includes("grok"))
-      code = Math.max(
-        code,
-        await runGrokInstall({
-          uninstall: first === "uninstall",
-          yes,
-          dryRun,
-          env,
-          stateDir: stateDir(env),
-          node: stableNode(),
-          bundle: process.argv[1] ?? "",
-          interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-          out: (t) => process.stdout.write(t),
-          ask: async (q) => /^y(es)?$/i.test((await prompt(q)).trim()),
-        }),
-      );
-    const common = {
-      uninstall: first === "uninstall",
-      yes,
-      dryRun,
-      env,
-      stateDir: stateDir(env),
-      node: stableNode(),
-      bundle: process.argv[1] ?? "",
-      interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-      out: (t: string) => process.stdout.write(t),
-      ask: async (q: string) => /^y(es)?$/i.test((await prompt(q)).trim()),
-    };
-    if (chosen.includes("gemini-cli")) code = Math.max(code, await runGeminiInstall(common));
-    if (chosen.includes("antigravity")) code = Math.max(code, await runAntigravityInstall(common));
-    if (first === "uninstall" && !dryRun) cancelResumesOf(chosen, env);
+      if (!(await ask(`\nApply these changes to ${order.length} places? [y/N] `))) {
+        print("Nothing was changed.\n");
+        return 1;
+      }
+      const results: [string, number, string][] = [];
+      for (const id of order) {
+        let text = "";
+        const c = await runPlace(id, {
+          yes: true,
+          dryRun: false,
+          out: (t) => {
+            text += t;
+          },
+        });
+        results.push([id, c, text]);
+        code = Math.max(code, c);
+      }
+      print(summaryText(results));
+    } else
+      for (const id of order)
+        code = Math.max(code, await runPlace(id, { yes, dryRun, out: print }));
+    if (uninstall && !dryRun) cancelResumesOf(chosen, env);
     if (!dryRun) sweepQuietly(env);
     return code;
   }
@@ -585,6 +600,126 @@ export function testTiming(env: NodeJS.ProcessEnv): {
     if (key && Number.isFinite(n) && n >= 0) out[key] = n;
   }
   return out;
+}
+
+/** What `install` finds here, as the selection screen lists it. */
+function placesHere(env: NodeJS.ProcessEnv): { places: Place[]; missing: string[] } {
+  const host = { env, home: homedir(), platform: process.platform };
+  const found = detectAgents(host);
+  const zedApps = findZedApps(process.platform, homedir(), env);
+  const installed = new Set<PlaceId>(installedPreviews(env, homedir(), stateDir(env)));
+  const places = placesFrom(
+    found,
+    {
+      found: zedApps.length > 0,
+      ...(zedApps[0]?.version && { version: zedApps[0].version }),
+    },
+    installed,
+    (id) => (id === "zed" ? undefined : AGENT_VERSIONS[id]?.min),
+    (a, b) => compareVersions(a, b) < 0,
+    (id) => (id === "zed" ? undefined : AGENT_VERSIONS[id]?.update),
+  );
+  const names: Partial<Record<PlaceId, string>> = {
+    "claude-code": "Claude Code",
+    codex: "Codex",
+    "copilot-cli": "GitHub Copilot CLI",
+    grok: "Grok Build",
+    "gemini-cli": "Gemini CLI",
+    antigravity: "Antigravity",
+  };
+  const ids = new Set(places.map((p) => p.id));
+  const missing = Object.entries(names)
+    .filter(([id]) => !ids.has(id as PlaceId))
+    .map(([, n]) => n as string);
+  return { places, missing };
+}
+
+function placeName(id: string): string {
+  const names: Record<string, string> = {
+    zed: "Zed",
+    "claude-code": "Claude Code",
+    codex: "Codex",
+    "copilot-cli": "GitHub Copilot CLI",
+    grok: "Grok Build",
+    "gemini-cli": "Gemini CLI",
+    antigravity: "Antigravity",
+  };
+  return names[id] ?? id;
+}
+
+/**
+ * One line per place after applying several: done and the one next step, or why not. The next
+ * step is what the place's own install said after "Done."; a failure, its last line.
+ */
+export function summaryText(results: [string, number, string][]): string {
+  const width = Math.max(...results.map(([id]) => placeName(id).length));
+  const lines = results.map(([id, c, text]) => {
+    const said = text
+      .trim()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const done = said.findIndex((l) => l.startsWith("Done"));
+    const next =
+      c === 0
+        ? done >= 0
+          ? said
+              .slice(done)
+              .join(" ")
+              .replace(/^Done\.?\s*/, "")
+          : (said.at(-1) ?? "")
+        : (said.at(-1) ?? "");
+    const state = c === 0 ? "done" : "not changed";
+    // A place that didn't change: its reason, then how to try it on its own.
+    const retry = c === 0 ? "" : ` Try it on its own: agent-rewake install --only ${id}`;
+    return `  ${placeName(id).padEnd(width)}  ${state}${next ? `: ${next}` : ""}${retry}`;
+  });
+  return `\nResult:\n${lines.join("\n")}\n`;
+}
+
+/** `--all`: every place found that Rewake can install into, or (uninstall) every one it's in. */
+function pickablePlaces(env: NodeJS.ProcessEnv, uninstall: boolean): string[] {
+  const { places } = placesHere(env);
+  return places
+    .filter((p) => (uninstall ? p.state === "installed" || p.id === "zed" : p.state !== "too-old"))
+    .map((p) => p.id);
+}
+
+/** The selection screen, in this terminal; undefined when the person quits. */
+async function pickPlaces(env: NodeJS.ProcessEnv): Promise<string[] | undefined> {
+  const { places, missing } = placesHere(env);
+  process.stdout.write(`Agent Rewake ${VERSION} found these on your computer:\n\n`);
+  const stdin = process.stdin;
+  // Key presses through a listener that's removed afterwards: iterating stdin would close it, and
+  // the question that follows needs it.
+  const queue: string[] = [];
+  let wake: (() => void) | undefined;
+  const onData = (d: Buffer | string) => {
+    queue.push(String(d));
+    wake?.();
+  };
+  async function* keys(): AsyncIterable<string> {
+    for (;;) {
+      while (queue.length > 0) yield queue.shift() as string;
+      await new Promise<void>((r) => {
+        wake = r;
+      });
+    }
+  }
+  stdin.setRawMode(true);
+  stdin.setEncoding("utf8");
+  stdin.on("data", onData);
+  stdin.resume();
+  try {
+    return await choosePlaces(places, missing, {
+      keys: keys(),
+      write: (t) => process.stdout.write(t),
+    });
+  } finally {
+    stdin.off("data", onData);
+    stdin.setRawMode(false);
+    stdin.pause();
+  }
 }
 
 /** The Rewake that timers and detached runs start: the stable copy, made now if it's missing. */
