@@ -691,7 +691,8 @@ export class SchedulingAddon {
       ) {
         setImmediate(() => this.onNotResumable(session));
       } else if (!response.error) {
-        setImmediate(() => this.onUserTurnSucceeded(session));
+        const stop = asObject(response.result).stopReason;
+        setImmediate(() => this.onUserTurnSucceeded(session, stop === "end_turn"));
       }
       setImmediate(() => this.deliverDue(session));
       return answer;
@@ -1441,19 +1442,19 @@ export class SchedulingAddon {
   }
 
   /** The user continued by hand after the reset: drop pending resumes for that limit. */
-  private onUserTurnSucceeded(session: SessionState): void {
+  private onUserTurnSucceeded(session: SessionState, answered: boolean): void {
     const limit = session.limit;
     // Claude says the limit is lifted before its reset: another account, another model, or bought
     // usage. The resume scheduled for the old reset would only interrupt the work later. This
     // holds after a restart too, when Rewake no longer remembers the limit itself. Other agents
-    // say nothing of the kind, so their answer to a message that isn't a slash command (a command
-    // may be answered without the model) is taken as the same sign.
+    // say nothing of the kind, so their full answer (not a stopped turn) to a message that isn't a
+    // slash command (a command may be answered without the model) is taken as the same sign.
     const rate = session.rateLimit;
     const lifted = this.claudeAgent
       ? rate !== undefined &&
         rate.at >= session.turnStartedAt - 1000 &&
         (rate.info.status === "allowed" || rate.info.status === "allowed_warning")
-      : !session.userTurnCommand;
+      : answered && !session.userTurnCommand;
     if (!lifted && (!limit || limit.resetAt === undefined || this.now() < limit.resetAt)) return;
     // Claude says "allowed" on most turns: look for an old resume once, not on every turn.
     if (!limit && session.resumesChecked) return;

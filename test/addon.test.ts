@@ -2557,9 +2557,15 @@ describe("the limit ends early", () => {
     h.agent({ id: 3, result: { stopReason: "end_turn" } });
     await settle();
     expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    // A turn the person stopped may never have reached the model either.
     h.prompt(4, "carry on");
     await settle();
-    h.agent({ id: 4, result: { stopReason: "end_turn" } });
+    h.agent({ id: 4, result: { stopReason: "cancelled" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.prompt(5, "carry on");
+    await settle();
+    h.agent({ id: 5, result: { stopReason: "end_turn" } });
     await settle();
     expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(0);
     expect(h.texts().at(-1)).toMatch(/^Rewake: Cancelled the scheduled resume/);
