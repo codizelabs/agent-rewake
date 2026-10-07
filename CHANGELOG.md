@@ -71,6 +71,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Changed
 
+- The README opens with what Rewake does for each agent ("Auto-resume Claude Code after a usage limit", "Auto-resume Codex when the usage limit resets", and the other previews). The npm description and keywords name the agents too.
+
 - Usage limits are recognised for every agent in Zed's registry, each from what it actually sends: Claude's rate-limit event (the same test Claude Code uses to continue on its own), Codex's error kinds, Gemini CLI, Qwen, Qoder, Kimi, Z.AI, MiniMax, Auggie, CodeBuddy, Devin, Junie, Mistral Vibe, goose, OpenCode, Kilo, Cline, Grok Build, Kimchi and Harn. Short-term rate limits, which the agent retries itself, are no longer treated as a usage limit.
 - Cursor, GitHub Copilot, Amp, Factory Droid, Antigravity, goose, fast-agent, Cortex Code and Autohand report a limit only as the last line of a turn. Rewake now reads that line, and only when it starts with the agent's own fixed wording.
 
