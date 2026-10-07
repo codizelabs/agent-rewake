@@ -11,6 +11,7 @@ import {
 } from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
+import { hooksTurnedOff } from "../policy.js";
 import { grokHome } from "./host.js";
 
 /**
@@ -135,5 +136,10 @@ export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
   o.out(
     "\nDone.\nNext, start a new Grok Build session; sessions that are open don't load new hooks.\n",
   );
+  const off = hooksTurnedOff("grok", o.env, home);
+  if (off)
+    o.out(
+      "But Grok Build has its hooks turned off, so Rewake won't see its usage limits until you turn them back on.\n",
+    );
   return 0;
 }

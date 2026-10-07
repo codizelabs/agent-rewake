@@ -8,12 +8,20 @@ import { SchedulingAddon } from "./addon.js";
 import { runContinue } from "./continue.js";
 import { applySettings, loadSettings } from "./core/settings.js";
 import { ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
-import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
+import {
+  type DoctorContext,
+  detailLines,
+  diagnose,
+  when as doctorWhen,
+  findZedApps,
+  render,
+} from "./doctor.js";
 import { runAntigravityInstall } from "./hosts/antigravity/install.js";
 import { runClaudeInstall } from "./hosts/claude-code/install.js";
 import { type ClosedDeps, reapClosed } from "./hosts/closed.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { runCopilotInstall } from "./hosts/copilot/install.js";
+import { diagnoseOutside } from "./hosts/doctor.js";
 import { runGeminiInstall } from "./hosts/gemini/install.js";
 import { runGrokInstall } from "./hosts/grok/install.js";
 import { readStdin, runHook } from "./hosts/hook.js";
@@ -46,7 +54,7 @@ import { fire } from "./timers/fire.js";
 import { ensureLauncher, launcherPath, refreshLauncher } from "./timers/launcher.js";
 import { osNotifier } from "./timers/notify.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
-import { cancelTimer, defaultTimerHost, parseTimerName } from "./timers/timers.js";
+import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { Wakefulness } from "./util/keep-awake.js";
@@ -435,6 +443,23 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
     nodeVersion: process.versions.node,
   };
   const findings = diagnose(ctx);
+  const { state, node, timers } = timerDeps(env);
+  findings.push(
+    ...diagnoseOutside({
+      stateDir: state,
+      env,
+      home: homedir(),
+      now: ctx.now,
+      platform: process.platform,
+      previews: installedPreviews(env, homedir(), state).map((id) => ({
+        id,
+        name: PREVIEW_NAMES[id] ?? id,
+      })),
+      hosts: hostAdapters(env, node, state),
+      hasTimer: timerKind(timers) !== undefined,
+      when: doctorWhen,
+    }),
+  );
   for (const id of toolsRefused(stateDir(env)))
     findings.push({
       area: "Recently",

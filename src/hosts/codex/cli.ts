@@ -207,3 +207,69 @@ export function codexCommand(
     );
   });
 }
+
+/** A hook as Codex lists it (`hooks/list`, app-server v2, Codex 0.160.1). */
+export interface ListedHook {
+  command: string;
+  trustStatus?: string;
+  source?: string;
+}
+
+/**
+ * The hooks Codex would run in `cwd` (`hooks/list`), or undefined when Codex didn't answer. Used
+ * after install: Rewake's hooks missing means Codex won't run them (an organisation's
+ * `allow_managed_hooks_only`, research impl-codex-grok §1.1). Never throws.
+ */
+export function listHooks(
+  codex: Program,
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  timeoutMs = 20_000,
+): Promise<ListedHook[] | undefined> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const child = spawn(codex.command, [...codex.args, "app-server", "--listen", "stdio://"], {
+      env,
+      stdio: ["pipe", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    const done = (v: ListedHook[] | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill();
+      resolve(v);
+    };
+    const timer = setTimeout(() => done(undefined), timeoutMs);
+    child.on("error", () => done(undefined));
+    child.on("exit", () => done(undefined));
+    const send = (m: unknown) => {
+      try {
+        child.stdin.write(`${JSON.stringify(m)}\n`);
+      } catch {
+        done(undefined);
+      }
+    };
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      let m: { id?: number; error?: unknown; result?: { data?: { hooks?: ListedHook[] }[] } };
+      try {
+        m = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (m.id === 1) {
+        if (m.error) return done(undefined);
+        send({ method: "initialized" });
+        send({ id: 2, method: "hooks/list", params: { cwds: [cwd] } });
+      } else if (m.id === 2) {
+        if (m.error || !Array.isArray(m.result?.data)) return done(undefined);
+        done(m.result.data.flatMap((d) => (Array.isArray(d.hooks) ? d.hooks : [])));
+      }
+    });
+    send({
+      id: 1,
+      method: "initialize",
+      params: { clientInfo: { name: "agent_rewake", title: "Agent Rewake", version: VERSION } },
+    });
+  });
+}

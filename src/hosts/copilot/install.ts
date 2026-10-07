@@ -11,6 +11,7 @@ import {
 } from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
+import { hooksTurnedOff } from "../policy.js";
 
 /**
  * `agent-rewake install --only copilot-cli` (a preview, until the real-account checks E-C1 to E-C5
@@ -145,5 +146,10 @@ export async function runCopilotInstall(o: CopilotInstallOptions): Promise<numbe
       "",
     ].join("\n"),
   );
+  const off = hooksTurnedOff("copilot-cli", o.env, home);
+  if (off)
+    o.out(
+      "But GitHub Copilot CLI has its hooks turned off, so Rewake won't see its usage limits until you turn them back on.\n",
+    );
   return 0;
 }
