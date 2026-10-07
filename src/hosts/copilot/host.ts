@@ -11,7 +11,7 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import type { SendResult } from "../host.js";
-import { type SessionRecord, safeSessionId } from "../sessions.js";
+import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 import { classifyCopilotError } from "./recognise.js";
 
 /**
@@ -64,10 +64,14 @@ export function resumeCopilot(
       {
         cwd: r.cwd || undefined,
         env: { ...env, COPILOT_AUTO_UPDATE: "false" },
-        stdio: ["ignore", "pipe", "ignore"],
+        stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       },
     );
+    let err = "";
+    child.stderr.on("data", (d: Buffer) => {
+      if (err.length < 1 << 16) err += d.toString("utf8");
+    });
     createInterface({ input: child.stdout }).on("line", (line) => {
       try {
         const e = JSON.parse(line) as { type?: string; data?: { errorType?: string } };
@@ -80,6 +84,7 @@ export function resumeCopilot(
     child.on("exit", (code) => {
       if (limited) resolve({ ok: false, reason: "limited" });
       else if (code === 0) resolve({ ok: true });
+      else if (SESSION_GONE.test(err)) resolve({ ok: false, reason: "closed", detail: "deleted" });
       else resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
     });
   });
@@ -117,7 +122,11 @@ export function copilotHooks(deps: CopilotHookDeps): HookHandler {
           const e = ctx.input.error;
           const text =
             typeof e === "string" ? e : (e as { message?: unknown } | undefined)?.message;
-          const limit = classifyCopilotError(text, ctx.now);
+          // Copilot retries some errors itself; one it recovered from isn't a stop.
+          const recoverable =
+            ctx.input.recoverable === true ||
+            (typeof e === "object" && (e as { recoverable?: unknown })?.recoverable === true);
+          const limit = classifyCopilotError(text, ctx.now, recoverable);
           if (limit) onLimit(copilotHost, id, cwd, limit, d);
           break;
         }

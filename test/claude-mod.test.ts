@@ -43,11 +43,29 @@ describe("Claude Code mod: rules shared with Rewake's core", () => {
     setClock("12h");
   });
 
-  it("never waits for a spending cap, and ignores resets already past", () => {
+  it("never waits for a monthly spending cap, and ignores resets already past", () => {
     const at = (ms: number) => new Date(ms).toISOString();
     expect(
-      logic.blockedUntil([{ kind: "spend_limit", percentUsed: 100, resetsAt: at(NOW + H) }], NOW),
+      logic.blockedUntil(
+        [{ kind: "spend_limit", percentUsed: 100, resetsAt: at(NOW + 20 * 24 * H) }],
+        NOW,
+      ),
     ).toBeUndefined();
+    expect(logic.blockedUntil([{ kind: "spend_limit", percentUsed: 100 }], NOW)).toBeUndefined();
+    // A gateway's daily cap comes back on its own within a day: wait for it.
+    expect(
+      logic.blockedUntil([{ kind: "spend_limit", percentUsed: 100, resetsAt: at(NOW + H) }], NOW),
+    ).toBe(new Date(at(NOW + H)).getTime());
+    // A spending cap plus a plan window that resets: the plan's reset.
+    expect(
+      logic.blockedUntil(
+        [
+          { kind: "spend_limit", percentUsed: 100, resetsAt: at(NOW + 20 * 24 * H) },
+          { kind: "five_hour", percentUsed: 100, resetsAt: at(NOW + 2 * H) },
+        ],
+        NOW,
+      ),
+    ).toBe(new Date(at(NOW + 2 * H)).getTime());
     expect(
       logic.blockedUntil([{ kind: "five_hour", percentUsed: 100, resetsAt: at(NOW - H) }], NOW),
     ).toBeUndefined();

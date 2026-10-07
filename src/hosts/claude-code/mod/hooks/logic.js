@@ -22,20 +22,28 @@ export const REHIT_WINDOW_MS = 15 * MINUTE;
 export const MAX_REHITS = 2;
 export const CONTINUE_TEXT = "Your usage limit has reset. Continue from where you left off.";
 
-/** Windows a wait doesn't fix: spending caps are billing, never waited for. */
+/**
+ * Spending caps are billing, never waited for, except a cap that resets within a day: a gateway's
+ * daily cap ("spend limit reached (daily; resets 00:00 UTC)") comes back on its own.
+ */
 const BILLING_KINDS = new Set(["spend_limit"]);
+const isBilling = (w, now) => {
+  if (!BILLING_KINDS.has(w.kind)) return false;
+  const t = typeof w.resetsAt === "string" ? Date.parse(w.resetsAt) : Number.NaN;
+  return !(Number.isFinite(t) && t > now && t - now <= FAR_RESET_MS);
+};
 
 /**
  * When the used-up windows reset, in ms since the epoch, or undefined when none is used up now.
  * `rateLimits` is `$.session.usage().rateLimits` or `session.measure`'s `e.rateLimits`:
  * `{ kind, percentUsed, resetsAt? }[]`, `resetsAt` an ISO 8601 string. The figures are those of
  * the last API response, so a window whose reset has passed is ignored even if it still reads 100.
- * A spending cap (`spend_limit`) is billing: it never counts.
+ * A spending cap (`spend_limit`) is billing and never counts, unless it resets within a day.
  */
 export function blockedUntil(rateLimits, now) {
   let latest;
   for (const w of rateLimits ?? []) {
-    if (BILLING_KINDS.has(w.kind)) continue;
+    if (isBilling(w, now)) continue;
     if (!(w.percentUsed >= 100) || typeof w.resetsAt !== "string") continue;
     const t = Date.parse(w.resetsAt);
     if (!Number.isFinite(t) || t <= now) continue;
@@ -48,8 +56,7 @@ export function blockedUntil(rateLimits, now) {
 export function blockingKind(rateLimits, now) {
   const until = blockedUntil(rateLimits, now);
   return (rateLimits ?? []).find(
-    (w) =>
-      !BILLING_KINDS.has(w.kind) && w.resetsAt !== undefined && Date.parse(w.resetsAt) === until,
+    (w) => !isBilling(w, now) && w.resetsAt !== undefined && Date.parse(w.resetsAt) === until,
   )?.kind;
 }
 

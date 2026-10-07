@@ -194,9 +194,9 @@ test('"always" arms without asking when the reset is within a day', async ($, on
   expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
 });
 
-test("a spending cap is billing: never waited for", async ($, on) => {
+test("a monthly spending cap is billing: never waited for", async ($, on) => {
   const { clock, seen } = harness(on, {
-    windows: () => [{ kind: "spend_limit", percentUsed: 100, resetsAt: "2026-10-06T11:00:00Z" }],
+    windows: () => [{ kind: "spend_limit", percentUsed: 100, resetsAt: "2026-10-31T00:00:00Z" }],
     setting: false,
     store: { prefs: { autoContinue: "always" } },
   });
@@ -207,6 +207,18 @@ test("a spending cap is billing: never waited for", async ($, on) => {
   expect((seen.store["limit:S1"] as Episode).state).toBe("waiting");
   await clock.advance(2 * H);
   expect(seen.submitted.length).toBe(0);
+});
+
+test("a spending cap that resets within a day (a gateway's daily cap) is waited for", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => [{ kind: "spend_limit", percentUsed: 100, resetsAt: "2026-10-06T11:00:00Z" }],
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
 });
 
 test("on the Desktop app Rewake asks even when the reset is within a day", async ($, on) => {

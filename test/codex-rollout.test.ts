@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { blockingReset } from "../src/hosts/codex/cli.js";
 import {
   findCodexLimit,
   isCodexRollout,
@@ -64,12 +65,66 @@ describe("findCodexLimit", () => {
   it("treats credits and spending caps as billing: never resumed", () => {
     for (const rl of [
       { primary: session, rate_limit_reached_type: "workspace_owner_credits_depleted" },
-      { primary: session, spend_control_reached: { limit: 1 } },
+      { primary: session, spend_control_reached: true },
     ]) {
       const v = findCodexLimit([tokens(rl), limited].join("\n"), NOW);
       expect(v).toMatchObject({ limited: true, billing: true });
       expect(v.resetsAt).toBeUndefined();
     }
+  });
+
+  it("reads spend_control_reached as the yes/no flag Codex sends: false is an ordinary limit", () => {
+    const v = findCodexLimit(
+      [tokens({ primary: session, secondary: weekly, spend_control_reached: false }), limited].join(
+        "\n",
+      ),
+      NOW,
+    );
+    expect(v).toMatchObject({ limited: true, resetsAt: session.resets_at * 1000 });
+    expect(v.billing).toBeUndefined();
+  });
+
+  it("with no full window, takes the one closest to full, not the weekly one", () => {
+    const nearlyFull = { ...session, used_percent: 99 };
+    const v = findCodexLimit(
+      [tokens({ primary: nearlyFull, secondary: weekly }), limited].join("\n"),
+      NOW,
+    );
+    expect(v).toMatchObject({ resetsAt: session.resets_at * 1000, window: "session" });
+  });
+
+  it("treats Codex's credit, spend-cap and plan messages as billing, even without a snapshot", () => {
+    for (const message of [
+      "Your workspace is out of credits. Add credits to continue.",
+      "You hit your spend cap set in your workspace. Increase your spend cap to continue.",
+      "Quota exceeded. Check your plan and billing details.",
+      "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus.",
+    ]) {
+      const failed = line({
+        type: "task_complete",
+        turn_id: "t1",
+        error: { message, codex_error_info: "usage_limit_exceeded" },
+        completed_at: sec(NOW - 60_000),
+      });
+      expect(findCodexLimit(failed, NOW)).toMatchObject({ limited: true, billing: true });
+    }
+  });
+
+  it("reads the reset from the message when there is no snapshot", () => {
+    const at = new Date(NOW + 3 * 3_600_000);
+    const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const failed = line({
+      type: "task_complete",
+      turn_id: "t1",
+      error: {
+        message: `You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at ${time}.`,
+        codex_error_info: "usage_limit_exceeded",
+      },
+      completed_at: sec(NOW - 60_000),
+    });
+    const v = findCodexLimit(failed, NOW);
+    expect(v.billing).toBeUndefined();
+    expect(v.resetsAt).toBe(new Date(at).setSeconds(0, 0));
   });
 
   it("is cleared when the person typed again", () => {
@@ -119,5 +174,28 @@ describe("rollout files", () => {
     expect(isCodexRollout("C:\\u\\.codex\\sessions\\2026\\10\\07\\rollout-x.jsonl")).toBe(true);
     expect(isCodexRollout("/h/.claude/projects/p/abc.jsonl")).toBe(false);
     expect(isCodexRollout(undefined)).toBe(false);
+  });
+});
+
+describe("blockingReset (Codex's usage check at fire time)", () => {
+  const s = 1_791_300_000;
+  it("takes the latest of the full windows", () => {
+    expect(
+      blockingReset([
+        { usedPercent: 100, resetsAt: s + 3600 },
+        { usedPercent: 100, resetsAt: s + 86_400 },
+      ]),
+    ).toBe((s + 86_400) * 1000);
+  });
+  it("with none full, takes the window closest to full, not the weekly one", () => {
+    expect(
+      blockingReset([
+        { usedPercent: 98, resetsAt: s + 3600 },
+        { usedPercent: 40, resetsAt: s + 5 * 86_400 },
+      ]),
+    ).toBe((s + 3600) * 1000);
+  });
+  it("gives nothing without a reset time", () => {
+    expect(blockingReset([null, { usedPercent: 100 }])).toBeUndefined();
   });
 });

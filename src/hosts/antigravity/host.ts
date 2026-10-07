@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
+import { classifyText } from "../../adapters/profiles.js";
 import {
   type ClosedDeps,
   type ClosedHost,
@@ -53,10 +54,21 @@ export function classifyAntigravityStop(
 ): Omit<SessionLimit, "seenAt"> | undefined {
   const error = typeof input.error === "string" ? input.error : "";
   if (input.terminationReason !== "error" || !QUOTA.test(error)) return undefined;
-  if (/spend cap|credits|billing|overages/i.test(error)) return { kind: "billing", billing: true };
+  // Shared rules: a reset time wins over money words ("… enable overages. Resets in 16h39m20s"),
+  // a reset only seconds away is a wait Antigravity rides out itself.
+  const c = classifyText(error, now);
+  if (c.kind === "transient") return undefined;
+  if (c.kind === "not_recoverable" && c.reason === "billing")
+    return { kind: "billing", billing: true };
   const d = /Resets in ((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)/.exec(error)?.[1];
   const ms = d ? durationMs(d) : undefined;
-  return { kind: "other", billing: false, ...(ms !== undefined && { resetsAt: now + ms }) };
+  const resetsAt =
+    c.kind === "usage_limit" && c.resetAt !== undefined
+      ? c.resetAt
+      : ms !== undefined
+        ? now + ms
+        : undefined;
+  return { kind: "other", billing: false, ...(resetsAt !== undefined && { resetsAt }) };
 }
 
 /** Whether any Antigravity CLI process runs (then a conversation may be open: no second writer). */

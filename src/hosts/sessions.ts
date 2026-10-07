@@ -116,3 +116,6 @@ export class SessionRecords {
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 }
+
+/** The agent no longer has the session ("Session <id> not found", "unknown session"). */
+export const SESSION_GONE = /\bsession\b(?:\s+\S+)?\s+not found|unknown session|no such session/i;
