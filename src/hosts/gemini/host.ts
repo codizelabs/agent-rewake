@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readSync } from "node:fs";
-import { classifyLimit, classifyText } from "../../adapters/profiles.js";
+import { classifyGeminiError, durationMs, GEMINI_LIMIT } from "../../core/limits/agents.js";
+import { recogniseForHost } from "../../core/limits/recognise.js";
 import { nextMidnight } from "../../core/time.js";
 import {
   type ClosedDeps,
@@ -32,54 +33,6 @@ import { type SessionLimit, type SessionRecord, safeSessionId } from "../session
  */
 
 export const GEMINI_ID = "gemini-cli";
-
-const LIMIT =
-  /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|Usage limit reached|exhausted your (daily quota|capacity)|Individual quota reached|quota will reset/i;
-
-/** "1h2m3s", "16h39m20s", "0s" → milliseconds. */
-export function durationMs(d: string): number | undefined {
-  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$/.exec(d);
-  if (!m || !d) return undefined;
-  return ((Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60 + Number(m[3] ?? 0)) * 1000;
-}
-
-/** A usage limit in Gemini's error text, with its reset when the text says. */
-export function classifyGeminiError(
-  text: string,
-  now: number,
-): Omit<SessionLimit, "seenAt"> | undefined {
-  if (!LIMIT.test(text)) return undefined;
-  // Gemini CLI's own rules (shared with Zed): no quota on this tier, no capacity, a short retry.
-  const g = classifyLimit("gemini", { code: 429, message: text }, now);
-  if (g.kind === "transient") return undefined;
-  if (g.kind === "not_recoverable") return { kind: "billing", billing: true };
-  // Money, unless a reset time is given. Gemini words every quota error with "please check your
-  // plan and billing details", so that sentence says nothing about money.
-  const money = classifyText(
-    text.replace(
-      /(?:You exceeded your current quota,?\s*)?please check your plan and billing details\.?/i,
-      "",
-    ),
-    now,
-  );
-  if (money.kind === "not_recoverable" && money.reason === "billing")
-    return { kind: "billing", billing: true };
-  const after = /(?:reset after|resets in)\s+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)/i.exec(text);
-  const ms = after?.[1] ? durationMs(after[1]) : undefined;
-  let resetsAt = ms !== undefined ? now + ms : undefined;
-  if (resetsAt === undefined) {
-    const iso = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})/.exec(
-      text,
-    );
-    const t = iso ? Date.parse(iso[0]) : Number.NaN;
-    if (Number.isFinite(t) && t > now) resetsAt = t;
-  }
-  return {
-    kind: /daily/i.test(text) ? "daily" : "other",
-    billing: false,
-    ...(resetsAt && { resetsAt }),
-  };
-}
 
 /**
  * The text of the session file's newest message when that message is an error (a later turn means
@@ -180,7 +133,7 @@ export function resumeGemini(
     child.on("exit", (code) => {
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       if (code === 41) return resolve({ ok: false, reason: "failed", detail: "signed-out" });
-      if (LIMIT.test(out)) {
+      if (GEMINI_LIMIT.test(out)) {
         const resetsAt = classifyGeminiError(out, Date.now())?.resetsAt;
         return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       }
@@ -236,7 +189,9 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
           if (ctx.input.stop_hook_active) break;
           const t = ctx.input.transcript_path;
           const text = typeof t === "string" ? lastErrorText(t) : undefined;
-          const limit = text ? classifyGeminiError(text, ctx.now) : undefined;
+          const limit = text
+            ? recogniseForHost({ agent: "gemini", source: "session-file", text }, ctx.now)
+            : undefined;
           if (limit)
             onLimit(
               geminiHost,
@@ -255,3 +210,6 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
     },
   };
 }
+
+// Moved to the core (plan §3.4); kept here for existing imports.
+export { classifyGeminiError, durationMs };
