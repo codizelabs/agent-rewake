@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
 import { SchedulingAddon } from "./addon.js";
 import { runContinue } from "./continue.js";
-import { applySettings } from "./core/settings.js";
+import { applySettings, loadSettings } from "./core/settings.js";
 import { ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
 import { runAntigravityInstall } from "./hosts/antigravity/install.js";
@@ -49,9 +49,11 @@ import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
 import { cancelTimer, defaultTimerHost, parseTimerName } from "./timers/timers.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
+import { Wakefulness } from "./util/keep-awake.js";
 import { Logger } from "./util/log.js";
 import { ensurePrivateDir, stateDir } from "./util/paths.js";
 import { agentProcess } from "./util/proc.js";
+import { readSleepSettings } from "./util/sleep-settings.js";
 import { resolveCommand } from "./util/spawn.js";
 import { VERSION } from "./version.js";
 import {
@@ -421,6 +423,13 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
       );
     },
     previews: () => previewNames(env),
+    sleep: () => {
+      const keepAwake = loadSettings(stateDir(env)).keepAwake;
+      return {
+        settings: readSleepSettings({ env }),
+        hold: new Wakefulness().supported && keepAwake !== "never" ? keepAwake : "none",
+      };
+    },
     launch: launchCommand(),
     version: VERSION,
     nodeVersion: process.versions.node,
@@ -703,6 +712,7 @@ async function runContinueCommand(
   const { state, timers, sweepDeps } = timerDeps(env);
   sweepQuietly(env);
   return runContinue({
+    sleepSettings: () => readSleepSettings({ env }),
     ...(mode && { mode }),
     hosts: CLOSED_HOSTS,
     deps: {

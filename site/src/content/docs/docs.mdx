@@ -93,6 +93,31 @@ You can also ask the agent ("check the CI run again in 30 minutes"). It proposes
 - **Time format:** 12-hour (default) or 24-hour.
 - **Keep this computer awake for resumes and scheduled messages** (macOS): *While it's plugged in* (default), *Always, also on battery* or *Never*. While a resume or scheduled message is due within six hours, or while the agent is working on a scheduled message, Rewake stops the computer from idling to sleep, and says so once in the thread. Closing the lid, choosing Sleep or a flat battery still put it to sleep, and Rewake can't wake a sleeping computer. On Linux and Windows this setting isn't offered yet.
 
+## Keep your computer awake
+
+Rewake sends a resume or scheduled message only while the computer is awake. The best settings, on every system: let the screen turn off, but don't let the computer sleep while it's plugged in; keep the lid open; stay on mains power. Rewake never changes these settings itself. `agent-rewake doctor` reads them and says if one would let the computer sleep while a resume waits, and the thread says so once too.
+
+### macOS
+
+- **Laptop:** System Settings → **Battery** → **Options…** → turn on **Prevent automatic sleeping on power adapter when the display is off**. **Desktop:** System Settings → **Energy** → turn on **Prevent automatic sleeping when the display is off**.
+- Rewake already keeps a Mac awake while it's plugged in and a resume is due within six hours (Rewake → **Settings…** → **Keep this computer awake for resumes and scheduled messages**), so this matters most on battery, or for messages further ahead.
+- **Lid:** keep it open. A closed MacBook sleeps unless it has power, an external display, and an external keyboard and mouse.
+- Check from a terminal: `pmset -g custom`, then look at `sleep` under **AC Power** (`0` means never).
+
+### Windows
+
+- Settings → **System** → **Power & battery** → **Screen, sleep, & hibernate timeouts** → **Make my device sleep after** → **When plugged in**: **Never**. Leave the screen timeout as it is. On Windows 10: Settings → **System** → **Power & sleep** → **Sleep**: **When plugged in**: **Never**.
+- **Lid:** keep it open, or set Control Panel → **Power Options** → **Choose what closing the lid does** → **When plugged in**: **Do nothing** (don't put a running laptop in a bag).
+- Rewake can't hold Windows awake itself yet, so this setting decides. If the setting is greyed out, your organisation manages it: ask your IT team.
+- Check from a terminal: `powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE` (the AC value `0x00000000` means never).
+
+### Linux
+
+- **GNOME:** Settings → **Power** → **Automatic Suspend** → turn off **When Plugged In**.
+- **KDE Plasma:** System Settings → **Power Management** → **On AC Power** → **Suspend session** → **When inactive**: **Do nothing**.
+- **Lid:** keep it open. Changing what closing the lid does needs an administrator (systemd-logind's `HandleLidSwitchExternalPower`), or KDE's **When laptop lid closed** setting.
+- Check from a terminal (GNOME): `gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type` (`'nothing'` means never).
+
 ## Agents
 
 Rewake works the same way in front of every external agent Zed runs: Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and the rest. Rewake knows how each of them reports a limit: an error, its own error codes, or a last line such as Cursor's "Upgrade your plan to continue". When the agent says when the limit resets, Rewake resumes at that time; otherwise it asks you when. Zed's own agent isn't an external agent, so Rewake can't be added to it.

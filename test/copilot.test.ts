@@ -32,6 +32,7 @@ import {
 } from "../src/hosts/copilot/install.js";
 import { classifyCopilotError } from "../src/hosts/copilot/recognise.js";
 import { runHook } from "../src/hosts/hook.js";
+import type { SleepSettings } from "../src/util/sleep-settings.js";
 import "../src/hosts/index.js"; // registers the hosts
 import { SessionRecords } from "../src/hosts/sessions.js";
 import { fire } from "../src/timers/fire.js";
@@ -289,9 +290,15 @@ describe("agent-rewake continue", () => {
     await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
     await h.event("sessionEnd", { reason: "error" });
   }
-  const run = async (h: ReturnType<typeof harness>, answers: string[], interactive = true) => {
+  const run = async (
+    h: ReturnType<typeof harness>,
+    answers: string[],
+    interactive = true,
+    sleep?: SleepSettings,
+  ) => {
     let output = "";
     const code = await runContinue({
+      ...(sleep && { sleepSettings: () => sleep }),
       hosts: [copilotHost],
       deps: h.deps(),
       interactive,
@@ -302,6 +309,20 @@ describe("agent-rewake continue", () => {
     });
     return { code, output };
   };
+
+  it("says when this computer's own settings would let it sleep before the resume", async () => {
+    const h = harness();
+    await limited(h);
+    const r = await run(h, [], true, { os: "windows", pluggedInSleepMin: 15 });
+    expect(r.output).toContain(
+      "This computer may sleep before then: it's set to sleep after 15 minutes when plugged in. To keep it awake: https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake",
+    );
+    const fine = harness();
+    await limited(fine);
+    expect(
+      (await run(fine, [], true, { os: "windows", pluggedInSleepMin: 0 })).output,
+    ).not.toContain("may sleep");
+  });
 
   it("names the one session waiting and arms it on yes", async () => {
     const h = harness();

@@ -12,6 +12,7 @@ import { ThreadStore } from "../src/core/threads.js";
 import { callTool } from "../src/mcp.js";
 import type { Wake } from "../src/util/keep-awake.js";
 import { Logger } from "../src/util/log.js";
+import type { SleepSettings } from "../src/util/sleep-settings.js";
 
 const HOUR = 3_600_000;
 const T0 = new Date(2026, 9, 4, 14, 0, 0, 0).getTime(); // 4 Oct 2026 14:00 local
@@ -62,6 +63,8 @@ interface HarnessOptions {
   askOnNewThreads?: boolean;
   /** The keep-awake hold (most tests: one that never holds and says nothing). */
   wake?: Wake;
+  /** This computer's sleep settings (most tests: read, and never sleeping). */
+  sleep?: SleepSettings;
 }
 
 async function harness(stateDir = dir, o: HarnessOptions = {}) {
@@ -86,6 +89,7 @@ async function harness(stateDir = dir, o: HarnessOptions = {}) {
     askOnNewThreads: o.askOnNewThreads ?? false,
     firstUseNote: o.firstUseNote ?? false,
     wake: o.wake ?? { supported: true, set: () => false, release: () => {} },
+    sleepSettings: () => o.sleep ?? { os: "macos", pluggedInSleepMin: 0, onBattery: false },
   });
   const router = new Router({ clientIn, clientOut, agentIn, agentOut, hooks: addon.hooks() });
   addon.attach(router);
@@ -2730,6 +2734,57 @@ describe("keeping the computer awake", () => {
     h.addon.stop();
   });
 
+  it("names the computer's own setting that would let it sleep, once, with where to change it", async () => {
+    const r = recorder(false);
+    const h = await harness(dir, {
+      claude: true,
+      wake: r.wake,
+      sleep: { os: "windows", pluggedInSleepMin: 15, batterySleepMin: 5, lid: "sleep" },
+    });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    h.addon.tick();
+    await settle();
+    expect(h.texts().filter((t) => t.startsWith("Rewake: This computer may sleep"))).toEqual([
+      "Rewake: This computer may sleep before the resume at 17:01 today: it's set to sleep after 15 minutes when plugged in. Change that so it stays awake while you're away; the best settings: https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake",
+    ]);
+    h.addon.stop();
+  });
+
+  it("says nothing about sleep settings that are already fine, even where it can't hold", async () => {
+    const h = await harness(dir, {
+      claude: true,
+      wake: recorder(false).wake,
+      sleep: { os: "windows", pluggedInSleepMin: 0, batterySleepMin: 10 },
+    });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    await settle();
+    expect(h.texts().some((t) => /This computer may sleep|Make sure this computer/.test(t))).toBe(
+      false,
+    );
+    h.addon.stop();
+  });
+
+  it("on a Mac on battery, says the hold only works while plugged in", async () => {
+    const r = recorder();
+    const h = await harness(dir, {
+      claude: true,
+      wake: r.wake,
+      sleep: { os: "macos", pluggedInSleepMin: 10, batterySleepMin: 5, onBattery: true },
+    });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.addon.tick();
+    await settle();
+    expect(h.texts().find((t) => t.startsWith("Rewake: This computer may sleep"))).toContain(
+      "it's on battery and set to sleep after 5 minutes",
+    );
+    h.addon.stop();
+  });
+
   it("says it once for a repeating message, not on every run", async () => {
     const r = recorder();
     const h = await harness(dir, { claude: true, wake: r.wake });
@@ -2783,19 +2838,19 @@ describe("keeping the computer awake", () => {
     h.addon.stop();
   });
 
-  it("says once where it can't keep the computer awake", async () => {
+  it("says once where it can't keep the computer awake and the settings can't be read", async () => {
     const r = recorder(false);
-    const h = await harness(dir, { claude: true, wake: r.wake });
+    const h = await harness(dir, { claude: true, wake: r.wake, sleep: { os: "linux" } });
     await hitLimit(h, 2);
     await answer(h, { prompt: "Resume" });
     h.addon.tick();
     h.addon.tick();
     await settle();
-    expect(h.texts().filter((t) => t.startsWith("Rewake: Can't keep this computer awake"))).toEqual(
-      [
-        "Rewake: Can't keep this computer awake on this system. If it sleeps, resumes and scheduled messages wait until it wakes; change its sleep settings to avoid that.",
-      ],
-    );
+    expect(
+      h.texts().filter((t) => t.startsWith("Rewake: Make sure this computer won't sleep")),
+    ).toEqual([
+      "Rewake: Make sure this computer won't sleep before the resume at 17:01 today: Rewake couldn't check its sleep settings. The best settings: https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake",
+    ]);
     h.addon.stop();
   });
 });

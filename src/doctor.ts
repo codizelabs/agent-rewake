@@ -21,6 +21,7 @@ import {
 import { agentName, detectSetup } from "./setup.js";
 import { readText } from "./util/fs.js";
 import { stateDir, zedConfigDir, zedDataDir } from "./util/paths.js";
+import { SLEEP_DOCS_URL, type SleepSettings, sleepRisks } from "./util/sleep-settings.js";
 import { CLAUDE_REGISTRY_ID } from "./wrap.js";
 
 /**
@@ -50,7 +51,13 @@ import { CLAUDE_REGISTRY_ID } from "./wrap.js";
  */
 
 export type Level = "ok" | "info" | "todo" | "problem";
-export type Area = "Zed" | "Rewake" | "Sign-in" | "Scheduled messages" | "Recently";
+export type Area =
+  | "Zed"
+  | "Rewake"
+  | "Sign-in"
+  | "Scheduled messages"
+  | "Sleep settings"
+  | "Recently";
 
 export interface Finding {
   area: Area;
@@ -75,6 +82,8 @@ export interface DoctorContext {
   agents?: () => Found[];
   /** Names of the previews set up here (src/hosts/previews.ts); none when not given. */
   previews?: () => string[];
+  /** This computer's sleep settings, and how Rewake can hold it awake itself; not checked when absent. */
+  sleep?: () => { settings: SleepSettings; hold: "plugged-in" | "always" | "none" };
 }
 
 export interface ZedApp {
@@ -681,6 +690,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   // ---- Other coding agents here: say plainly that Rewake doesn't reach them on their own ------
   if (reach && !reachShown) add({ area: "Rewake", level: "info", text: reach });
 
+  if (ctx.sleep) for (const f of sleepFindings(ctx.sleep())) add(f);
   return findings;
 }
 
@@ -698,6 +708,51 @@ function canWrite(dir: string): boolean {
 }
 
 /** "today at 4:47 PM", "tomorrow at 9:00 AM", or "on Oct 3 at 9:00 AM". */
+/** Whether this computer's own settings let it sleep while a resume waits, and what to change. */
+export function sleepFindings(o: {
+  settings: SleepSettings;
+  hold: "plugged-in" | "always" | "none";
+}): Finding[] {
+  const s = o.settings;
+  const area: Area = "Sleep settings";
+  if (s.pluggedInSleepMin === undefined && s.onBattery === undefined && s.lid === undefined)
+    return [
+      {
+        area,
+        level: "info",
+        text: "This computer's sleep settings couldn't be read.",
+        fix: `To keep it awake while a resume waits, see ${SLEEP_DOCS_URL}`,
+      },
+    ];
+  const findings: Finding[] = [];
+  const risks = sleepRisks(s, o.hold);
+  if (risks.length > 0)
+    findings.push({
+      area,
+      level: "todo",
+      text: `This computer may sleep while a resume waits: ${risks.join("; ")}.`,
+      fix: s.managed
+        ? `Your organisation sets this; ask your IT team. What to ask for: ${SLEEP_DOCS_URL}`
+        : `Set it not to sleep when plugged in (the screen can still turn off): ${SLEEP_DOCS_URL}`,
+    });
+  else
+    findings.push({
+      area,
+      level: "ok",
+      text:
+        o.hold !== "none" && (s.pluggedInSleepMin ?? 0) > 0
+          ? "While it's plugged in, Rewake keeps this computer awake for resumes due within six hours."
+          : "This computer doesn't sleep on its own while plugged in.",
+    });
+  if (s.lid === "sleep")
+    findings.push({
+      area,
+      level: "info",
+      text: "Closing the lid puts this computer to sleep: keep it open while a resume is due.",
+    });
+  return findings;
+}
+
 export function when(at: number, now: number): string {
   const time = new Date(at).toLocaleTimeString(TEXT_LOCALE, { hour: "numeric", minute: "2-digit" });
   const day = (t: number) => new Date(t).toDateString();
@@ -708,7 +763,14 @@ export function when(at: number, now: number): string {
   return `on ${date} at ${time}`;
 }
 
-const AREAS: Area[] = ["Zed", "Rewake", "Sign-in", "Scheduled messages", "Recently"];
+const AREAS: Area[] = [
+  "Zed",
+  "Rewake",
+  "Sign-in",
+  "Scheduled messages",
+  "Sleep settings",
+  "Recently",
+];
 
 /** The report people read. ASCII marks where the terminal may not show symbols. */
 export function render(
