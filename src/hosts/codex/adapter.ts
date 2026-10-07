@@ -1,7 +1,7 @@
 import type { Schedule } from "../../core/store.js";
 import type { HostAdapter, HostFacts, SendResult } from "../host.js";
 import { codexProgram, type Program, queueMessage, readUsage, type Usage } from "./cli.js";
-import { findCodexLimit, readTail } from "./rollout.js";
+import { findCodexLimit, readTail, userMessages } from "./rollout.js";
 
 /**
  * Resuming a Codex thread at `fire` time (plan §9.2.3): the thread's session file says whether the
@@ -47,10 +47,12 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
     async check(s, now) {
       const facts: HostFacts = {};
       const transcript = s.sessionRef?.transcript;
+      let limit: ReturnType<typeof findCodexLimit> | undefined;
       if (transcript) {
         try {
           // A turn after the limit (the person typed) clears it in the session file.
-          facts.userTypedSince = !findCodexLimit(readTail(transcript), now).limited;
+          limit = findCodexLimit(readTail(transcript), now);
+          facts.userTypedSince = !limit.limited;
         } catch {
           // The session file is gone: send() reports the thread as deleted.
         }
@@ -63,7 +65,28 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
           if (u.allowed === false && u.resetsAt && u.resetsAt > now) facts.newResetsAt = u.resetsAt;
         } else if (u.reason === "signed-out") signedOut.add(s.scheduleId);
       }
+      // Codex couldn't say (no answer, no figure): don't send before the reset the session file
+      // recorded (research §4.4), so a time chosen before the reset waits for it.
+      if (
+        facts.usageAllowed === undefined &&
+        limit?.limited &&
+        limit.resetsAt !== undefined &&
+        limit.resetsAt > now
+      ) {
+        facts.usageAllowed = false;
+        facts.newResetsAt = limit.resetsAt;
+      }
       return facts;
+    },
+
+    delivered(s) {
+      const transcript = s.sessionRef?.transcript;
+      if (!transcript) return undefined;
+      try {
+        return userMessages(readTail(transcript, 512 * 1024)).includes(s.text) || undefined;
+      } catch {
+        return undefined;
+      }
     },
 
     async send(s): Promise<SendResult> {
