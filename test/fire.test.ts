@@ -1,11 +1,17 @@
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LATE_MS, MAX_REARMS } from "../src/core/resume.js";
 import { registerHost, type Schedule, ScheduleStore } from "../src/core/store.js";
-import type { HostAdapter, HostFacts, SendResult } from "../src/hosts/host.js";
-import { type FireDeps, fire, notice } from "../src/timers/fire.js";
+import {
+  type HostAdapter,
+  type HostFacts,
+  resumeDeadline,
+  type SendResult,
+} from "../src/hosts/host.js";
+import { type FireDeps, fire, notice, SENDING_STALE_MS } from "../src/timers/fire.js";
 import type { TimerHost } from "../src/timers/timers.js";
 
 registerHost("test");
@@ -181,10 +187,46 @@ describe("fire", () => {
   });
 
   it("never retries a send that was interrupted (no double message)", async () => {
-    const r = resume({ status: "sending" });
-    const { deps, sent } = setup();
-    expect(await fire(r.scheduleId, deps)).toBe("gone");
+    const started = NOW;
+    const r = resume({
+      status: "sending",
+      attempts: [{ n: 1, idempotencyKey: "k", startedAt: started, outcome: "sending" }],
+    });
+    // Still within a resume run's time: it may be running.
+    const recent = setup({ now: started + 5 * 60_000 });
+    expect(await fire(r.scheduleId, recent.deps)).toBe("busy");
+    // Cut off (a crash, a reboot): settled and the person told; still never sent again.
+    const { deps, sent, notes } = setup({ now: started + SENDING_STALE_MS + 1 });
+    expect(await fire(r.scheduleId, deps)).toBe("notified");
     expect(sent).toEqual([]);
+    expect(store.get(r.scheduleId)).toMatchObject({
+      status: "needs_attention",
+      failureReason: "unconfirmed",
+    });
+    expect(notes[0]).toContain("can't tell whether its message was sent. It won't send it again.");
+    expect(await fire(r.scheduleId, deps)).toBe("gone");
+  });
+
+  it("re-arms under a new timer name and retires its own (a timer can't replace itself)", async () => {
+    const r = resume();
+    const { deps, calls } = setup({ send: { ok: false, reason: "limited" } });
+    expect(await fire(r.scheduleId, { ...deps, fromTimer: true, timerGen: 0 })).toBe("waiting");
+    const run = calls.find((c) => c[0] === "systemd-run");
+    expect(run).toContain(`--unit=codizelabs-agent-rewake-${r.scheduleId}-r1`);
+    expect(calls.at(-1)).toEqual([
+      "systemctl",
+      "--user",
+      "stop",
+      `codizelabs-agent-rewake-${r.scheduleId}.timer`,
+    ]);
+  });
+
+  it("reports a resume run stopped after 30 minutes in plain words", () => {
+    expect(
+      notice("failed", "Copilot", NOW, { noun: "session", agentName: "Copilot", cause: "timeout" }),
+    ).toBe(
+      "Copilot: Rewake continued the session, but the agent was still working half an hour later (it may have been waiting for your approval), so Rewake stopped the run. Open the session to see where it got to and continue.",
+    );
   });
 
   it("leaves Zed's own schedules and unknown ids alone", async () => {
@@ -267,5 +309,21 @@ describe("fire keeps the computer awake while the resumed turn runs", () => {
       await fire(r.scheduleId, { ...deps, wake });
       expect(events).toEqual(["hold true plugged-in", "send", "release"]);
     }
+  });
+});
+
+describe("resumeDeadline", () => {
+  it("stops a resume run that goes on too long, and says so", async () => {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"]);
+    const timedOut = resumeDeadline(child, 200);
+    await new Promise((r) => child.once("exit", r));
+    expect(timedOut()).toBe(true);
+  });
+
+  it("leaves a run that finishes in time alone", async () => {
+    const child = spawn(process.execPath, ["-e", "0"]);
+    const timedOut = resumeDeadline(child, 10_000);
+    await new Promise((r) => child.once("exit", r));
+    expect(timedOut()).toBe(false);
   });
 });

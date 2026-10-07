@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -9,6 +17,7 @@ import {
   pickClaude,
   type Run,
   runClaudeInstall,
+  shippedMod,
 } from "../src/hosts/claude-code/install.js";
 
 let dir: string;
@@ -158,4 +167,18 @@ describe("install --only claude-code", () => {
       ])?.path,
     ).toBe("/b");
   });
+});
+
+describe("shippedMod", () => {
+  it.skipIf(process.platform === "win32")(
+    "follows the bin link npx and global installs start Rewake through",
+    () => {
+      mkdirSync(join(dir, "bin"));
+      const link = join(dir, "bin", "agent-rewake");
+      symlinkSync(bundle, link);
+      expect(shippedMod(link)).toBe(
+        join(realpathSync(join(dir, "pkg", "dist")), "hosts", "claude-code"),
+      );
+    },
+  );
 });

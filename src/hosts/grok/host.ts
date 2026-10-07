@@ -15,7 +15,7 @@ import {
 } from "../closed.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import type { SendResult } from "../host.js";
+import { resumeDeadline, type SendResult } from "../host.js";
 import { SESSION_GONE, type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -163,8 +163,10 @@ export function resumeGrok(
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < 1 << 20) out += d.toString("utf8");
     });
+    const timedOut = resumeDeadline(child);
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
     child.on("exit", (code) => {
+      if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       if (code === 0) return resolve({ ok: true });
       // Exit 1 at the limit again (INFERENCE until X-G1): the text says so.
       if (/rate limit|weekly limit|\b429\b|\b402\b/i.test(out))

@@ -11,7 +11,7 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import type { SendResult } from "../host.js";
+import { resumeDeadline, type SendResult } from "../host.js";
 import { type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -137,8 +137,10 @@ export function resumeGemini(
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < 1 << 20) out += d.toString("utf8");
     });
+    const timedOut = resumeDeadline(child);
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
     child.on("exit", (code) => {
+      if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       if (code === 41) return resolve({ ok: false, reason: "failed", detail: "signed-out" });
       if (LIMIT.test(out)) return resolve({ ok: false, reason: "limited" });
       if (code === 0) return resolve({ ok: true });

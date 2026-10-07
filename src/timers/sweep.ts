@@ -1,5 +1,6 @@
 import { ScheduleStore } from "../core/store.js";
 import type { HostAdapter } from "../hosts/host.js";
+import { SENDING_STALE_MS } from "./fire.js";
 import { type ArmResult, armTimer, type TimerHost, timerArmed } from "./timers.js";
 
 /**
@@ -38,7 +39,17 @@ export function sweep(deps: SweepDeps): { fired: number; armed: number } {
   let armed = 0;
   if (deps.hosts.size === 0) return { fired, armed };
   for (const s of new ScheduleStore(deps.stateDir).list()) {
-    if (!s.host || !deps.hosts.has(s.host) || s.status !== "scheduled") continue;
+    if (!s.host || !deps.hosts.has(s.host)) continue;
+    // A send cut off by a crash or reboot: `fire` settles it and tells the person.
+    if (s.status === "sending") {
+      const started = s.attempts.at(-1)?.startedAt ?? s.updatedAt;
+      if (deps.now - started >= SENDING_STALE_MS) {
+        deps.fireDetached(s.scheduleId);
+        fired++;
+      }
+      continue;
+    }
+    if (s.status !== "scheduled") continue;
     if (s.dueAt - deps.now <= FIRE_NOW_MS) {
       deps.fireDetached(s.scheduleId);
       fired++;

@@ -9,11 +9,15 @@ import {
   label,
   launchdPlist,
   localIso,
+  nextGen,
+  parseTimerName,
   type RunResult,
   type TimerHost,
   taskXml,
   timerArmed,
   timerKind,
+  timerName,
+  timerNames,
   utcCalendar,
 } from "../src/timers/timers.js";
 
@@ -90,7 +94,7 @@ describe("macOS: launchd", () => {
     cancelTimer(ID, h, true);
     expect(calls).toEqual([]);
     expect(detached).toEqual([
-      { command: "/bin/sh", args: ["-c", `sleep 1; launchctl bootout gui/501/${label(ID)}`] },
+      { command: "/bin/sh", args: ["-c", `sleep 2; launchctl bootout gui/501/${label(ID)}`] },
     ]);
     expect(existsSync(join(dir, "timers", `${label(ID)}.plist`))).toBe(false);
   });
@@ -105,6 +109,55 @@ describe("macOS: launchd", () => {
       detail: "Bootstrap failed: 5",
     });
     expect(existsSync(join(dir, "timers", `${label(ID)}.plist`))).toBe(false);
+  });
+});
+
+describe("re-arming from inside a timer: a new name", () => {
+  it("names generations and reads them back", () => {
+    expect(timerName(ID)).toBe(ID);
+    expect(timerName(ID, 2)).toBe(`${ID}-r2`);
+    expect(parseTimerName(`${ID}-r2`)).toEqual({ id: ID, gen: 2 });
+    expect(parseTimerName(ID)).toEqual({ id: ID, gen: 0 });
+  });
+
+  it("macOS: arms the new name without touching the running job, then retires the old one", () => {
+    const { h, calls, detached } = fakeHost("darwin");
+    armTimer(ID, AT, h);
+    calls.length = 0;
+    const gen = nextGen(ID, 0, h);
+    expect(gen).toBe(1);
+    expect(armTimer(ID, AT + 600_000, h, gen)).toEqual({ ok: true, via: "launchd" });
+    // No bootout of the running job's label: that would kill the `fire` doing this.
+    expect(calls.map((c) => [c.command, ...c.args])).toEqual([
+      ["launchctl", "bootstrap", "gui/501", join(dir, "timers", `${label(`${ID}-r1`)}.plist`)],
+    ]);
+    expect(timerNames(ID, h).sort()).toEqual([ID, `${ID}-r1`].sort());
+    calls.length = 0;
+    cancelTimer(ID, h, true, timerName(ID, gen));
+    expect(calls).toEqual([]);
+    expect(detached).toEqual([
+      { command: "/bin/sh", args: ["-c", `sleep 2; launchctl bootout gui/501/${label(ID)}`] },
+    ]);
+    expect(timerNames(ID, h)).toEqual(expect.arrayContaining([`${ID}-r1`]));
+  });
+
+  it("Linux: a new unit name (systemd refuses a name whose service still runs)", () => {
+    const { h, calls } = fakeHost("linux", (c) =>
+      c.args.includes("is-system-running") ? { stdout: "running\n" } : {},
+    );
+    armTimer(ID, AT, h);
+    armTimer(ID, AT + 600_000, h, nextGen(ID, 0, h));
+    expect(calls.filter((c) => c.command === "systemd-run").map((c) => c.args[1])).toEqual([
+      `--unit=codizelabs-agent-rewake-${ID}`,
+      `--unit=codizelabs-agent-rewake-${ID}-r1`,
+    ]);
+    calls.length = 0;
+    cancelTimer(ID, h);
+    const stopped = calls.filter((c) => c.args[1] === "stop").map((c) => c.args[2]);
+    expect(stopped.sort()).toEqual(
+      [`codizelabs-agent-rewake-${ID}.timer`, `codizelabs-agent-rewake-${ID}-r1.timer`].sort(),
+    );
+    expect(timerNames(ID, h)).toEqual([ID]);
   });
 });
 
@@ -131,6 +184,13 @@ describe("Linux: systemd, then at", () => {
       ],
     });
     expect(utcCalendar(AT)).toBe("2026-10-06 18:43:20 UTC");
+  });
+
+  it("doesn't use at when its daemon isn't running (jobs would never start)", () => {
+    const { h } = fakeHost("linux", (c) => (c.command === "pgrep" ? { status: 1 } : {}), {
+      systemd: false,
+    });
+    expect(timerKind(h)).toBeUndefined();
   });
 
   it("falls back to at when there's no user manager, quoting the paths for its shell", () => {

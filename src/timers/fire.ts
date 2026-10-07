@@ -14,7 +14,7 @@ import type { HostAdapter, HostFacts } from "../hosts/host.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
 import type { Notifier } from "./notify.js";
-import { armTimer, cancelTimer, type TimerHost } from "./timers.js";
+import { armTimer, cancelTimer, nextGen, type TimerHost, timerName } from "./timers.js";
 
 /**
  * `agent-rewake fire <id>`: what an OS timer runs at a resume's time, for integrations outside Zed.
@@ -27,6 +27,12 @@ import { armTimer, cancelTimer, type TimerHost } from "./timers.js";
 const EARLY_MS = 30_000;
 /** Never arm a timer closer than this: systemd never fires a time in the past. */
 const MIN_ARM_MS = 60_000;
+/**
+ * A send still marked "sending" after this long was cut off (a crash, a reboot): longer than any
+ * host's resume run (RESUME_TIMEOUT_MS, 30 minutes). Rewake can't tell whether the message got
+ * through, so it never sends again; it tells the person instead.
+ */
+export const SENDING_STALE_MS = 40 * 60_000;
 
 export type FireOutcome =
   | "early"
@@ -52,6 +58,8 @@ export interface FireDeps {
   fromTimer?: boolean;
   /** Keeps the computer awake while the resumed turn runs (tests pass their own). */
   wake?: Wake;
+  /** Which of the resume's timers started this run (`<id>-r<n>`: n), so a re-arm takes a new name. */
+  timerGen?: number;
 }
 
 const LIVE = new Set<Schedule["status"]>(["scheduled", "waiting_for_limit", "cancelled"]);
@@ -63,7 +71,7 @@ function where(host: HostAdapter, s: Schedule): string {
 }
 
 /** Why a send failed, when the host knows: named so the person can fix it. */
-export type FailCause = "signed-out" | "archived" | "deleted";
+export type FailCause = "signed-out" | "archived" | "deleted" | "timeout";
 
 export interface NoticeFacts {
   /** "thread" (Codex, Zed) or "session" (Copilot, Grok): the host's own word. */
@@ -85,7 +93,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The notification for a resume Rewake won't send on its own. Plain words, no message text. */
 export function notice(
-  why: "late" | "open" | "far-reset" | "expired" | "failed",
+  why: "late" | "open" | "far-reset" | "expired" | "failed" | "unconfirmed",
   agent: string,
   now: number,
   f: NoticeFacts,
@@ -109,7 +117,11 @@ export function notice(
         : `${agent} is limited again until ${f.resetsAt ? formatWhen(f.resetsAt, now) : "later"}, so Rewake didn't continue. ${cap(reopen)} after that to continue.`;
     case "expired":
       return `${agent} is still at its usage limit, so Rewake didn't continue. ${later}`;
+    case "unconfirmed":
+      return `${agent}: Rewake started continuing the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but was interrupted (the computer may have restarted), so it can't tell whether its message was sent. It won't send it again. ${cap(reopen)} to check, and continue if needed.`;
     case "failed":
+      if (f.cause === "timeout")
+        return `${agent}: Rewake continued the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but the agent was still working half an hour later (it may have been waiting for your approval), so Rewake stopped the run. ${cap(reopen)} to see where it got to and continue.`;
       if (f.cause === "signed-out")
         return `${agent}: Rewake couldn't continue the ${n} because you're signed out of ${f.agentName}. Sign in, then ${reopen} to continue.`;
       if (f.cause === "archived")
@@ -126,24 +138,37 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
   const removeTimer = () => {
     if (deps.timers) cancelTimer(id, deps.timers, deps.fromTimer === true);
   };
-  const s = store.get(id);
-  if (!s) {
+  const first = store.get(id);
+  if (!first) {
     removeTimer();
     return "gone";
   }
-  const host = s.host ? deps.hosts.get(s.host) : undefined;
-  if (!host) return "not-ours";
-  if (!LIVE.has(s.status)) {
+  const host = first.host ? deps.hosts.get(first.host) : undefined;
+  if (!host) {
+    // Zed's own resumes never have timers; a host this version doesn't know keeps its record, but
+    // its timer would only come back here.
     removeTimer();
-    return "gone";
+    return "not-ours";
   }
   const now = deps.now();
-  if (s.status !== "cancelled" && now < s.dueAt - EARLY_MS) return "early";
+  if (first.status === "sending") return settleStale(id, first, host, now, deps, removeTimer);
+  if (!LIVE.has(first.status)) {
+    removeTimer();
+    return "gone";
+  }
+  if (first.status !== "cancelled" && now < first.dueAt - EARLY_MS) return "early";
 
   const lock = new SessionLock(deps.stateDir);
   const lockKey = `fire:${id}`;
   if (!lock.acquire(lockKey)) return "busy";
   try {
+    // Re-read under the lock: another run may have sent or changed it since.
+    const s = store.get(id);
+    if (!s || !LIVE.has(s.status)) {
+      removeTimer();
+      return "gone";
+    }
+    if (s.status !== "cancelled" && now < s.dueAt - EARLY_MS) return "early";
     // The person's 12- or 24-hour clock, for notifications, and whether to keep the computer awake.
     const settings = loadSettings(deps.stateDir);
     const key = `${id}:${s.dueAt}`;
@@ -183,7 +208,13 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         (x) => ({ ...x, status: "scheduled", dueAt: next, rearms: (x.rearms ?? 0) + 1 }),
         now,
       );
-      const armed = deps.timers ? armTimer(id, next, deps.timers) : undefined;
+      let armed: ReturnType<typeof armTimer> | undefined;
+      if (deps.timers) {
+        // A new name: this run's own timer can't be replaced from inside it (see timers.ts).
+        const gen = nextGen(id, deps.timerGen ?? 0, deps.timers);
+        armed = armTimer(id, next, deps.timers, gen);
+        if (armed.ok) cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
+      }
       log("fire.wait", { why, armed: armed?.ok ?? false });
       return "waiting";
     };
@@ -262,7 +293,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           if (rearms >= MAX_REARMS) return tell("expired", "failed");
           return wait(now + backoffMs(rearms), result.reason);
         }
-        const cause = ["signed-out", "archived", "deleted"].includes(result.detail ?? "")
+        const cause = ["signed-out", "archived", "deleted", "timeout"].includes(result.detail ?? "")
           ? (result.detail as FailCause)
           : undefined;
         return tell("failed", "failed", cause);
@@ -277,6 +308,53 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         removeTimer();
         return "skipped";
     }
+  } finally {
+    lock.release(lockKey);
+  }
+}
+
+/**
+ * A resume left "sending": either its run is still going (it holds the lock) or it was cut off.
+ * Cut off and old enough, it's settled as needs-attention and the person is told; never re-sent.
+ */
+function settleStale(
+  id: string,
+  s: Schedule,
+  host: HostAdapter,
+  now: number,
+  deps: FireDeps,
+  removeTimer: () => void,
+): FireOutcome {
+  const started = s.attempts.at(-1)?.startedAt ?? s.updatedAt;
+  if (now - started < SENDING_STALE_MS) return "busy";
+  const lock = new SessionLock(deps.stateDir);
+  const lockKey = `fire:${id}`;
+  if (!lock.acquire(lockKey)) return "busy";
+  try {
+    const store = new ScheduleStore(deps.stateDir);
+    if (store.get(id)?.status !== "sending") return "gone";
+    store.update(
+      id,
+      (x) => ({
+        ...x,
+        status: "needs_attention",
+        failureReason: "unconfirmed",
+        lastRun: { at: now, outcome: "needs_attention" },
+      }),
+      now,
+    );
+    deps.notify(
+      "Agent Rewake",
+      notice("unconfirmed", where(host, s), now, {
+        noun: host.noun,
+        agentName: host.name,
+        ...(host.reopen !== undefined && { reopen: host.reopen }),
+        dueAt: s.dueAt,
+      }),
+    );
+    deps.log?.("fire.unconfirmed", { host: host.id });
+    removeTimer();
+    return "notified";
   } finally {
     lock.release(lockKey);
   }

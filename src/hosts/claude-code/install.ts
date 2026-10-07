@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
@@ -31,7 +31,14 @@ export function modDir(stateDir: string): string {
 
 /** Where the package keeps the mod: `dist/hosts/claude-code` beside the bundle. */
 export function shippedMod(bundle: string): string {
-  return join(dirname(bundle), "hosts", "claude-code");
+  // npx and global installs start Rewake through a link in a bin folder: follow it to the package.
+  let real = bundle;
+  try {
+    real = realpathSync(bundle);
+  } catch {
+    // Not a file (tests pass a folder that may not exist yet): use it as given.
+  }
+  return join(dirname(real), "hosts", "claude-code");
 }
 
 /** Claude Code's settings folder: CLAUDE_CONFIG_DIR when set, else ~/.claude. */

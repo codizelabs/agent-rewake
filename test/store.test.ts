@@ -120,6 +120,17 @@ describe("ScheduleStore", () => {
   });
 });
 
+describe("SessionLock: a lock file still being written", () => {
+  it("isn't taken over while it's empty and new (its owner may be writing it)", () => {
+    const a = new SessionLock(dir);
+    expect(a.acquire("s")).toBe(true);
+    const lockDir = join(dir, "locks");
+    const [file] = readdirSync(lockDir);
+    writeFileSync(join(lockDir, file as string), "");
+    expect(new SessionLock(dir).acquire("s")).toBe(false);
+  });
+});
+
 describe("SessionLock", () => {
   it("gives a session to one owner at a time", () => {
     const a = new SessionLock(dir);
