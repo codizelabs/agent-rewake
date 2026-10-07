@@ -22,7 +22,7 @@ export function introNote(agent: string, menu: boolean, tools: boolean): string 
       : []),
     menu
       ? "- To change things, use the Rewake menu under the message box: *Schedules*, *Turn on auto-resume after limits…* (this thread), *Settings…* (all threads)."
-      : "- To change things, type `/schedule list`, `/schedule rm N` or `/schedule auto on|off`.",
+      : "- To change things, type `/rewake list`, `/rewake cancel N` or `/rewake auto on|off`.",
   ].join("\n");
 }
 
@@ -43,12 +43,12 @@ Agent Rewake is an open-source add-on for Zed's agent threads (Claude, Codex, Ge
 ## Where the user controls it
 
 - **The Rewake menu** in the toolbar under the message box (next to the model picker): *Schedules* (a table of this thread's messages), *Schedule a message…*, *Change a scheduled message…*, *Resume after the usage limit…* (after a limit; once a resume is scheduled it reads *Add a message after the resume…*), *Turn on/off auto-resume after limits…*, *Stop the scheduled reply* (while one runs), *Settings…*.
-- **Commands** typed in the thread: \`/schedule <when> <message>\` (for example \`/schedule in 1h Run the tests\`, \`/schedule 9pm …\`, \`/schedule every weekday 09:00 …\`), \`/schedule list\`, \`/schedule rm N\`, \`/schedule pause N\`, \`/schedule resume N\`, \`/schedule now N\`, \`/schedule resume\` (after a limit), \`/schedule auto on|off\`, \`/schedule prompt <text>\` (this thread's resume message), \`/stop\`.
+- **Commands** typed in the thread: \`/rewake <when> <message>\` (for example \`/rewake in 1h Run the tests\`, \`/rewake 9pm …\`, \`/rewake every weekday 09:00 …\`), \`/rewake list\`, \`/rewake cancel N\`, \`/rewake pause N\`, \`/rewake resume N\`, \`/rewake now N\`, \`/rewake\` or \`/rewake continue\` (after a limit; \`/rewake 3:30pm\` for another time), \`/rewake cancel\` (that resume), \`/rewake auto on|off\`, \`/rewake prompt <text>\` (this thread's resume message), \`/rewake stop\`.
 - **The schedules page**: run \`agent-rewake ui\` in a terminal (or the Zed task Rewake adds) for every thread's messages, with mouse and keys. \`agent-rewake schedules\` lists them; \`agent-rewake doctor\` checks the setup.
 - **Settings…** (they apply to every thread):
   - *Automatic resume after usage limits*: *On, even when permissions are bypassed* · *On, except when permissions are bypassed* · *Ask when a new thread opens* (default) · *Off*. "On" and "Ask" decide what new threads do ("On" also covers threads Rewake sees for the first time, such as ones reopened after installing it); the bypass part applies at every limit.
   - *Time format*: 12-hour (default) or 24-hour.
-- **Per thread**: automatic resume on or off (menu or \`/schedule auto on|off\`), and the resume message (\`/schedule prompt\`, or edit it in the resume form; it's remembered for this thread).
+- **Per thread**: automatic resume on or off (menu or \`/rewake auto on|off\`), and the resume message (\`/rewake prompt\`, or edit it in the resume form; it's remembered for this thread).
 
 ## When a scheduled message is sent, and when it isn't
 
@@ -58,7 +58,7 @@ Rewake has no background service: it runs inside Zed, as part of the agent proce
 |---|---|
 | Zed open, this thread open | Sent at its time (checked about every 30 seconds) |
 | The agent is replying in this thread at that time | Marked *Queued* and sent right after the reply. The thread says "Rewake: Queued. …" |
-| The user sends a message while a scheduled reply runs | The user's message is held and goes as soon as the scheduled reply finishes ("Rewake: Waiting. …"); to interrupt, *Stop the scheduled reply* or \`/stop\` |
+| The user sends a message while a scheduled reply runs | The user's message is held and goes as soon as the scheduled reply finishes ("Rewake: Waiting. …"); to interrupt, *Stop the scheduled reply* or \`/rewake stop\` |
 | The user is working in another thread (same agent, same window) | Still sent; each thread is handled separately. The user sees the reply when they switch back to this thread. Rewake shows no system notification |
 | The user switched away long ago, or removed the thread from Zed's sidebar | Zed keeps only recent threads loaded (every running thread plus the 5 most recent idle ones). Rewake still sends the message in the background, reconnecting the thread to the agent first; the user doesn't see it happen. Whether the reply then shows when the thread is reopened hasn't been verified in Zed yet |
 | A different agent, or another project window | Each has its own Rewake process and sends its own threads' messages |
@@ -102,7 +102,7 @@ Scheduled · Paused · Queued (due, waiting for the current reply) · Sending ·
 
 ## Outside Zed (previews)
 
-Everything above is about Zed's Agent Panel. Separately, Rewake can be set up, one agent at a time with \`agent-rewake install --only <agent>\`, in Claude Code in a terminal, Codex, GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI outside Zed. These are previews. There, Rewake runs at the reset even with Zed closed, but the computer must be on and awake then. If a resume is more than 30 minutes late, Rewake notifies the user instead of sending it. Copilot CLI, Grok, Gemini CLI and Antigravity sessions are continued once closed (\`agent-rewake continue\`, or by itself after \`agent-rewake continue --always\`); in Codex the user types "rewake" in the thread; Claude Code asks in the session. \`agent-rewake doctor\` has an "Outside Zed" section.
+Everything above is about Zed's Agent Panel. Separately, Rewake can be set up, one agent at a time with \`agent-rewake install --only <agent>\`, in Claude Code in a terminal, Codex, GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI outside Zed. These are previews. There, Rewake runs at the reset even with Zed closed, but the computer must be on and awake then. If a resume is more than 30 minutes late, Rewake notifies the user instead of sending it. Copilot CLI, Grok, Gemini CLI and Antigravity sessions are continued once closed (\`agent-rewake continue\`, or by itself after \`agent-rewake continue --always\`); Claude Code asks in the session. The command is the same everywhere: \`/rewake\` in Zed, Claude Code and Gemini CLI, and \`rewake\` without the slash in Codex (Codex refuses slash commands it doesn't know). \`/rewake\` at a limit continues after the reset, \`/rewake 3:30pm\` at that time, \`/rewake cancel\` cancels it and \`/rewake help\` lists what works in that place; each place answers it without the model. Copilot CLI, Grok and Antigravity have no command in the conversation. \`agent-rewake doctor\` has an "Outside Zed" section.
 
 ## Data and privacy
 
@@ -114,6 +114,6 @@ Everything stays on the user's computer in Rewake's state folder (macOS: ~/Libra
 - "Do I need to keep this thread open on screen?" No. Zed must be running with the project; the user can work in other threads.
 - "What if I'm away when it's due?" If Zed and the computer are on, it's sent. If not, a message more than 15 minutes late is held and the user is asked.
 - "Can you schedule it for me?" Yes: call schedule_message; the user approves in the thread.
-- "How do I stop a scheduled reply?" *Stop the scheduled reply* in the Rewake menu, or /stop.
+- "How do I stop a scheduled reply?" *Stop the scheduled reply* in the Rewake menu, or /rewake stop.
 - More help: https://codizelabs.github.io/agent-rewake/ · source: https://github.com/codizelabs/agent-rewake
 `;

@@ -105,7 +105,7 @@ export function overviewText(groups: ProjectGroup[], now: number, locale?: strin
   return out.join("\n");
 }
 
-/** Markdown overview, opened in a Zed tab via `/schedule page`. */
+/** Markdown overview, opened in a Zed tab via `/rewake page`. */
 export function overviewMarkdown(groups: ProjectGroup[], now: number, locale?: string): string {
   const generated = new Intl.DateTimeFormat(locale ?? TEXT_LOCALE, {
     dateStyle: "medium",
@@ -114,7 +114,7 @@ export function overviewMarkdown(groups: ProjectGroup[], now: number, locale?: s
   const lines = [
     "# Agent Rewake: scheduled messages",
     "",
-    `Snapshot taken ${generated} by Agent Rewake ${VERSION}. To manage them, run the "Agent Rewake: schedules" task in Zed (\`agent-rewake ui\`), or use \`/schedule list\` in a thread.`,
+    `Snapshot taken ${generated} by Agent Rewake ${VERSION}. To manage them, run the "Agent Rewake: schedules" task in Zed (\`agent-rewake ui\`), or use \`/rewake list\` in a thread.`,
     "",
   ];
   if (groups.length === 0) lines.push("No scheduled messages.");

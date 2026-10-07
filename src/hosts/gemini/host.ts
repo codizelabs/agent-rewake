@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readSync } from "node:fs";
+import { continueOnly, type RewakePlace } from "../../core/command.js";
 import { classifyGeminiError, durationMs, GEMINI_LIMIT } from "../../core/limits/agents.js";
 import { recogniseForHost } from "../../core/limits/recognise.js";
 import { RESET_MARGIN_MS } from "../../core/resume.js";
 import { ScheduleStore } from "../../core/store.js";
-import { formatAt, nextMidnight, parseWhen } from "../../core/time.js";
+import { formatAt, nextMidnight } from "../../core/time.js";
 import {
   armClosed,
   type ClosedDeps,
@@ -185,6 +186,13 @@ function sessionOf(input: Record<string, unknown>): string | undefined {
   return safeSessionId(input.session_id) ? input.session_id : undefined;
 }
 
+/** `/rewake` in Gemini CLI: it continues a closed session after a limit, and nothing else yet. */
+export const GEMINI_PLACE: RewakePlace = {
+  name: "Gemini CLI",
+  typed: "/rewake",
+  features: new Set(),
+};
+
 /** What the extension's `/rewake` command sends: this marker, then what the person typed. */
 export const REWAKE_MARKER = "[agent-rewake command]";
 
@@ -195,10 +203,22 @@ export function offerText(resetsAt: number | undefined, now: number): string {
     : "Rewake: Gemini hit its usage limit. To continue this conversation later, type /rewake with a time, for example /rewake 3:30pm.";
 }
 
-/** The answer to `/rewake`, `/rewake <time>` or `/rewake cancel`, shown in the session. */
+/**
+ * The answer to `/rewake …` (src/core/command.ts), shown in the session: `/rewake` or
+ * `/rewake <time>` continues, `/rewake cancel` cancels, `/rewake list` and `/rewake help` say
+ * what's set and what works here, and anything Gemini CLI can't do gets one line.
+ */
 export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDeps): string {
   const store = new ScheduleStore(d.stateDir);
-  if (args === "cancel") {
+  const c = continueOnly(GEMINI_PLACE, args, d.now);
+  if (c.kind === "reply") return c.text;
+  if (c.kind === "list") {
+    const next = pendingFor(d.stateDir, GEMINI_ID, id)[0];
+    return next
+      ? `Rewake: This conversation continues ${formatAt(next.dueAt, d.now)}, if Gemini CLI is closed by then. To cancel: /rewake cancel`
+      : "Rewake: Nothing is scheduled for this conversation. At a usage limit, type /rewake to continue after the reset.";
+  }
+  if (c.kind === "cancel") {
     const pending = pendingFor(d.stateDir, GEMINI_ID, id);
     for (const s of pending) {
       store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
@@ -211,15 +231,11 @@ export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDe
   const records = new SessionRecords(d.stateDir, GEMINI_ID);
   const r = records.get(id) ?? records.update(id, cwd, d.now, (x) => x);
   if (!r) return "Rewake: This conversation can't be continued later.";
-  let at: number | undefined;
-  if (args) {
-    const when = parseWhen(args, d.now);
-    if (!when.ok) return `Rewake: Didn't understand "${args}". Try /rewake 3:30pm.`;
-    at = when.at;
-  } else {
+  let at = c.at;
+  if (at === undefined) {
     const l = r.limit;
     if (!l || (r.lastPromptAt ?? 0) > l.seenAt)
-      return "Rewake: This conversation isn't at a usage limit. To continue it at a time anyway: /rewake 3:30pm";
+      return "Rewake: This conversation isn't at a usage limit. To continue it at a time anyway: /rewake 3:30pm. For more: /rewake help";
     if (l.billing)
       return "Rewake: This limit is about credits or billing, so waiting won't fix it and Rewake won't continue this conversation. Fix that, then continue it yourself.";
     if (l.resetsAt === undefined)

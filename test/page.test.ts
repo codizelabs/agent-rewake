@@ -130,7 +130,7 @@ describe("the schedules page", () => {
     for (const l of text) expect(l.length).toBeLessThanOrEqual(120);
   });
 
-  it("explains a button on hover, with the matching /schedule command", () => {
+  it("explains a button on hover, with the matching /rewake command", () => {
     seed();
     const p = page();
     const frame = p.render(120, 30);
@@ -145,7 +145,7 @@ describe("the schedules page", () => {
     });
     const hint = plain(p.render(120, 30).lines.at(-2) ?? "");
     expect(hint).toContain(
-      "Send now: sends it within a few seconds if its thread is open in Zed. In its thread: /schedule now 1",
+      "Send now: sends it within a few seconds if its thread is open in Zed. In its thread: /rewake now 1",
     );
   });
 
@@ -239,7 +239,7 @@ describe("the schedules page", () => {
     });
     const text = empty.render(100, 24).lines.map(plain).join("\n");
     expect(text).toContain("Nothing is scheduled yet.");
-    expect(text).toContain("type /schedule 09:00 Run the tests");
+    expect(text).toContain("type /rewake 09:00 Run the tests");
   });
 
   it("drops the Agent and Thread columns on narrow terminals and stays within the width", () => {
@@ -268,7 +268,7 @@ describe("the schedules page", () => {
     expect(page().showTips).toBe(false);
     key(p, "?");
     expect(p.render(120, 40).lines.map(plain).join("\n")).toContain(
-      "/schedule 09:00 Run the tests · /schedule list",
+      "/rewake 09:00 Run the tests · /rewake list",
     );
     expect(p.render(120, 40).lines.map(plain).join("\n")).toContain(
       `┌─ Help · Agent Rewake ${VERSION} ─`,

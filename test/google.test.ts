@@ -680,6 +680,36 @@ describe("Gemini CLI: /rewake, answered without a model call", () => {
     expect(ask("whenever")).toBe('Rewake: Didn\'t understand "whenever". Try /rewake 3:30pm.');
   });
 
+  it("speaks the shared /rewake grammar, and says in one line what Gemini CLI can't do", () => {
+    const records = new SessionRecords(state, "gemini-cli");
+    records.update(SID, join(dir, "shop"), NOW, (r) => ({
+      ...r,
+      program: FAKE,
+      limit: { seenAt: NOW, kind: "daily", billing: false, resetsAt: NOW + H },
+    }));
+    expect(ask("list")).toBe(
+      "Rewake: Nothing is scheduled for this conversation. At a usage limit, type /rewake to continue after the reset.",
+    );
+    const armed: number[] = [];
+    expect(ask("continue", [], armed)).toMatch(/^Rewake will continue this conversation/);
+    expect(armed).toEqual([NOW + H + 60_000]);
+    expect(ask("list")).toMatch(/^Rewake: This conversation continues (at|on) .+\/rewake cancel$/);
+    expect(ask("at 11pm", [], armed)).toMatch(/^Rewake will continue this conversation/);
+    expect(ask("in 1h Run the tests")).toBe(
+      "Rewake can't schedule messages in Gemini CLI. Type /rewake help to see what it can do.",
+    );
+    expect(ask("cancel 2")).toBe(
+      "Rewake can't delete scheduled messages in Gemini CLI. Type /rewake help to see what it can do.",
+    );
+    expect(ask("auto on")).toMatch(
+      /^Rewake can't turn automatic continue on or off in Gemini CLI\./,
+    );
+    const help = ask("help");
+    expect(help).toMatch(/^Rewake in Gemini CLI:/);
+    expect(help).toContain("/rewake cancel");
+    expect(help).not.toContain("every weekday");
+  });
+
   it("blocks the marked prompt in BeforeAgent, so the model never sees it", async () => {
     const handler = geminiHooks({
       closed: (ctx) => deps([], [])(ctx.env, ctx.now),

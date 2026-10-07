@@ -422,7 +422,7 @@ test("/rewake cancel cancels only the continue; scheduled messages stay", async 
   await $.command.run({ command: "rewake", args: "in 3h run the tests" } as never);
   await $.classic.StopFailure(limit());
   await clock.advance(1);
-  const r = await $.command.run({ command: "rewake-cancel", args: "" } as never);
+  const r = await $.command.run({ command: "rewake", args: "cancel" } as never);
   expect(r.text).toMatch(
     /^Cancelled the automatic continue at .+\. Your scheduled messages stay\.$/,
   );
@@ -430,11 +430,11 @@ test("/rewake cancel cancels only the continue; scheduled messages stay", async 
   expect((seen.store["sched:S1"] as unknown[]).length).toBe(1);
 });
 
-test("/rewake clear asks before deleting scheduled messages", async ($, on) => {
+test("/rewake cancel all asks before deleting scheduled messages", async ($, on) => {
   const { seen } = harness(on, { answer: "Keep it" });
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await $.command.run({ command: "rewake", args: "at 6pm stretch" } as never);
-  const kept = await $.command.run({ command: "rewake", args: "clear" } as never);
+  const kept = await $.command.run({ command: "rewake", args: "cancel all" } as never);
   expect(kept.text).toBe("Kept your scheduled message.");
   expect(seen.questions.at(-1)?.question).toBe("Delete the scheduled message in this session?");
   expect((seen.store["sched:S1"] as unknown[]).length).toBe(1);
@@ -456,25 +456,75 @@ test("still limited after the last re-check: offered for the later reset, not dr
   expect((seen.store["limit:S1"] as Episode).state).toBe("offered");
   expect((seen.store["limit:S1"] as Episode).fireAt).toBe(Date.parse("2026-10-06T15:01:00Z"));
   expect(seen.status.at(-1)).toMatch(
-    /^Usage limit reached · \/rewake-continue to continue after the reset (at|on) /,
+    /^Usage limit reached · \/rewake to continue after the reset (at|on) /,
   );
   expect(seen.submitted.length).toBe(0);
 });
 
-test('"/rewake ask" turns "always" off, and the list says how', async ($, on) => {
+test('"/rewake auto off" turns "always" off, "auto on" back on, and the list says how', async ($, on) => {
   const { seen } = harness(on, { store: { prefs: { autoContinue: "always" } } });
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
-  const list = await $.command.run({ command: "rewake", args: "" } as never);
-  expect(list.text).toContain("To be asked each time: /rewake-ask");
-  const r = await $.command.run({ command: "rewake", args: "ask" } as never);
+  const list = await $.command.run({ command: "rewake", args: "list" } as never);
+  expect(list.text).toContain("To be asked each time: /rewake auto off");
+  const r = await $.command.run({ command: "rewake", args: "auto off" } as never);
   expect(r.text).toBe("Rewake will ask before continuing after a usage limit.");
   expect(seen.store.prefs).toEqual({});
+  const on2 = await $.command.run({ command: "rewake", args: "auto on" } as never);
+  expect(on2.text).toMatch(/^From now on, after a usage limit Rewake continues every session/);
+  expect(seen.store.prefs).toEqual({ autoContinue: "always" });
 });
 
-test("/rewake-schedule asks when (presets with their times), then what", async ($, on) => {
+test("/rewake list numbers messages by time; /rewake cancel N deletes one", async ($, on) => {
+  const { seen } = harness(on);
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.command.run({ command: "rewake", args: "in 3h second" } as never);
+  await $.command.run({ command: "rewake", args: "in 1h first" } as never);
+  const list = await $.command.run({ command: "rewake", args: "list" } as never);
+  expect(list.text).toMatch(/^1\. .+: first\n2\. .+: second$/);
+  const r = await $.command.run({ command: "rewake", args: "cancel 2" } as never);
+  expect(r.text).toMatch(/^Deleted the message scheduled for /);
+  expect((seen.store["sched:S1"] as { text: string }[]).map((x) => x.text)).toEqual(["first"]);
+  const none = await $.command.run({ command: "rewake", args: "cancel 5" } as never);
+  expect(none.text).toBe(
+    "There's no scheduled message number 5 in this session. Type /rewake list.",
+  );
+});
+
+test("/rewake at a limit continues after the reset; /rewake <time> continues then", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("offered");
+  const r = await $.command.run({ command: "rewake", args: "" } as never);
+  expect(r.text).toMatch(/^This session continues at .+\. To cancel: \/rewake cancel$/);
+  expect((seen.store["limit:S1"] as Episode).fireAt).toBe(Date.parse("2026-10-06T11:01:00Z"));
+  const later = await $.command.run({ command: "rewake", args: "in 3h" } as never);
+  expect(later.text).toMatch(/^This session continues at /);
+  expect((seen.store["limit:S1"] as Episode).fireAt).toBe(T0 + 1 + 3 * H);
+  // Disarm, so no timer outlives the test.
+  await $.command.run({ command: "rewake", args: "cancel" } as never);
+});
+
+test("/rewake help lists what works here; the rest gets one line", async ($, on) => {
+  harness(on);
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  const help = await $.command.run({ command: "rewake", args: "help" } as never);
+  expect(help.text).toMatch(/^Rewake in Claude Code:/);
+  expect(help.text).toContain("/rewake cancel N | all");
+  const every = await $.command.run({ command: "rewake", args: "every day 9:00 hi" } as never);
+  expect(every.text).toBe(
+    "Rewake can't repeat messages in Claude Code. Type /rewake help to see what it can do.",
+  );
+});
+
+test("/rewake alone asks when (presets with their times), then what", async ($, on) => {
   const { clock, seen } = harness(on, { answers: ["FIRST", "run the tests"] });
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
-  const r = await $.command.run({ command: "rewake-schedule", args: "" } as never);
+  const r = await $.command.run({ command: "rewake", args: "" } as never);
   expect(r.text).toMatch(/^Scheduled for /);
   expect(seen.questions[0]?.options?.length).toBe(4);
   const first = seen.questions[0]?.options?.[0];
@@ -486,11 +536,13 @@ test("/rewake-schedule asks when (presets with their times), then what", async (
   expect(seen.submitted).toEqual(["run the tests"]);
 });
 
-test("/rewake-schedule changes nothing when dismissed", async ($, on) => {
+test("/rewake alone, dismissed: changes nothing and shows what's scheduled", async ($, on) => {
   const { seen } = harness(on);
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
-  const r = await $.command.run({ command: "rewake-schedule", args: "" } as never);
-  expect(r.text).toBe("Nothing was scheduled.");
+  const r = await $.command.run({ command: "rewake", args: "" } as never);
+  expect(r.text).toBe(
+    "Nothing scheduled in this session.\n\nType /rewake help to see what Rewake can do here.",
+  );
   expect(seen.store["sched:S1"]).toBeUndefined();
 });
 
@@ -575,19 +627,12 @@ test("a limit that never gets a reset time stops holding up scheduled messages",
   expect(seen.submitted).toEqual(["run the tests"]);
 });
 
-test("registers every command it answers", async ($, on) => {
-  const { seen } = harness(on);
+test("registers one command, /rewake", async ($, on) => {
+  const { clock, seen } = harness(on);
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
-  expect(seen.commands.sort()).toEqual(
-    [
-      "rewake",
-      "rewake-ask",
-      "rewake-cancel",
-      "rewake-clear",
-      "rewake-continue",
-      "rewake-schedule",
-    ].sort(),
-  );
+  // Let the reopen check that session.start began finish inside the test.
+  await clock.advance(1);
+  expect(seen.commands).toEqual(["rewake"]);
 });
 
 test("reopened while Claude Code's own wait was pending: Rewake asks instead", async ($, on) => {
