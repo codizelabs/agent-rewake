@@ -49,7 +49,9 @@ Rewake works in **Zed's Agent Panel** (⌘? on macOS, Ctrl+? on Linux, Ctrl+Shif
 It can't reach:
 
 - **Zed's own agent** (the panel's built-in one): Zed doesn't let add-ons into it. Start the thread with Claude Agent in the same panel instead.
-- **Claude outside the Agent Panel**: the Claude desktop app, claude.ai, or Claude Code in a terminal (Zed's included). Claude Code and the desktop app each have their own setting to continue after a usage limit.
+- **Claude's own apps**: claude.ai and the Claude desktop app's chat.
+
+Outside Zed, previews for Claude Code, Codex, GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI install one by one: see [Outside Zed: previews](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews).
 
 ## Quick start
 
@@ -143,4 +145,4 @@ Agent Rewake is free and open source. If it saves you time, you can [support it 
   </a>
 </p>
 
-<sub>Agent Rewake is an independent project, not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Google or Zed Industries. Claude is a trademark of Anthropic, PBC. Zed is a trademark of Zed Industries, Inc.</sub>
+<sub>Agent Rewake is an independent project, not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Google, GitHub, xAI or Zed Industries. Claude and Claude Code are trademarks of Anthropic, PBC. Zed is a trademark of Zed Industries, Inc. Other product names are trademarks of their owners.</sub>

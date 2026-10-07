@@ -100,6 +100,10 @@ Limits: one-off messages at most 30 days ahead; repeats have no limit unless giv
 
 Scheduled · Paused · Queued (due, waiting for the current reply) · Sending · Sent · Failed (the agent returned an error) · Missed (Zed or the computer wasn't running) · Stopped · Cancelled · Needs you (still limited with no new reset time, a reset more than a day away to confirm, or interrupted because Zed closed).
 
+## Outside Zed (previews)
+
+Everything above is about Zed's Agent Panel. Separately, Rewake can be set up, one agent at a time with \`agent-rewake install --only <agent>\`, in Claude Code in a terminal, Codex, GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI outside Zed. These are previews. There, Rewake runs at the reset even with Zed closed, but the computer must be on and awake then. If a resume is more than 30 minutes late, Rewake notifies the user instead of sending it. Copilot CLI, Grok, Gemini CLI and Antigravity sessions are continued once closed (\`agent-rewake continue\`, or by itself after \`agent-rewake continue --always\`); in Codex the user types "rewake" in the thread; Claude Code asks in the session. \`agent-rewake doctor\` has an "Outside Zed" section.
+
 ## Data and privacy
 
 Everything stays on the user's computer in Rewake's state folder (macOS: ~/Library/Application Support/agent-rewake; Linux: ~/.local/state/agent-rewake; Windows: %LOCALAPPDATA%\\agent-rewake; or AGENT_REWAKE_STATE_DIR). It holds the scheduled messages, per-thread settings, settings.json and logs with metadata only (no message text). Rewake doesn't send the user's messages or data anywhere except to the agent. Its only network use is downloading an agent's own published program when Zed hasn't downloaded it yet.
