@@ -30,7 +30,7 @@ on:
       - "scripts/build.mjs"
       - ".github/workflows/contracts.yml"
   schedule:
-    - cron: "41 4 * * 1"
+    - cron: "41 2 * * *" # nightly, with ci.yml (plan §10.5)
   workflow_dispatch:
 
 permissions: {}
