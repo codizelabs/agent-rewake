@@ -3,6 +3,7 @@ import type { Finding } from "../doctor.js";
 import type { PlaceId } from "../install/detect.js";
 import type { HostAdapter } from "./host.js";
 import { hooksTurnedOff } from "./policy.js";
+import { AGENT_VERSIONS, newerThanTested, tooOld, untestedText } from "./versions.js";
 
 /**
  * `doctor`'s "Outside Zed" section: the previews set up here (plan §6). Offline: Rewake's own
@@ -21,6 +22,8 @@ export interface OutsideFacts {
   hosts: ReadonlyMap<string, HostAdapter>;
   /** Whether this computer offers a one-shot timer (src/timers/timers.ts timerKind). */
   hasTimer: boolean;
+  /** The agents' terminal programs here, with their versions (src/install/detect.ts terminalAgents). */
+  agents?: { id: PlaceId; version?: string }[];
   when: (at: number, now: number) => string;
 }
 
@@ -28,8 +31,24 @@ const DAY = 24 * 60 * 60 * 1000;
 
 export function diagnoseOutside(f: OutsideFacts): Finding[] {
   const out: Finding[] = [];
-  if (f.previews.length === 0) return out;
   const add = (x: Omit<Finding, "area">) => out.push({ area: "Outside Zed", ...x });
+
+  // Versions: an agent too old for Rewake, set up or not, and one newer than Rewake was tested with.
+  const setUp = new Set(f.previews.map((p) => p.id));
+  for (const a of f.agents ?? []) {
+    const v = AGENT_VERSIONS[a.id];
+    if (!v || !a.version) continue;
+    if (tooOld(a.id, a.version)) {
+      const set = setUp.has(a.id);
+      add({
+        level: set ? "problem" : "info",
+        text: `${v.name} ${a.version} is too old for Rewake (it needs ${v.min} or newer), so ${set ? "Rewake may miss its usage limits" : "Rewake isn't set up for it"}.`,
+        fix: `Update it with: ${v.update}${set ? "" : `, then run: agent-rewake install --only ${a.id}`}`,
+      });
+    } else if (setUp.has(a.id) && newerThanTested(a.id, a.version))
+      add({ level: "info", text: untestedText(a.id, a.version) });
+  }
+  if (f.previews.length === 0) return out;
 
   for (const p of f.previews) {
     const off = hooksTurnedOff(p.id, f.env, f.home);

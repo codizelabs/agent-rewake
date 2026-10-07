@@ -520,4 +520,18 @@ describe("Codex plugin and install", () => {
     expect(old.installed).toEqual([]);
     expect((await install({ programs: [] })).output).toContain("Codex wasn't found");
   });
+
+  it("installs a Codex newer than the one tested, and says so", async () => {
+    const newer = await install({
+      programs: [{ path: FAKE, surface: "terminal", version: "0.170.0" }],
+    });
+    expect(newer.code).toBe(0);
+    expect(newer.output).toContain(
+      "Codex 0.170.0 is newer than the versions Rewake was tested with (up to 0.160.1).",
+    );
+    const tested = await install({
+      programs: [{ path: FAKE, surface: "terminal", version: "0.160.1" }],
+    });
+    expect(tested.output).not.toContain("newer than the versions Rewake was tested with");
+  });
 });

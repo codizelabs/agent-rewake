@@ -15,6 +15,7 @@ import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { VERSION } from "../../version.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
+import { newerThanTested, untestedText, versionOf } from "../versions.js";
 
 /**
  * `agent-rewake install --only gemini-cli` (a preview, until GG-G1/GG-G3 are checked with a real
@@ -28,7 +29,7 @@ import { codexProgram as nodeAware } from "../codex/cli.js";
  * setting is on; install checks that first. Uninstall: `gemini extensions uninstall agent-rewake`.
  */
 
-export const MIN_GEMINI = "0.62.0";
+export const MIN_GEMINI = versionOf("gemini-cli").min;
 export const GEMINI_EVENTS = ["SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent"] as const;
 
 export function extensionDir(stateDir: string): string {
@@ -187,6 +188,8 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
         "gemini-cli",
       ),
     );
+  if (!o.uninstall && gemini?.version && newerThanTested("gemini-cli", gemini.version))
+    o.out(`${untestedText("gemini-cli", gemini.version)}\n`);
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;

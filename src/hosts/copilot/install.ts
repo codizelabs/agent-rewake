@@ -12,6 +12,7 @@ import {
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { hooksTurnedOff } from "../policy.js";
+import { newerThanTested, untestedText, versionOf } from "../versions.js";
 
 /**
  * `agent-rewake install --only copilot-cli` (a preview, until the real-account checks E-C1 to E-C5
@@ -21,7 +22,7 @@ import { hooksTurnedOff } from "../policy.js";
  * Uninstall deletes the file.
  */
 
-export const MIN_COPILOT = "1.0.92";
+export const MIN_COPILOT = versionOf("copilot-cli").min;
 export const COPILOT_EVENTS = [
   "sessionStart",
   "sessionEnd",
@@ -113,6 +114,8 @@ export async function runCopilotInstall(o: CopilotInstallOptions): Promise<numbe
   }
   if (!o.uninstall && copilot && !copilot.version)
     o.out(unknownVersionText("GitHub Copilot CLI", MIN_COPILOT, "copilot update", "copilot-cli"));
+  if (!o.uninstall && copilot?.version && newerThanTested("copilot-cli", copilot.version))
+    o.out(`${untestedText("copilot-cli", copilot.version)}\n`);
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;

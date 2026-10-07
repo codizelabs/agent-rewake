@@ -35,6 +35,7 @@ import {
   detectAgents,
   geminiPrograms,
   grokPrograms,
+  terminalAgents,
 } from "./install/detect.js";
 import {
   keyChord,
@@ -466,6 +467,7 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
       })),
       hosts: hostAdapters(env, node, state),
       hasTimer: timerKind(timers) !== undefined,
+      agents: terminalAgents({ env, home: homedir(), platform: process.platform }),
       when: doctorWhen,
     }),
   );

@@ -47,6 +47,45 @@ describe("doctor: outside Zed", () => {
     expect(out[1]?.fix).toContain("install and start the at service");
   });
 
+  it("names an agent too old for Rewake, set up or not, and one newer than tested", () => {
+    const agents = [
+      { id: "copilot-cli" as const, version: "1.0.80" },
+      { id: "claude-code" as const, version: "2.1.282" },
+    ];
+    const out = diagnoseOutside(facts({ agents }));
+    expect(out[0]).toMatchObject({
+      level: "problem",
+      text: "GitHub Copilot CLI 1.0.80 is too old for Rewake (it needs 1.0.92 or newer), so Rewake may miss its usage limits.",
+      fix: "Update it with: copilot update (or npm install -g @github/copilot@latest)",
+    });
+    expect(out[1]).toMatchObject({
+      level: "info",
+      text: "Claude Code 2.1.282 is too old for Rewake (it needs 2.1.287 or newer), so Rewake isn't set up for it.",
+      fix: "Update it with: claude update (or brew upgrade claude-code@latest), then run: agent-rewake install --only claude-code",
+    });
+
+    // With no preview set up, the too-old note still shows; a newer version is only noted when set up.
+    const none = diagnoseOutside(facts({ previews: [], agents }));
+    expect(none.map((f) => f.level)).toEqual(["info", "info"]);
+    const newer = diagnoseOutside(
+      facts({
+        previews: [{ id: "codex", name: "Codex" }],
+        agents: [{ id: "codex", version: "0.170.0" }],
+      }),
+    );
+    expect(newer[0]?.text).toBe(
+      "Codex 0.170.0 is newer than the versions Rewake was tested with (up to 0.160.1). It should still work; if Rewake misses a usage limit there, report it with agent-rewake doctor --details.",
+    );
+    expect(
+      diagnoseOutside(
+        facts({
+          previews: [],
+          agents: [{ id: "codex", version: "0.170.0" }],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
   it("lists the next planned resume and the ones that need the person, never Zed's", () => {
     const store = new ScheduleStore(join(dir, "state"));
     const mk = (status: "scheduled" | "needs_attention", host?: string) => {

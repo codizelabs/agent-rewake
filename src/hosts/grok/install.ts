@@ -12,6 +12,7 @@ import {
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { hooksTurnedOff } from "../policy.js";
+import { newerThanTested, untestedText, versionOf } from "../versions.js";
 import { grokHome } from "./host.js";
 
 /**
@@ -21,7 +22,7 @@ import { grokHome } from "./host.js";
  * hooks when a session starts. Uninstall deletes the file. Rewake never passes `--trust`.
  */
 
-export const MIN_GROK = "1.0.46";
+export const MIN_GROK = versionOf("grok").min;
 export const GROK_EVENTS = [
   "SessionStart",
   "UserPromptSubmit",
@@ -108,6 +109,8 @@ export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
   }
   if (!o.uninstall && grok && !grok.version)
     o.out(unknownVersionText("Grok Build", MIN_GROK, "grok update", "grok"));
+  if (!o.uninstall && grok?.version && newerThanTested("grok", grok.version))
+    o.out(`${untestedText("grok", grok.version)}\n`);
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;
