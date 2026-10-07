@@ -30,9 +30,10 @@ export class Logger {
   private write(level: string, event: string, fields: LogFields): void {
     if (this.disabled) return;
     try {
-      if (!this.file) {
+      // One file per day, also for a process that runs for days.
+      const day = new Date().toISOString().slice(0, 10);
+      if (!this.file?.endsWith(`rewake-${day}.jsonl`)) {
         const dir = ensurePrivateDir(join(stateDir(this.env), "logs"));
-        const day = new Date().toISOString().slice(0, 10);
         this.file = join(dir, `rewake-${day}.jsonl`);
       }
       const record = { t: new Date().toISOString(), level, event, pid: process.pid, ...fields };

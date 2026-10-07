@@ -142,6 +142,12 @@ export function formatWhen(at: number, now: number, locale?: string): string {
   return `${weekday} ${date} at ${time}`;
 }
 
+/** `formatWhen` with its preposition: "at 3:00 PM today", "on Saturday at 3:00 PM". */
+export function formatAt(at: number, now: number, locale?: string): string {
+  const s = formatWhen(at, now, locale);
+  return /^\d/.test(s) ? `at ${s}` : `on ${s}`;
+}
+
 /**
  * An unambiguous time for the agent's tool replies: "Mon 5 Oct 2026, 13:00 (Asia/Karachi, GMT+5)".
  * Relative words like "tomorrow" depend on when they're read; this doesn't.
@@ -172,4 +178,41 @@ function startOfDay(t: number): number {
   const d = new Date(t);
   d.setHours(0, 0, 0, 0);
   return d.getTime();
+}
+
+/** The wall-clock fields of `at` in `timeZone`. */
+function zoneParts(at: number, timeZone: string): { y: number; m: number; d: number; ms: number } {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+      hourCycle: "h23",
+    })
+      .formatToParts(at)
+      .map((x) => [x.type, Number(x.value)]),
+  ) as Record<string, number>;
+  const wall = Date.UTC(p.year ?? 0, (p.month ?? 1) - 1, p.day ?? 1, p.hour, p.minute, p.second);
+  return {
+    y: p.year ?? 0,
+    m: p.month ?? 1,
+    d: p.day ?? 1,
+    ms: wall - Math.floor(at / 1000) * 1000,
+  };
+}
+
+/**
+ * The next midnight in `timeZone` after `now` (Gemini API quotas reset "at midnight Pacific
+ * time"). Correct across daylight-saving changes: the offset is taken at the midnight itself.
+ */
+export function nextMidnight(timeZone: string, now: number): number {
+  const today = zoneParts(now, timeZone);
+  const wallMidnight = Date.UTC(today.y, today.m - 1, today.d + 1);
+  let at = wallMidnight - today.ms;
+  for (let i = 0; i < 2; i++) at = wallMidnight - zoneParts(at, timeZone).ms;
+  return at;
 }

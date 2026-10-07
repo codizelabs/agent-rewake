@@ -1,11 +1,12 @@
 // Applies the repository's GitHub settings from files, so they're reviewed in
 // pull requests like code:
-//   - merge settings (below);
+//   - merge settings and the default branch, develop (below; run this after develop exists);
 //   - labels from .github/labels.json (created or updated; others are listed, removed only with
 //     --prune);
 //   - Actions defaults: a read-only GITHUB_TOKEN, and Actions can't approve pull requests;
 //   - rulesets from .github/rulesets/*.json, created or updated by name;
-//   - approval before workflows run for external contributors' pull requests.
+//   - approval before workflows run for external contributors' pull requests;
+//   - the deployment environments that publish to npm (.github/workflows/publish.yml).
 // The last two need a public repository on a free account; the script says so and stops there.
 // Needs the GitHub CLI signed in as a repository admin.
 //
@@ -21,10 +22,17 @@ const dryRun = process.argv.includes("--dry-run");
 const prune = process.argv.includes("--prune");
 const root = join(import.meta.dirname, "..");
 
-/** Squash merge only, the PR title and body as the commit, branches deleted after merging. */
+/**
+ * Work merges into develop (squash, set by its ruleset); releases merge develop into main with a
+ * merge commit (main's ruleset), so develop never falls behind main. The PR title and body become
+ * the commit; branches are deleted after merging.
+ */
 const MERGE_SETTINGS = {
+  default_branch: "develop",
   allow_squash_merge: true,
-  allow_merge_commit: false,
+  allow_merge_commit: true,
+  merge_commit_title: "PR_TITLE",
+  merge_commit_message: "PR_BODY",
   allow_rebase_merge: false,
   squash_merge_commit_title: "PR_TITLE",
   squash_merge_commit_message: "PR_BODY",
@@ -37,6 +45,12 @@ const WORKFLOW_PERMISSIONS = {
   default_workflow_permissions: "read",
   can_approve_pull_request_reviews: false,
 };
+
+/** npm publishing environments: each one only for its branch (npm's trusted publishers match them). */
+const ENVIRONMENTS = [
+  { name: "npm-stage", branch: "develop" },
+  { name: "npm", branch: "main" },
+];
 
 /** Fork pull requests from anyone outside the project wait for a maintainer before CI runs. */
 const FORK_APPROVAL = { approval_policy: "all_external_contributors" };
@@ -141,3 +155,21 @@ apply(
   ["-X", "PUT", `repos/${REPO}/actions/permissions/fork-pr-contributor-approval`],
   FORK_APPROVAL,
 );
+
+// 6. npm publishing environments, each limited to its branch.
+for (const env of ENVIRONMENTS) {
+  apply(
+    `create or update environment "${env.name}" (${env.branch} only)`,
+    ["-X", "PUT", `repos/${REPO}/environments/${env.name}`],
+    { deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } },
+  );
+  const policies = dryRun
+    ? { branch_policies: [] }
+    : JSON.parse(gh([`repos/${REPO}/environments/${env.name}/deployment-branch-policies`]));
+  if (!policies.branch_policies.some((p) => p.name === env.branch && p.type === "branch"))
+    apply(
+      `allow only ${env.branch} to use "${env.name}"`,
+      ["-X", "POST", `repos/${REPO}/environments/${env.name}/deployment-branch-policies`],
+      { name: env.branch, type: "branch" },
+    );
+}

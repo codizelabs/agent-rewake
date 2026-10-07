@@ -46,7 +46,7 @@ export default defineConfig({
       title: "Agent Rewake",
       logo: { src: "./src/assets/logo.svg" },
       description:
-        "Resume Claude, Codex or any Zed agent automatically when its usage limit resets, and schedule messages into your threads. Independent, open source, pre-release.",
+        "Resume Claude Code, Codex, Gemini CLI or any Zed agent automatically when its usage limit resets (terminal agents in preview), and schedule messages into your threads. Independent, open source, pre-release.",
       // One image for GitHub's social preview, Open Graph and X.
       head: [
         { tag: "meta", attrs: { property: "og:image", content: SOCIAL_IMAGE } },

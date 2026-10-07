@@ -33,7 +33,8 @@ let home: string;
 beforeAll(() => {
   home = mkdtempSync(join(tmpdir(), "rewake-e2e-"));
 });
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+// Retries: an agent process from the last test may still be writing its log as the folder goes.
+afterAll(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
 
 /**
  * An empty home and no credentials, like the ACP Registry's CI check. On
@@ -133,6 +134,14 @@ describe("agent-rewake bundle", () => {
     expect(await p.exited).toBe(0);
   });
 
+  it("exits when Zed closes the pipe, even if the agent ignores SIGTERM", async () => {
+    const stubborn = join(root, "test", "fixtures", "stubborn-agent.mjs");
+    const p = start(["--", process.execPath, stubborn]);
+    await new Promise((r) => setTimeout(r, 300));
+    p.child.stdin.end();
+    expect(await p.exited).toBe(1);
+  }, 15_000);
+
   it("creates its log directory lazily with owner-only permissions on a cold start", async () => {
     const p = start(["--", process.execPath, fakeAgent]);
     p.send({ id: 0, method: "initialize", params: { protocolVersion: 1 } });
@@ -145,17 +154,17 @@ describe("agent-rewake bundle", () => {
     if (process.platform !== "win32") expect(statSync(logDir).mode & 0o777).toBe(0o700);
   });
 
-  it("handles /schedule inside a session without sending it to the agent", async () => {
+  it("handles /rewake inside a session without sending it to the agent", async () => {
     const p = start(["--", process.execPath, fakeAgent]);
     p.send({ id: 0, method: "initialize", params: { protocolVersion: 1 } });
     p.send({ id: 1, method: "session/new", params: { cwd: "/tmp", mcpServers: [] } });
-    await p.waitFor((l) => l.includes('"name":"schedule"'));
+    await p.waitFor((l) => l.includes('"name":"rewake"'));
     p.send({
       id: 2,
       method: "session/prompt",
       params: {
         sessionId: "s-1",
-        prompt: [{ type: "text", text: "/schedule in 2h Check the build" }],
+        prompt: [{ type: "text", text: "/rewake in 2h Check the build" }],
       },
     });
     await p.waitFor((l) => l.includes("Rewake: Scheduled for"));
@@ -185,12 +194,12 @@ describe("agent-rewake bundle", () => {
     const original =
       '// mine\n{ "theme": "One Dark", "agent_servers": { "claude-acp": { "type": "registry" } } }\n';
     writeFileSync(join(zed, "settings.json"), original);
-    const env = {
-      ...process.env,
+    // An empty home: agents installed on this computer would change what doctor finds.
+    const env = isolatedEnv({
       AGENT_REWAKE_ZED_CONFIG_DIR: zed,
       AGENT_REWAKE_ZED_DATA_DIR: join(home, "zed-data"),
       AGENT_REWAKE_STATE_DIR: join(home, "doctor-state"),
-    };
+    });
     const cli = (...args: string[]) =>
       spawnSync(process.execPath, [bundle, ...args], { encoding: "utf8", env });
 
@@ -206,10 +215,17 @@ describe("agent-rewake bundle", () => {
     expect(settings).not.toContain('"Agent Rewake"');
     expect(readFileSync(join(zed, "tasks.json"), "utf8")).toContain("Agent Rewake: schedules");
 
-    // doctor shows which agents have Rewake, and that Zed must be restarted to start it.
-    const doctor = cli("doctor").stdout;
-    expect(doctor).toContain("Zed agents with Rewake: claude-acp");
-    expect(doctor).toContain("Zed hasn't started Rewake yet. To start it, ");
+    // doctor says which agents have Rewake, and that Zed starts it with a thread in the Agent Panel.
+    // Its default output names no folders or keys.
+    const doctor = cli("doctor");
+    expect(doctor.status).toBe(0);
+    expect(doctor.stdout).toContain("Rewake is on for: Claude Agent.");
+    expect(doctor.stdout).toContain("Installed, but Zed hasn't started Rewake yet.");
+    // The general line, or the specific one when other coding agents are on this computer.
+    expect(doctor.stdout).toMatch(/Rewake works (only )?in Zed's Agent Panel/);
+    expect(doctor.stdout).not.toContain(home);
+    expect(doctor.stdout).not.toContain("ANTHROPIC");
+    expect(cli("doctor", "--details").stdout).toContain("Details (for bug reports)");
 
     // An agent that refused Rewake's tool server is named.
     mkdirSync(join(home, "doctor-state", "logs"), { recursive: true });
@@ -391,7 +407,7 @@ describe("agent-rewake bundle", () => {
       method: "session/prompt",
       params: {
         sessionId: "s-1",
-        prompt: [{ type: "text", text: `/schedule in 2h ${privateText}` }],
+        prompt: [{ type: "text", text: `/rewake in 2h ${privateText}` }],
       },
     });
     await p.waitFor((l) => l.includes('"id":3'));

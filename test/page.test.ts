@@ -2,10 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ScheduleStore } from "../src/core/store.js";
+import { loadSettings } from "../src/core/settings.js";
+import { registerHost, ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import { type InputEvent, parseInput } from "../src/ui/input.js";
 import { SchedulesPage } from "../src/ui/page.js";
+import { VERSION } from "../src/version.js";
 
 const HOUR = 3_600_000;
 const T0 = new Date(2026, 9, 4, 14, 0, 0, 0).getTime(); // Sunday 4 Oct 2026 14:00 local
@@ -96,6 +98,7 @@ describe("the schedules page", () => {
     const frame = page().render(120, 30);
     const text = frame.lines.map(plain);
     expect(text[0]).toContain("Rewake · Scheduled messages");
+    expect(text[0]?.endsWith(`Agent Rewake ${VERSION} `)).toBe(true);
     expect(text[2]).toMatch(/When\s+Agent\s+Thread\s+Message\s+Repeats\s+Status/);
     expect(text[3]).toMatch(
       /^› 15:00 today\s+Claude Agent\s+Refactor auth\s+Run the tests\s+—\s+Scheduled/,
@@ -127,7 +130,7 @@ describe("the schedules page", () => {
     for (const l of text) expect(l.length).toBeLessThanOrEqual(120);
   });
 
-  it("explains a button on hover, with the matching /schedule command", () => {
+  it("explains a button on hover, with the matching /rewake command", () => {
     seed();
     const p = page();
     const frame = p.render(120, 30);
@@ -142,7 +145,7 @@ describe("the schedules page", () => {
     });
     const hint = plain(p.render(120, 30).lines.at(-2) ?? "");
     expect(hint).toContain(
-      "Send now: sends it within a few seconds if its thread is open in Zed. In its thread: /schedule now 1",
+      "Send now: sends it within a few seconds if its thread is open in Zed. In its thread: /rewake now 1",
     );
   });
 
@@ -236,7 +239,7 @@ describe("the schedules page", () => {
     });
     const text = empty.render(100, 24).lines.map(plain).join("\n");
     expect(text).toContain("Nothing is scheduled yet.");
-    expect(text).toContain("type /schedule 09:00 Run the tests");
+    expect(text).toContain("type /rewake 09:00 Run the tests");
   });
 
   it("drops the Agent and Thread columns on narrow terminals and stays within the width", () => {
@@ -244,7 +247,18 @@ describe("the schedules page", () => {
     const text = page().render(60, 20).lines.map(plain);
     expect(text[2]).not.toContain("Agent");
     expect(text[2]).not.toContain("Thread");
+    expect(text[0]).not.toContain(VERSION); // the version only where it fits
     for (const l of text) expect(l.length).toBeLessThanOrEqual(60);
+  });
+
+  it("shows Rewake's version on the title line, shortened to the number when the tabs leave less room", () => {
+    seed();
+    const full = plain(page().render(80, 20).lines[0] ?? "");
+    expect(full.endsWith(` Agent Rewake ${VERSION} `)).toBe(true);
+    const short = plain(page({ threadId: "s-1" }).render(80, 20).lines[0] ?? "");
+    expect(short).not.toContain("Agent Rewake");
+    expect(short.endsWith(` ${VERSION} `)).toBe(true);
+    expect(short.length).toBeLessThanOrEqual(80);
   });
 
   it("hides tips for good with x, and opens help with ?", () => {
@@ -254,11 +268,77 @@ describe("the schedules page", () => {
     expect(page().showTips).toBe(false);
     key(p, "?");
     expect(p.render(120, 40).lines.map(plain).join("\n")).toContain(
-      "/schedule 09:00 Run the tests · /schedule list",
+      "/rewake 09:00 Run the tests · /rewake list",
+    );
+    expect(p.render(120, 40).lines.map(plain).join("\n")).toContain(
+      `┌─ Help · Agent Rewake ${VERSION} ─`,
     );
     key(p, "q"); // closes help first
     expect(p.done).toBe(false);
     key(p, "q");
     expect(p.done).toBe(true);
+  });
+});
+
+describe("resumes of agents outside Zed", () => {
+  function hostRow() {
+    registerHost("codex");
+    const store = new ScheduleStore(dir);
+    const s = store.create({
+      sessionId: "019a-thread-codex",
+      cwd: "/work/shop",
+      text: "Continue.",
+      dueAt: T0 + HOUR,
+      kind: "limit_resume",
+      createdBy: "auto",
+      now: T0,
+    });
+    store.put({ ...s, host: "codex", sessionRef: { threadId: s.sessionId } });
+    return s.scheduleId;
+  }
+
+  it("names the agent, and every change moves or removes its timer", () => {
+    const id = hostRow();
+    const changed: string[] = [];
+    const p = new SchedulesPage({
+      stateDir: dir,
+      now: () => T0,
+      locale: "en-GB",
+      noColor: true,
+      hostName: (h) => (h === "codex" ? "Codex" : undefined),
+      onHostChange: (x) => changed.push(x),
+    });
+    const text = p.render(120, 30).lines.map(plain).join("\n");
+    expect(text).toContain("Codex");
+    expect(text).toContain("Session 019a-thr");
+    p.action("pause");
+    expect(new ScheduleStore(dir).get(id)?.status).toBe("paused");
+    p.action("pause");
+    p.action("now");
+    expect(p.toast).toBe(
+      "Resuming the Codex session within a few seconds. If it's open in Codex, Rewake won't send it and tells you in a desktop notification.",
+    );
+    expect(changed).toEqual([id, id, id]);
+  });
+
+  it("turns on the one automatic-resume setting for them, never a Zed thread's", () => {
+    hostRow();
+    const p = new SchedulesPage({
+      stateDir: dir,
+      now: () => T0,
+      noColor: true,
+      hostName: () => "Codex",
+    });
+    p.render(120, 30);
+    expect(p.render(120, 30).lines.map(plain).join("\n")).toContain("Auto-resume: off");
+    p.action("auto");
+    expect(p.dialog).toMatchObject({ title: "Resume automatically after every usage limit?" });
+    (p.dialog as { onYes: () => void }).onYes();
+    expect(loadSettings(dir).newThreads).toBe("on");
+    expect(new ThreadStore(dir).get("019a-thread-codex")).toBeUndefined();
+    p.dialog = undefined;
+    p.action("auto");
+    expect(loadSettings(dir).newThreads).toBe("ask");
+    expect(p.toast).toBe("Automatic resume is off: Rewake asks after each usage limit.");
   });
 });

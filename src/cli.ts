@@ -1,33 +1,74 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  type AgentCommand,
-  claudeAdapterCommand,
-  resolveClaudeAdapter,
-} from "./adapters/claude/spawn.js";
+import { createInterface } from "node:readline/promises";
+import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
 import { SchedulingAddon } from "./addon.js";
-import { applySettings } from "./core/settings.js";
-import { TEXT_LOCALE } from "./core/time.js";
+import { runContinue } from "./continue.js";
+import { applySettings, loadSettings } from "./core/settings.js";
+import { ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
+import {
+  type DoctorContext,
+  detailLines,
+  diagnose,
+  when as doctorWhen,
+  findZedApps,
+  render,
+} from "./doctor.js";
+import { runAntigravityInstall } from "./hosts/antigravity/install.js";
+import { refreshMod, runClaudeInstall } from "./hosts/claude-code/install.js";
+import { type ClosedDeps, reapClosed } from "./hosts/closed.js";
+import { runCodexInstall } from "./hosts/codex/install.js";
+import { runCopilotInstall } from "./hosts/copilot/install.js";
+import { devinFound, runDevinInstall } from "./hosts/devin/install.js";
+import { diagnoseOutside } from "./hosts/doctor.js";
+import { runGeminiInstall } from "./hosts/gemini/install.js";
+import { runGrokInstall } from "./hosts/grok/install.js";
+import { readStdin, runHook } from "./hosts/hook.js";
+import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
+import { jetbrainsFound, runJetbrainsInstall } from "./hosts/jetbrains/install.js";
+import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
+import { AGENT_VERSIONS } from "./hosts/versions.js";
+import {
+  agyPrograms,
+  codexPrograms,
+  compareVersions,
+  copilotPrograms,
+  detectAgents,
+  type Found,
+  geminiPrograms,
+  grokPrograms,
+  type PlaceId,
+  terminalAgents,
+} from "./install/detect.js";
+import { choosePlaces, type Place, placesFrom } from "./install/select.js";
 import {
   keyChord,
   launchCommand,
-  missingLaunchFiles,
-  quitZed,
   runInstall,
   selfCommand,
+  stableNode,
   TASK_LABEL,
   taskEntry,
-  wrappedAgentIds,
   wrappedEntry,
   zedConfigDir,
 } from "./install.js";
 import { runMcp } from "./mcp.js";
 import { runProxy } from "./proxy.js";
+import { agentName } from "./setup.js";
+import { fire } from "./timers/fire.js";
+import { ensureLauncher, launcherPath, refreshLauncher } from "./timers/launcher.js";
+import { osNotifier } from "./timers/notify.js";
+import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
+import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
+import { Wakefulness } from "./util/keep-awake.js";
 import { Logger } from "./util/log.js";
-import { ensurePrivateDir, stateDir, zedDataDir } from "./util/paths.js";
+import { ensurePrivateDir, stateDir } from "./util/paths.js";
+import { agentProcess } from "./util/proc.js";
+import { readSleepSettings } from "./util/sleep-settings.js";
 import { resolveCommand } from "./util/spawn.js";
 import { VERSION } from "./version.js";
 import {
@@ -50,6 +91,19 @@ function agentIdentity(
   return { agentId: id, ...(name && { agentName: name }) };
 }
 
+/** Places `install --only` takes: Zed (the default) and the previews being tested. */
+const INSTALL_PLACES = new Set([
+  "zed",
+  "claude-code",
+  "codex",
+  "copilot-cli",
+  "grok",
+  "gemini-cli",
+  "antigravity",
+  "jetbrains",
+  "devin-desktop",
+]);
+
 const USAGE = `agent-rewake ${VERSION}
 
 Usage:
@@ -57,7 +111,7 @@ Usage:
   agent-rewake --wrap-command <json> Run in front of a custom agent: {"command": "...", "args": [...]}
   agent-rewake                     Run in front of the Claude adapter
   agent-rewake -- <cmd> [args...]  Run in front of another ACP agent command
-  agent-rewake doctor              Check the installation (no network access)
+  agent-rewake doctor [--details]  Check whether Rewake can work in your Zed (no network access)
   agent-rewake ui [--inline] [--thread <id>]
                                    Schedules page: a table you can click, for every thread
                                    (Zed's terminal panel; --inline draws it inside a thread)
@@ -65,9 +119,22 @@ Usage:
   agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]...
                                    Add Rewake to the agents you already use in Zed, keeping
                                    their threads (shows the changes and asks first)
+  agent-rewake install            In a terminal: pick the places to set up from what's found
+  agent-rewake install --only <place>[,<place>...] | --all | --skip <place>[,<place>...]
+                                   Places: zed, claude-code, codex, copilot-cli, grok, gemini-cli,
+                                   antigravity, jetbrains, devin-desktop. Without a terminal or
+                                   with --yes: Zed only
   agent-rewake uninstall [--yes] [--dry-run]
                                    Take Rewake out of your agents and remove its Zed entries
   agent-rewake setup zed           Print the Zed settings, task and keybinding (to add by hand)
+  agent-rewake continue [--always | --ask | --cancel]
+                                   Continue a closed agent session after its usage limit resets.
+                                   --always: continue sessions by itself from now on.
+                                   --ask: go back to asking each time.
+                                   --cancel: cancel every planned resume.
+  agent-rewake fire <id>           Run by Rewake's timers at a resume's time (safe to run any time)
+  agent-rewake hook <agent> <event>
+                                   Run by an agent's hooks outside Zed, not by you
   agent-rewake --version
   agent-rewake --help
 
@@ -89,6 +156,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
 
   // The clock (and later settings) apply to everything this process prints.
   applySettings(stateDir(env));
+  // A newer Rewake keeps the copy that hooks and timers run current (plan §3.6).
+  if (process.argv[1]) {
+    refreshLauncher(stateDir(env), process.argv[1], VERSION);
+    refreshMod(stateDir(env), process.argv[1], VERSION);
+  }
 
   const [first] = argv;
   if (first === "--version" || first === "-v") {
@@ -102,14 +174,27 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   if (first === "mcp")
     // The agent's tool server, started by the agent. stdout carries MCP.
     return runMcp({ stateDir: stateDir(env), link: env.AGENT_REWAKE_LINK });
-  if (first === "doctor") return doctor(env);
+  if (first === "doctor") {
+    sweepQuietly(env);
+    return doctor(env, argv.includes("--details"));
+  }
   if (first === "ui") {
+    sweepQuietly(env);
     const t = argv.indexOf("--thread");
     const threadId = t !== -1 ? argv[t + 1] : undefined;
+    const { timers, sweepDeps, state, node } = timerDeps(env);
+    const hosts = hostAdapters(env, node, state);
     return runTui(stateDir(env), {
       inline: argv.includes("--inline"),
       ...(threadId && { threadId }),
       env,
+      hostName: (h) => hosts.get(h)?.name,
+      // A resume outside Zed changed on the page: its OS timer follows.
+      onHostChange: (id) => {
+        const s = new ScheduleStore(state).get(id);
+        if (s?.status === "scheduled") scheduleFire(id, s.dueAt, sweepDeps(Date.now()));
+        else cancelTimer(id, timers);
+      },
     });
   }
   if (first === "schedules") {
@@ -122,28 +207,198 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     return 0;
   }
   if (first === "install" || first === "uninstall") {
-    const known = new Set(["--yes", "-y", "--dry-run", "--keybinding"]);
+    const known = new Set(["--yes", "-y", "--dry-run", "--keybinding", "--all"]);
     const only: string[] = [];
+    const places: string[] = [];
+    const skip: string[] = [];
     const unknown: string[] = [];
     const rest = argv.slice(1);
     for (let i = 0; i < rest.length; i++) {
       const a = rest[i] ?? "";
       if (a === "--agent" && first === "install" && rest[i + 1]) only.push(rest[++i] ?? "");
+      else if ((a === "--only" || a === "--skip") && rest[i + 1])
+        (a === "--only" ? places : skip).push(
+          ...(rest[++i] ?? "")
+            .split(",")
+            .map((p) => p.trim())
+            .filter(Boolean),
+        );
       else if (!known.has(a) || (first === "uninstall" && a === "--keybinding")) unknown.push(a);
     }
     if (unknown.length > 0) {
       process.stderr.write(`agent-rewake: unknown option for ${first}: ${unknown.join(" ")}\n`);
       return 2;
     }
-    return runInstall({
-      uninstall: first === "uninstall",
-      ...(only.length > 0 && { only }),
-      yes: argv.includes("--yes") || argv.includes("-y"),
-      dryRun: argv.includes("--dry-run"),
-      keybinding: argv.includes("--keybinding"),
-      env,
-    });
+    const yes = argv.includes("--yes") || argv.includes("-y");
+    const dryRun = argv.includes("--dry-run");
+    let chosen: string[];
+    // Chosen on the screen or with --all: changes are shown together and asked about once.
+    let picked = false;
+    if (places.length > 0) chosen = [...new Set(places)];
+    else if (argv.includes("--all")) {
+      chosen = pickablePlaces(env, first === "uninstall");
+      picked = true;
+    } else if (
+      first === "install" &&
+      only.length === 0 &&
+      !yes &&
+      process.stdin.isTTY &&
+      process.stdout.isTTY
+    ) {
+      // No place named, in a terminal: show what's here and let the person pick (plan §4.1).
+      const pickedPlaces = await pickPlaces(env);
+      if (!pickedPlaces) {
+        process.stdout.write("Nothing was changed.\n");
+        return 1;
+      }
+      chosen = pickedPlaces;
+      picked = true;
+    } else {
+      // Scripts and `--yes` keep today's default, Zed, and say so.
+      chosen = ["zed"];
+      if (first === "install" && only.length === 0)
+        process.stdout.write(
+          "Setting up Zed (the default). To choose other places, run install in a terminal without --yes, or name them: --only claude-code,codex\n",
+        );
+    }
+    chosen = chosen.filter((p) => !skip.includes(p));
+    const bad = [...chosen, ...skip].filter((p) => !INSTALL_PLACES.has(p));
+    if (bad.length > 0) {
+      process.stderr.write(
+        `agent-rewake: ${bad.join(", ")}: not a place Rewake can ${first === "install" ? "install into" : "remove from"}. Choose from: ${[...INSTALL_PLACES].join(", ")}.\n`,
+      );
+      return 2;
+    }
+    if (chosen.length === 0) {
+      process.stdout.write("No places chosen: nothing was changed.\n");
+      return 0;
+    }
+    const uninstall = first === "uninstall";
+    const ask = async (q: string) => /^y(es)?$/i.test((await prompt(q)).trim());
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    /** One place's install (or uninstall), with how it asks and where it prints. */
+    const runPlace = (
+      id: string,
+      o: { yes: boolean; dryRun: boolean; out: (t: string) => void },
+    ): Promise<number> => {
+      if (id === "zed")
+        return runInstall({
+          uninstall,
+          ...(only.length > 0 && { only }),
+          yes: o.yes,
+          dryRun: o.dryRun,
+          keybinding: argv.includes("--keybinding"),
+          env,
+          out: o.out,
+        });
+      const common = {
+        uninstall,
+        yes: o.yes,
+        dryRun: o.dryRun,
+        env,
+        stateDir: stateDir(env),
+        node: stableNode(),
+        bundle: process.argv[1] ?? "",
+        interactive,
+        out: o.out,
+        ask,
+      };
+      if (id === "claude-code") return runClaudeInstall(common);
+      if (id === "codex") return runCodexInstall(common);
+      if (id === "copilot-cli") return runCopilotInstall(common);
+      if (id === "grok") return runGrokInstall(common);
+      if (id === "gemini-cli") return runGeminiInstall(common);
+      if (id === "devin-desktop")
+        return runDevinInstall({
+          uninstall,
+          yes: o.yes,
+          dryRun: o.dryRun,
+          env,
+          launch: launchCommand(),
+          interactive,
+          out: o.out,
+          ask,
+        });
+      if (id === "jetbrains")
+        return runJetbrainsInstall({
+          uninstall,
+          yes: o.yes,
+          dryRun: o.dryRun,
+          env,
+          launch: launchCommand(),
+          interactive,
+          out: o.out,
+          ask,
+        });
+      return runAntigravityInstall(common);
+    };
+    const order = [...INSTALL_PLACES].filter((p) => chosen.includes(p));
+    const print = (t: string) => {
+      process.stdout.write(t);
+    };
+    let code = 0;
+    if (picked && !dryRun && order.length > 1) {
+      // Several places from the screen: every change first, one question, then a line each
+      // (plan §4.1: two decisions, which places and apply).
+      for (const id of order) {
+        print(`\n${placeName(id)}\n`);
+        await runPlace(id, {
+          yes: false,
+          dryRun: true,
+          // Each place's own dry-run line would read as if nothing will happen: left out here.
+          out: (t) => print(t.replace(/^Dry run: nothing was (changed|written)\.\n/gm, "")),
+        });
+      }
+      if (!(await ask(`\nApply these changes to ${order.length} places? [y/N] `))) {
+        print("Nothing was changed.\n");
+        return 1;
+      }
+      const results: [string, number, string][] = [];
+      for (const id of order) {
+        let text = "";
+        const c = await runPlace(id, {
+          yes: true,
+          dryRun: false,
+          out: (t) => {
+            text += t;
+          },
+        });
+        results.push([id, c, text]);
+        code = Math.max(code, c);
+      }
+      print(summaryText(results));
+    } else
+      for (const id of order)
+        code = Math.max(code, await runPlace(id, { yes, dryRun, out: print }));
+    if (uninstall && !dryRun) cancelResumesOf(chosen, env);
+    if (!dryRun) sweepQuietly(env);
+    return code;
   }
+  if (first === "continue") {
+    const flag = argv[1];
+    const mode =
+      flag === "--always"
+        ? "always"
+        : flag === "--ask"
+          ? "ask"
+          : flag === "--cancel"
+            ? "cancel"
+            : undefined;
+    if (flag !== undefined && mode === undefined) {
+      process.stderr.write(
+        "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel]\n",
+      );
+      return 2;
+    }
+    return runContinueCommand(env, mode);
+  }
+  if (first === "fire") {
+    // Timers name the state folder: they run without Rewake's environment (src/timers/timers.ts).
+    const at = argv.indexOf("--state-dir");
+    const dir = at !== -1 ? argv[at + 1] : undefined;
+    return runFire(argv[1] ?? "", dir ? { ...env, AGENT_REWAKE_STATE_DIR: dir } : env);
+  }
+  if (first === "hook") return runHookCommand(argv[1] ?? "", argv[2] ?? "", env);
   if (first === "setup") {
     if (argv[1] !== "zed") {
       process.stderr.write("agent-rewake: usage: agent-rewake setup zed\n");
@@ -161,7 +416,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       const npmLog = join(ensurePrivateDir(join(stateDir(env), "logs")), "npm-install.log");
       agent = await wrappedAgentCommand(wrap.target, wrap.extra, env, stateDir(env), npmLog);
     } catch (err) {
-      log.error("agent.resolve_failed", { message: (err as Error).message });
+      log.error("agent.resolve_failed", {
+        agent: wrap.target.kind === "registry" ? wrap.target.id : (wrap.target.id ?? "custom"),
+        message: (err as Error).message,
+      });
       process.stderr.write(`agent-rewake: ${(err as Error).message}\n`);
       return 1;
     }
@@ -184,6 +442,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     return 2;
   }
 
+  // Hooks Rewake installed for this agent's own CLI stand down in sessions Zed runs (plan §3.5).
+  agent = { ...agent, env: { ...agent.env, [OWNER_ENV]: "acp" } };
   log.info("proxy.start", {
     version: VERSION,
     node: process.versions.node,
@@ -198,6 +458,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     ...agentIdentity(wrap?.target, env),
     env,
     allowAutomaticResume: env.AGENT_REWAKE_ALLOW_AUTO !== "0",
+    ...testTiming(env),
   });
   const code = await runProxy({
     agent,
@@ -213,61 +474,71 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   return code;
 }
 
-function doctor(env: NodeJS.ProcessEnv): number {
-  const lines: string[] = [`agent-rewake ${VERSION}`];
-  let ok = true;
-  const major = Number(process.versions.node.split(".")[0]);
-  lines.push(
-    `Node.js ${process.versions.node} ${major >= 22 ? "ok" : "too old: Node 22 or newer is required"}`,
+/** `agent-rewake doctor [--details]`: see src/doctor.ts. Exit status 1 when something is broken. */
+function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
+  const ctx: DoctorContext = {
+    env,
+    now: Date.now(),
+    platform: process.platform,
+    home: homedir(),
+    zedApps: () => findZedApps(process.platform, homedir(), env),
+    agents: () => {
+      const ids = new Set(installedPreviews(env, homedir(), stateDir(env)));
+      return detectAgents({ env, home: homedir(), platform: process.platform }).filter(
+        (f) => !ids.has(f.id),
+      );
+    },
+    previews: () => previewNames(env),
+    sleep: () => {
+      const keepAwake = loadSettings(stateDir(env)).keepAwake;
+      return {
+        settings: readSleepSettings({ env }),
+        hold: new Wakefulness().supported && keepAwake !== "never" ? keepAwake : "none",
+      };
+    },
+    launch: launchCommand(),
+    version: VERSION,
+    nodeVersion: process.versions.node,
+  };
+  const findings = diagnose(ctx);
+  const { state, node, timers } = timerDeps(env);
+  findings.push(
+    ...diagnoseOutside({
+      stateDir: state,
+      env,
+      home: homedir(),
+      now: ctx.now,
+      platform: process.platform,
+      previews: installedPreviews(env, homedir(), state).map((id) => ({
+        id,
+        name: PREVIEW_NAMES[id] ?? id,
+      })),
+      hosts: hostAdapters(env, node, state),
+      hasTimer: timerKind(timers) !== undefined,
+      agents: terminalAgents({ env, home: homedir(), platform: process.platform }),
+      when: doctorWhen,
+    }),
   );
-  if (major < 22) ok = false;
-  try {
-    const a = resolveClaudeAdapter();
-    lines.push(`Claude adapter @agentclientprotocol/claude-agent-acp ${a.version} at ${a.binPath}`);
-  } catch (err) {
-    ok = false;
-    lines.push(`Claude adapter not found: ${(err as Error).message}`);
-  }
-  lines.push(`System: ${process.platform} ${process.arch}`);
-  lines.push(`State directory: ${stateDir(env)}`);
-  lines.push(`Zed settings directory: ${zedConfigDir(env)}`);
-  lines.push(`Zed data directory: ${zedDataDir(env)}`);
-  const wrapped = wrappedAgentIds(zedConfigDir(env));
-  for (const m of missingLaunchFiles(zedConfigDir(env))) {
-    ok = false;
-    lines.push(
-      `${m.id}: Zed would start Rewake with ${m.path}, which no longer exists (Node was upgraded or moved?). Run \`agent-rewake install\` again to update it.`,
-    );
-  }
-  lines.push(
-    wrapped.length > 0
-      ? `Zed agents with Rewake: ${wrapped.join(", ")}`
-      : "Zed agents with Rewake: none yet. Run `agent-rewake install`.",
-  );
-  const started = lastStart(stateDir(env));
-  if (started)
-    lines.push(
-      `Zed last started Rewake: ${new Date(started.at).toLocaleString(TEXT_LOCALE)} (${started.agent})`,
-    );
-  else if (wrapped.length > 0)
-    lines.push(
-      `Zed hasn't started Rewake yet. To start it, ${quitZed()}, open it again, then open a thread.`,
-    );
-  for (const id of toolsRefused(stateDir(env))) {
-    const name = registryAgent(id, env)?.name ?? id;
-    lines.push(
-      `${name} didn't accept Rewake's tools, so it can't suggest schedules. The Rewake menu and /schedule still work; there's nothing to fix.`,
-    );
-  }
-  lines.push(
-    env.AGENT_REWAKE_KEEP_API_KEY === "1"
-      ? "ANTHROPIC_API_KEY: passed through to the adapter (AGENT_REWAKE_KEEP_API_KEY=1)"
-      : "ANTHROPIC_API_KEY: blanked for the adapter, so Claude uses your signed-in account",
-  );
+  if (env.AGENT_REWAKE_TEST_TIMING)
+    findings.push({
+      area: "Rewake",
+      level: "info",
+      text: env.AGENT_REWAKE_STATE_DIR
+        ? "AGENT_REWAKE_TEST_TIMING is set: resumes here use test timings, for Rewake's own tests."
+        : "AGENT_REWAKE_TEST_TIMING is set but ignored: it applies only with AGENT_REWAKE_STATE_DIR.",
+      fix: "Unset AGENT_REWAKE_TEST_TIMING unless you're running Rewake's tests.",
+    });
+  for (const id of toolsRefused(stateDir(env)))
+    findings.push({
+      area: "Recently",
+      level: "info",
+      text: `${agentName(id, env)} didn't accept Rewake's tools, so it can't suggest schedules. The Rewake menu and /rewake still work.`,
+    });
+  const ascii = (process.platform === "win32" && !env.WT_SESSION) || env.TERM === "dumb";
   process.stdout.write(
-    `${lines.join("\n")}\n${ok ? "All checks passed." : "Some checks failed."}\n`,
+    render(findings, { version: VERSION, ascii, ...(details && { details: detailLines(ctx) }) }),
   );
-  return ok ? 0 : 1;
+  return findings.some((f) => f.level === "problem") ? 1 : 0;
 }
 
 /** Agents that refused Rewake's tool server, from the logs. */
@@ -292,33 +563,6 @@ function toolsRefused(state: string): string[] {
     }
   }
   return [...agents].sort();
-}
-
-/** The most recent time a Zed agent connection started Rewake, from the metadata-only logs. */
-function lastStart(state: string): { at: number; agent: string } | undefined {
-  const dir = join(state, "logs");
-  let files: string[];
-  try {
-    files = readdirSync(dir)
-      .filter((f) => /^rewake-\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
-      .sort()
-      .reverse();
-  } catch {
-    return undefined;
-  }
-  for (const f of files) {
-    const lines = readFileSync(join(dir, f), "utf8").trim().split("\n").reverse();
-    for (const line of lines) {
-      try {
-        const r = JSON.parse(line) as { t?: string; event?: string; agent?: string };
-        if (r.event === "proxy.start" && r.t)
-          return { at: Date.parse(r.t), agent: r.agent ?? "agent" };
-      } catch {
-        // A torn or foreign line: skipped.
-      }
-    }
-  }
-  return undefined;
 }
 
 /**
@@ -366,4 +610,382 @@ function runInTerminal(cmd: AgentCommand): number {
     ...(run.windowsVerbatimArguments && { windowsVerbatimArguments: true }),
   });
   return r.status ?? 1;
+}
+
+/**
+ * Test seam (plan §10.4): `AGENT_REWAKE_TEST_TIMING="margin=0,jitter=0,heartbeat=1000"` shortens
+ * the add-on's waits for end-to-end tests. Honoured only with AGENT_REWAKE_STATE_DIR set (a test's
+ * own state folder), so it can't change a person's setup; `doctor` reports it.
+ */
+export function testTiming(env: NodeJS.ProcessEnv): {
+  resumeMarginMs?: number;
+  jitterMs?: number;
+  heartbeatMs?: number;
+} {
+  const spec = env.AGENT_REWAKE_TEST_TIMING;
+  if (!spec || !env.AGENT_REWAKE_STATE_DIR) return {};
+  const keys = { margin: "resumeMarginMs", jitter: "jitterMs", heartbeat: "heartbeatMs" } as const;
+  const out: { resumeMarginMs?: number; jitterMs?: number; heartbeatMs?: number } = {};
+  for (const part of spec.split(",")) {
+    const [k, v] = part.split("=");
+    const key = keys[(k ?? "").trim() as keyof typeof keys];
+    const n = Number(v);
+    if (key && Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out;
+}
+
+/** What `install` finds here, as the selection screen lists it. */
+function placesHere(env: NodeJS.ProcessEnv): { places: Place[]; missing: string[] } {
+  const host = { env, home: homedir(), platform: process.platform };
+  const found = detectAgents(host);
+  const zedApps = findZedApps(process.platform, homedir(), env);
+  const installed = new Set<PlaceId>(installedPreviews(env, homedir(), stateDir(env)));
+  // JetBrains IDEs run agents through ACP: offered like an agent, with no version of their own.
+  const withIde: Found[] = [
+    ...found,
+    ...(jetbrainsFound(env, homedir(), process.platform)
+      ? [{ id: "jetbrains" as const, name: "JetBrains IDEs", surfaces: ["app"] }]
+      : []),
+    ...(devinFound(homedir())
+      ? [{ id: "devin-desktop" as const, name: "Devin Desktop", surfaces: ["app"] }]
+      : []),
+  ];
+  const places = placesFrom(
+    withIde,
+    {
+      found: zedApps.length > 0,
+      ...(zedApps[0]?.version && { version: zedApps[0].version }),
+    },
+    installed,
+    (id) => (id === "zed" ? undefined : AGENT_VERSIONS[id]?.min),
+    (a, b) => compareVersions(a, b) < 0,
+    (id) => (id === "zed" ? undefined : AGENT_VERSIONS[id]?.update),
+  );
+  const names: Partial<Record<PlaceId, string>> = {
+    "claude-code": "Claude Code",
+    codex: "Codex",
+    "copilot-cli": "GitHub Copilot CLI",
+    grok: "Grok Build",
+    "gemini-cli": "Gemini CLI",
+    antigravity: "Antigravity",
+  };
+  const ids = new Set(places.map((p) => p.id));
+  const missing = Object.entries(names)
+    .filter(([id]) => !ids.has(id as PlaceId))
+    .map(([, n]) => n as string);
+  return { places, missing };
+}
+
+function placeName(id: string): string {
+  const names: Record<string, string> = {
+    zed: "Zed",
+    "claude-code": "Claude Code",
+    codex: "Codex",
+    "copilot-cli": "GitHub Copilot CLI",
+    grok: "Grok Build",
+    "gemini-cli": "Gemini CLI",
+    antigravity: "Antigravity",
+    jetbrains: "JetBrains IDEs",
+    "devin-desktop": "Devin Desktop",
+  };
+  return names[id] ?? id;
+}
+
+/**
+ * One line per place after applying several: done and the one next step, or why not. The next
+ * step is what the place's own install said after "Done."; a failure, its last line.
+ */
+export function summaryText(results: [string, number, string][]): string {
+  const width = Math.max(...results.map(([id]) => placeName(id).length));
+  const lines = results.map(([id, c, text]) => {
+    const said = text
+      .trim()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const done = said.findIndex((l) => l.startsWith("Done"));
+    const next =
+      c === 0
+        ? done >= 0
+          ? said
+              .slice(done)
+              .join(" ")
+              .replace(/^Done\.?\s*/, "")
+          : (said.at(-1) ?? "")
+        : (said.at(-1) ?? "");
+    const state = c === 0 ? "done" : "not changed";
+    // A place that didn't change: its reason, then how to try it on its own.
+    const retry = c === 0 ? "" : ` Try it on its own: agent-rewake install --only ${id}`;
+    return `  ${placeName(id).padEnd(width)}  ${state}${next ? `: ${next}` : ""}${retry}`;
+  });
+  return `\nResult:\n${lines.join("\n")}\n`;
+}
+
+/** `--all`: every place found that Rewake can install into, or (uninstall) every one it's in. */
+function pickablePlaces(env: NodeJS.ProcessEnv, uninstall: boolean): string[] {
+  const { places } = placesHere(env);
+  return places
+    .filter((p) => (uninstall ? p.state === "installed" || p.id === "zed" : p.state !== "too-old"))
+    .map((p) => p.id);
+}
+
+/** The selection screen, in this terminal; undefined when the person quits. */
+async function pickPlaces(env: NodeJS.ProcessEnv): Promise<string[] | undefined> {
+  const { places, missing } = placesHere(env);
+  process.stdout.write(`Agent Rewake ${VERSION} found these on your computer:\n\n`);
+  const stdin = process.stdin;
+  // Key presses through a listener that's removed afterwards: iterating stdin would close it, and
+  // the question that follows needs it.
+  const queue: string[] = [];
+  let wake: (() => void) | undefined;
+  const onData = (d: Buffer | string) => {
+    queue.push(String(d));
+    wake?.();
+  };
+  async function* keys(): AsyncIterable<string> {
+    for (;;) {
+      while (queue.length > 0) yield queue.shift() as string;
+      await new Promise<void>((r) => {
+        wake = r;
+      });
+    }
+  }
+  stdin.setRawMode(true);
+  stdin.setEncoding("utf8");
+  stdin.on("data", onData);
+  stdin.resume();
+  try {
+    return await choosePlaces(places, missing, {
+      keys: keys(),
+      write: (t) => process.stdout.write(t),
+    });
+  } finally {
+    stdin.off("data", onData);
+    stdin.setRawMode(false);
+    stdin.pause();
+  }
+}
+
+/** The Rewake that timers and detached runs start: the stable copy, made now if it's missing. */
+function rewakeCli(state: string): string {
+  const stable = launcherPath(state);
+  if (existsSync(stable)) return stable;
+  const bundle = process.argv[1] ?? "";
+  return (bundle && ensureLauncher(state, bundle)) || bundle || stable;
+}
+
+/**
+ * After `uninstall --only <agents>`: their planned resumes are cancelled and their timers removed,
+ * so nothing continues a session in an agent Rewake was taken out of. Only if Rewake really is out
+ * (the agent's hooks or plugin are gone); a declined or failed uninstall leaves them.
+ */
+function cancelResumesOf(places: string[], env: NodeJS.ProcessEnv): void {
+  const { state, timers } = timerDeps(env);
+  const still = new Set<string>(installedPreviews(env, homedir(), state));
+  // Place ids and host ids are the same words ("codex", "copilot-cli", "grok", …).
+  const gone = places.filter((p) => p !== "zed" && !still.has(p));
+  if (gone.length === 0) return;
+  const store = new ScheduleStore(state);
+  const hosts = hostAdapters(env, stableNode(), state);
+  for (const place of gone) {
+    let n = 0;
+    for (const s of store.list()) {
+      if (s.host !== place || TERMINAL_STATUSES.has(s.status)) continue;
+      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), Date.now());
+      cancelTimer(s.scheduleId, timers);
+      n++;
+    }
+    const name = hosts.get(place)?.name ?? place;
+    if (n > 0)
+      process.stdout.write(
+        `Also cancelled ${n === 1 ? "1 resume message" : `${n} resume messages`} for ${name} sessions.\n`,
+      );
+  }
+}
+
+/** Re-arm lost timers and start due resumes (plan §5); never fails the command running it. */
+function sweepQuietly(env: NodeJS.ProcessEnv): void {
+  try {
+    const { sweepDeps } = timerDeps(env);
+    sweep(sweepDeps(Date.now()));
+    reapClosed(CLOSED_HOSTS, closedDeps(env, Date.now()));
+  } catch {
+    // The next hook or command sweeps again.
+  }
+}
+
+/** What closed-session handling needs outside a hook (the sweep's reaping of ended sessions). */
+function closedDeps(env: NodeJS.ProcessEnv, now: number): ClosedDeps {
+  const { state, timers, sweepDeps } = timerDeps(env);
+  const notify = osNotifier();
+  return {
+    stateDir: state,
+    now,
+    env,
+    arm: (id, at) => {
+      scheduleFire(id, at, sweepDeps(Date.now()));
+    },
+    disarm: (id) => cancelTimer(id, timers),
+    notify: (title, body) => {
+      notify(title, body);
+    },
+  };
+}
+
+/** Timers, the sweep and a detached `fire`, for this run. */
+function timerDeps(env: NodeJS.ProcessEnv) {
+  const state = stateDir(env);
+  const node = stableNode();
+  const cli = rewakeCli(state);
+  const timers = defaultTimerHost(state, node, cli);
+  return {
+    state,
+    node,
+    timers,
+    sweepDeps: (now: number): SweepDeps => ({
+      stateDir: state,
+      now,
+      hosts: hostAdapters(env, node, state),
+      timers,
+      fireDetached: (id) => timers.detached(node, [cli, "fire", id]),
+    }),
+  };
+}
+
+/**
+ * `agent-rewake fire <id>`: run by a resume's OS timer (src/timers/). Exit status 0 unless the
+ * id is malformed; what happened is in the schedule and the log.
+ */
+async function runFire(name: string, env: NodeJS.ProcessEnv): Promise<number> {
+  if (!/^[a-z0-9-]{1,64}$/.test(name)) {
+    process.stderr.write("agent-rewake: usage: agent-rewake fire <id>\n");
+    return 2;
+  }
+  // A timer re-armed from inside another runs as `<id>-r<n>` (src/timers/timers.ts).
+  const { id, gen } = parseTimerName(name);
+  const { state, node, timers } = timerDeps(env);
+  const log = new Logger(env);
+  const outcome = await fire(id, {
+    stateDir: state,
+    now: Date.now,
+    hosts: hostAdapters(env, node, state),
+    timers,
+    notify: osNotifier(),
+    log: (event, fields) => log.info(event, fields),
+    fromTimer: true,
+    timerGen: gen,
+  });
+  log.info("fire.done", { outcome });
+  return 0;
+}
+
+/**
+ * `agent-rewake hook <host> <event>`: run by an agent's hook (src/hosts/hook.ts). Always exits 0
+ * so a problem in Rewake never breaks the agent; it prints only the reply the agent expects.
+ */
+async function runHookCommand(
+  host: string,
+  event: string,
+  env: NodeJS.ProcessEnv,
+): Promise<number> {
+  const log = new Logger(env);
+  try {
+    const { state, timers, sweepDeps } = timerDeps(env);
+    const notify = osNotifier();
+    const handler = hookHandler(host, {
+      arm: (id, at) => {
+        const r = scheduleFire(id, at, sweepDeps(Date.now()));
+        log.info("hook.arm", { host, via: r === "fired" ? "now" : r.ok ? r.via : r.reason });
+        return r === "fired" || r.ok;
+      },
+      disarm: (id) => cancelTimer(id, timers),
+      notify: (title, body) => {
+        notify(title, body);
+      },
+      closed: (ctx) => ({
+        stateDir: ctx.stateDir,
+        now: ctx.now,
+        env: ctx.env,
+        arm: (id, at) => {
+          const r = scheduleFire(id, at, sweepDeps(Date.now()));
+          log.info("hook.arm", { host, via: r === "fired" ? "now" : r.ok ? r.via : r.reason });
+        },
+        disarm: (id) => cancelTimer(id, timers),
+        notify: (title, body) => {
+          notify(title, body);
+        },
+        agent: () => agentProcess(),
+      }),
+      program: (h, e) => {
+        const host = { env: e, home: homedir(), platform: process.platform };
+        if (h === "copilot-cli") return copilotPrograms(host)[0]?.path;
+        if (h === "grok") return grokPrograms(host)[0]?.path;
+        if (h === "gemini-cli") return geminiPrograms(host)[0]?.path;
+        if (h === "antigravity") return agyPrograms(host)[0]?.path;
+        return undefined;
+      },
+      codexPath: () => {
+        const programs = codexPrograms({ env, home: homedir(), platform: process.platform });
+        const cli = programs.filter((p) => p.surface === "terminal");
+        const pool = cli.length > 0 ? cli : programs;
+        return pool.sort((a, b) => compareVersions(b.version ?? "0", a.version ?? "0"))[0]?.path;
+      },
+    });
+    const reply = await runHook(handler, event, await readStdin(), env, state, Date.now());
+    if (reply) process.stdout.write(`${reply}\n`);
+    const swept = sweep(sweepDeps(Date.now()));
+    const reaped = reapClosed(CLOSED_HOSTS, closedDeps(env, Date.now()));
+    log.info("hook", { host, event, fired: swept.fired, armed: swept.armed, reaped });
+  } catch (err) {
+    // The error's kind only: its message can hold paths and session ids (plan §2.6).
+    log.error("hook.failed", {
+      host,
+      event,
+      error: (err as NodeJS.ErrnoException).code ?? (err as Error).name,
+    });
+  }
+  return 0;
+}
+
+/** Ask one question in the terminal; resolves with what was typed. */
+async function prompt(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(question);
+  } finally {
+    rl.close();
+  }
+}
+
+/** `agent-rewake continue`: continue a closed session after its usage limit (src/continue.ts). */
+async function runContinueCommand(
+  env: NodeJS.ProcessEnv,
+  mode?: "always" | "ask" | "cancel",
+): Promise<number> {
+  const { state, timers, sweepDeps } = timerDeps(env);
+  sweepQuietly(env);
+  return runContinue({
+    sleepSettings: () => readSleepSettings({ env }),
+    ...(mode && { mode }),
+    hosts: CLOSED_HOSTS,
+    deps: {
+      stateDir: state,
+      now: Date.now(),
+      env,
+      arm: (id, at) => {
+        scheduleFire(id, at, sweepDeps(Date.now()));
+      },
+      disarm: (id) => cancelTimer(id, timers),
+      notify: () => {},
+    },
+    interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    out: (t) => process.stdout.write(t),
+    ask: prompt,
+  });
+}
+
+/** The previews set up on this computer, by name. */
+function previewNames(env: NodeJS.ProcessEnv): string[] {
+  return installedPreviews(env, homedir(), stateDir(env)).map((id) => PREVIEW_NAMES[id] ?? id);
 }

@@ -11,15 +11,27 @@ import {
   type Router,
   type RouterHooks,
 } from "./acp/router.js";
-import { type Classification, parseResetText } from "./adapters/claude/limits.js";
+import type { Classification, RateLimitInfo } from "./adapters/claude/limits.js";
 import { claudeAutoContinueDisabled, resetFromTranscript } from "./adapters/claude/sources.js";
 import {
   type AgentProfile,
   classifyLimit,
+  classifyText,
+  classifyTurnEnd,
+  isSessionLost,
   type LimitClassification,
   parseResetHint,
   profileFor,
 } from "./adapters/profiles.js";
+import { normalize } from "./adapters/text.js";
+import {
+  COMMAND_NAME,
+  parseRewake,
+  type RewakeCommand,
+  type RewakePlace,
+  rewakeHelp,
+  splitWhen,
+} from "./core/command.js";
 import { describeCron, nextRun, nextRuns, parseCron, runsPerDay } from "./core/cron.js";
 import { SessionLock } from "./core/lock.js";
 import {
@@ -30,7 +42,8 @@ import {
   withValue,
 } from "./core/options-bridge.js";
 import { type AgentRequest, LinkStore, RequestStore } from "./core/requests.js";
-import { applySettings, loadSettings, saveSettings } from "./core/settings.js";
+import { decideArm, decideFire, FAR_RESET_MS } from "./core/resume.js";
+import { applySettings, type KeepAwake, loadSettings, saveSettings } from "./core/settings.js";
 import { MAX_FOLLOW_UPS, type Schedule, ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import { DEFAULT_RESUME_PROMPT, ThreadStore } from "./core/threads.js";
 import { clockTime, formatClock, formatWhen, parseWhen, TEXT_LOCALE } from "./core/time.js";
@@ -38,9 +51,19 @@ import { introNote } from "./guide.js";
 import { zedAgentSetting } from "./install.js";
 import { phase1Hooks } from "./proxy.js";
 import { overview, overviewMarkdown, STATUS_WORDS } from "./ui/overview.js";
+import { type Wake, Wakefulness } from "./util/keep-awake.js";
 import type { Logger } from "./util/log.js";
 import { ensurePrivateDir } from "./util/paths.js";
+import {
+  readSleepSettings,
+  SLEEP_DOCS_URL,
+  type SleepSettings,
+  sleepRisks,
+} from "./util/sleep-settings.js";
 import { REPO_URL, SUPPORT_URL, VERSION } from "./version.js";
+
+/** Sign-in kinds the Claude and Codex adapters report in `_auth/status_update`. */
+const AUTH_KINDS = new Set(["account", "api_key", "external", "gateway", "none"]);
 
 /** The id of Rewake's menu in the thread toolbar. Zed saves the last pick under this key. */
 export const MENU_CONFIG_ID = "rewake";
@@ -58,18 +81,37 @@ const MENU_ACTIONS = new Set<string>([
   "settings",
 ]);
 
+/** `/rewake` in an ACP thread (Zed and other clients): everything Rewake does is here. */
+export const ACP_PLACE: RewakePlace = {
+  name: "this thread",
+  typed: `/${COMMAND_NAME}`,
+  features: new Set([
+    "messages",
+    "repeat",
+    "cancelOne",
+    "auto",
+    "stop",
+    "items",
+    "prompt",
+    "page",
+  ] as const),
+};
+
+/** What the person typed: `/rewake`, then its arguments. */
+const REWAKE_TYPED = new RegExp(`^\\/${COMMAND_NAME}(?:\\s+([\\s\\S]*))?$`, "i");
+
+// The grammar moved to the core, shared with every place Rewake runs; kept here for imports.
+export { splitWhen };
+
 /** Commands Rewake adds to every session. */
 export const REWAKE_COMMANDS = [
   {
-    name: "schedule",
-    description: "Agent Rewake: schedule messages in this thread, and resume after usage limits",
+    name: COMMAND_NAME,
+    description:
+      "Agent Rewake: continue after usage limits, and schedule messages in this thread (/rewake help)",
     input: {
-      hint: "<when> <message> | every hour|day|weekday|week|monday… [HH:MM] <message> | cron <expression> <message> | list | rm N | now N | pause N | resume N | move N <when> | edit N <text> | resume | auto on|off | prompt <text> | page",
+      hint: "<when> <message> | <when> | list | cancel [N|all] | auto on|off | stop | help",
     },
-  },
-  {
-    name: "stop",
-    description: "Agent Rewake: stop a scheduled reply that is running in this thread",
   },
 ];
 
@@ -120,6 +162,10 @@ export interface AddonOptions {
   askOnNewThreads?: boolean;
   /** The once-per-thread "How Rewake works" note. Default true. */
   firstUseNote?: boolean;
+  /** Keeps the computer awake while a message is due (tests pass their own). */
+  wake?: Wake;
+  /** Reads this computer's own sleep settings (tests pass their own). */
+  sleepSettings?: () => SleepSettings;
 }
 
 interface LimitEpisode {
@@ -138,6 +184,8 @@ interface SessionState {
   /** The client's session/prompt currently being answered by the agent, if any. */
   userTurn: JsonRpcId | undefined;
   userTurnStartedAt: number;
+  /** The user's message is a slash command, which may be answered without the model. */
+  userTurnCommand: boolean;
   /** A scheduled message currently being delivered (out of turn). */
   delivering: string | undefined;
   /** User prompts held back while a scheduled reply runs. */
@@ -148,8 +196,22 @@ interface SessionState {
   baseTitle: string | undefined;
   /** The marker currently shown, if any. */
   marker: string | undefined;
-  /** Latest structured reset hint from the SDK's rate_limit_event. */
-  rateHint: { resetAt: number; at: number } | undefined;
+  /** Claude's latest rate_limit_event, and when it arrived. */
+  rateLimit: { info: RateLimitInfo; at: number } | undefined;
+  /** When the current turn (the user's or a scheduled message's) started. */
+  turnStartedAt: number;
+  /**
+   * The start of the agent's last message in the current turn. Several agents end a turn normally
+   * and report a usage limit only as this message.
+   */
+  lastMessage: string;
+  lastMessageId: string | undefined;
+  /** How many chunks that message came in: agents write their own errors in one. */
+  lastMessageChunks: number;
+  /** The store has been checked for a resume left from an earlier limit. */
+  resumesChecked: boolean;
+  /** A limit some agents send as their own session update (Nova's `error`), for this turn. */
+  turnError: { code: string; message: string } | undefined;
   /** The thread's permission mode, from the adapter's "mode" config option. */
   permissionMode: string | undefined;
   /** The current usage-limit episode, if any. */
@@ -186,7 +248,7 @@ interface SessionState {
 }
 
 /**
- * The scheduling add-on: `/schedule` and `/stop`, the schedule store, a wall-clock scheduler and
+ * The scheduling add-on: `/rewake`, the schedule store, a wall-clock scheduler and
  * out-of-turn delivery into the same session, plus resume after a usage
  * limit with the in-thread "Resume after the limit?" form.
  */
@@ -214,10 +276,20 @@ export class SchedulingAddon {
   private watcher: FSWatcher | undefined;
   private watchDebounce: NodeJS.Timeout | undefined;
   private readonly initHooks = phase1Hooks();
+  /** The keep-awake hold this process takes while one of its threads has a message due soon. */
+  private readonly wake: Wake;
+  /** Messages whose thread was told the computer is kept awake for them. */
+  private readonly wakeAnnounced = new Set<string>();
+  /** The one-time line about this computer's own sleep settings was shown. */
+  private wakeUnsupportedSaid = false;
+  /** This computer's sleep settings, read at most every ten minutes (it runs system commands). */
+  private sleepRead: { at: number; settings: SleepSettings } | undefined;
   /** Claude-only extras: its rate-limit events, transcripts and own auto-continue setting. */
   private claudeAgent = false;
   /** How this agent reports a usage limit. */
   private profile: AgentProfile = "generic";
+  /** The agent's last reported sign-in kind (`_auth/status_update`), logged when it changes. */
+  private authKind: string | undefined;
   /** The agent refused a session with Rewake's tool server, so it isn't offered again (D1). */
   private toolsRefused = false;
   /**
@@ -247,6 +319,7 @@ export class SchedulingAddon {
     this.links = new LinkStore(opts.stateDir);
     this.now = opts.now ?? Date.now;
     this.missedGraceMs = opts.missedGraceMs ?? 15 * 60_000;
+    this.wake = opts.wake ?? new Wakefulness();
     this.env = opts.env ?? process.env;
   }
 
@@ -284,6 +357,7 @@ export class SchedulingAddon {
     this.watcher?.close();
     this.requestWatcher?.close();
     this.lock.releaseAll();
+    this.wake.release();
   }
 
   hooks(): RouterHooks {
@@ -321,11 +395,9 @@ export class SchedulingAddon {
     if (!session) return FORWARD;
 
     const text = promptText(params.prompt);
-    const command = /^\/(schedule|stop)\b\s*([\s\S]*)$/.exec(text.trim());
+    const command = REWAKE_TYPED.exec(text.trim());
     if (command) {
-      setImmediate(() =>
-        this.runCommand(session, m.id as JsonRpcId, command[1] ?? "", command[2] ?? ""),
-      );
+      setImmediate(() => this.runCommand(session, m.id as JsonRpcId, command[1] ?? ""));
       return CONSUME;
     }
     if (session.delivering) {
@@ -338,6 +410,8 @@ export class SchedulingAddon {
     }
     session.userTurn = m.id;
     session.userTurnStartedAt = this.now();
+    session.userTurnCommand = text.trim().startsWith("/");
+    this.startTurn(session);
     if (session.needsReattach) {
       void this.reattach(session).then((ok) => this.forwardAfterReattach(session, m, ok));
       return CONSUME;
@@ -421,12 +495,23 @@ export class SchedulingAddon {
 
   private onAgentMessage(m: JsonRpcMessage): Action {
     if (m.method === "_claude/sdkMessage") return this.onRawSdkMessage(m);
+    if (m.method === "_auth/status_update") {
+      // How the agent is signed in, for `doctor`: the kind only, never the account's email,
+      // organisation or plan (claude-agent-acp 0.85.1 and codex-acp send this).
+      const kind = asObject(m.params).kind;
+      if (typeof kind === "string" && AUTH_KINDS.has(kind) && kind !== this.authKind) {
+        this.authKind = kind;
+        this.opts.log.info("agent.auth", { kind });
+      }
+      return FORWARD;
+    }
     if (m.method !== "session/update") return FORWARD;
     const params = asObject(m.params);
     const update = asObject(params.update);
     const session =
       typeof params.sessionId === "string" ? this.sessions.get(params.sessionId) : undefined;
     if (session?.suppressReplay) return CONSUME;
+    if (session) this.trackTurn(session, update);
 
     if (update.sessionUpdate === "session_info_update" && typeof update.title === "string") {
       if (!session) return FORWARD;
@@ -463,9 +548,7 @@ export class SchedulingAddon {
     }
     if (update.sessionUpdate === "usage_update" && session) {
       const rate = asObject(asObject(update._meta)["_claude/rateLimit"]);
-      if (rate.status === "rejected" && typeof rate.resetsAt === "number") {
-        session.rateHint = { resetAt: rate.resetsAt * 1000, at: this.now() };
-      }
+      if (rate.status !== undefined) session.rateLimit = { info: rate, at: this.now() };
       return FORWARD;
     }
     if (update.sessionUpdate !== "available_commands_update") return FORWARD;
@@ -483,9 +566,7 @@ export class SchedulingAddon {
       typeof params.sessionId === "string" ? this.sessions.get(params.sessionId) : undefined;
     if (session && message.type === "rate_limit_event") {
       const info = asObject(message.rate_limit_info);
-      if (info.status === "rejected" && typeof info.resetsAt === "number") {
-        session.rateHint = { resetAt: info.resetsAt * 1000, at: this.now() };
-      }
+      if (info.status !== undefined) session.rateLimit = { info, at: this.now() };
     }
     return this.clientWantsRawSdk ? FORWARD : CONSUME;
   }
@@ -560,14 +641,25 @@ export class SchedulingAddon {
       if (sessionId && response.error === undefined) {
         const cwd = typeof p.cwd === "string" ? p.cwd : "";
         if (token) this.links.set(token, sessionId, cwd);
+        // A thread Rewake hasn't seen before, even one Zed reopens rather than creates: the
+        // "on for new threads" setting applies to it as well.
+        const firstSeen = this.threads.get(sessionId) === undefined;
         const session = this.openSession(sessionId, cwd, p, result);
         // Defer until the response itself has been written: Zed drops session updates for a
         // session it hasn't registered yet (zed#59281).
         setImmediate(() => {
-          this.registerSession(session);
+          try {
+            this.registerSession(session);
+          } catch (err) {
+            this.opts.log.error("session.register_failed", {
+              code: (err as NodeJS.ErrnoException).code ?? "error",
+            });
+          }
           if (method === "session/new") {
             this.applyDefaultMode(session);
             void this.offerAutoOnNewThread(session);
+          } else if (firstSeen) {
+            void this.offerAutoOnNewThread(session, true);
           }
         });
         if (this.menuEnabled(session)) {
@@ -608,16 +700,28 @@ export class SchedulingAddon {
         return null;
       }
       session.userTurn = undefined;
-      if (response.error) {
-        const classification = classifyLimit(this.profile, response.error, this.now());
-        if (classification.kind === "usage_limit") {
-          setImmediate(() => this.onUsageLimit(session, classification));
-          return this.cleanError(session, response, classification);
+      const classification = this.classifyTurn(session, response);
+      let answer: JsonRpcMessage | undefined;
+      if (classification?.kind === "usage_limit") {
+        setImmediate(() => this.onUsageLimit(session, classification));
+        if (response.error) {
+          const shown =
+            classification.shown ||
+            (classification.text !== "" &&
+              normalize(session.lastMessage).includes(normalize(classification.text)));
+          answer = this.cleanError(session, response, classification, !shown);
         }
+      } else if (
+        classification?.kind === "not_recoverable" &&
+        classification.reason === "billing"
+      ) {
+        setImmediate(() => this.onNotResumable(session));
       } else if (!response.error) {
-        setImmediate(() => this.onUserTurnSucceeded(session));
+        const stop = asObject(response.result).stopReason;
+        setImmediate(() => this.onUserTurnSucceeded(session, stop === "end_turn"));
       }
       setImmediate(() => this.deliverDue(session));
+      return answer;
     }
     return undefined;
   }
@@ -633,16 +737,19 @@ export class SchedulingAddon {
     session: SessionState,
     response: JsonRpcMessage,
     c: Classification,
+    echo = true,
   ): JsonRpcMessage | undefined {
     if (!this.clientIsZed || !response.error) return undefined;
-    this.router?.notifyClient("session/update", {
-      sessionId: session.sessionId,
-      update: {
-        sessionUpdate: "agent_message_chunk",
-        messageId: randomUUID(),
-        content: { type: "text", text: c.text },
-      },
-    });
+    // Agents that already wrote the limit as their last message don't need it twice.
+    if (echo)
+      this.router?.notifyClient("session/update", {
+        sessionId: session.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: randomUUID(),
+          content: { type: "text", text: c.text },
+        },
+      });
     return { jsonrpc: "2.0", id: response.id ?? null, result: { stopReason: "end_turn" } };
   }
 
@@ -709,12 +816,19 @@ export class SchedulingAddon {
       cwd,
       userTurn: undefined,
       userTurnStartedAt: 0,
+      userTurnCommand: false,
       delivering: undefined,
       heldPrompts: [],
       agentCommands: [],
       baseTitle: undefined,
       marker: undefined,
-      rateHint: undefined,
+      rateLimit: undefined,
+      turnStartedAt: 0,
+      lastMessage: "",
+      lastMessageId: undefined,
+      lastMessageChunks: 0,
+      resumesChecked: false,
+      turnError: undefined,
       permissionMode: mode,
       limit: undefined,
       formOpen: false,
@@ -759,7 +873,7 @@ export class SchedulingAddon {
       });
     sendCommands();
     // Zed can drop updates that arrive before it has registered the session (zed#59281), and then
-    // rejects /schedule as unknown: send them once more a moment later.
+    // rejects /rewake as unknown: send them once more a moment later.
     const again = setTimeout(() => {
       if (this.sessions.get(sessionId) === session) sendCommands();
     }, COMMANDS_RESEND_MS);
@@ -852,6 +966,131 @@ export class SchedulingAddon {
 
   // ---- usage limits -------------------------------------------------------------
 
+  /** A new turn: forget the last turn's closing message and agent-reported error. */
+  private startTurn(session: SessionState): void {
+    session.turnStartedAt = this.now();
+    session.lastMessage = "";
+    session.lastMessageId = undefined;
+    session.lastMessageChunks = 0;
+    session.turnError = undefined;
+  }
+
+  /** Keep the start of the agent's latest message in this turn, and reset it when work follows. */
+  private trackTurn(session: SessionState, update: Record<string, unknown>): void {
+    if (session.userTurn === undefined && session.delivering === undefined) return;
+    const kind = update.sessionUpdate;
+    if (kind === "agent_message_chunk") {
+      const content = asObject(update.content);
+      if (content.type !== "text" || typeof content.text !== "string") return;
+      const id = typeof update.messageId === "string" ? update.messageId : undefined;
+      if (id !== session.lastMessageId) {
+        session.lastMessage = "";
+        session.lastMessageId = id;
+        session.lastMessageChunks = 0;
+      }
+      session.lastMessageChunks += 1;
+      const room = MESSAGE_KEPT - session.lastMessage.length;
+      if (room > 0) {
+        // A slice of a large chunk would keep the whole chunk in memory: copy the part kept.
+        const part =
+          content.text.length > room
+            ? Buffer.from(content.text.slice(0, room)).toString()
+            : content.text;
+        session.lastMessage += part;
+      }
+    } else if (
+      kind === "tool_call" ||
+      kind === "tool_call_update" ||
+      kind === "user_message_chunk" ||
+      kind === "plan"
+    ) {
+      session.lastMessage = "";
+      session.lastMessageId = undefined;
+      session.lastMessageChunks = 0;
+    } else if (kind === "error" && typeof update.errorCode === "string") {
+      session.turnError = {
+        code: update.errorCode,
+        message: typeof update.message === "string" ? update.message : update.errorCode,
+      };
+    }
+  }
+
+  /**
+   * How a turn ended, as far as limits go: from the error if there is one, and otherwise (or when
+   * the error says nothing) from what the agent reported in its last message or its own fields.
+   */
+  private classifyTurn(
+    session: SessionState,
+    response: JsonRpcMessage,
+  ): (LimitClassification & { shown?: boolean }) | undefined {
+    const now = this.now();
+    const rate = session.rateLimit;
+    const rateLimit =
+      this.claudeAgent && rate && rate.at >= session.turnStartedAt - 1000 ? rate.info : undefined;
+    if (response.error) {
+      const c = classifyLimit(this.profile, response.error, now, { rateLimit });
+      if (c.kind !== "other") return c;
+      const shown = classifyTurnEnd(
+        this.profile,
+        session.lastMessage,
+        "error",
+        now,
+        session.lastMessageChunks,
+      );
+      return shown ? { ...shown, shown: true } : c;
+    }
+    const result = asObject(response.result);
+    const fromText = classifyTurnEnd(
+      this.profile,
+      session.lastMessage,
+      result.stopReason,
+      now,
+      session.lastMessageChunks,
+    );
+    if (fromText) return fromText;
+    // Nova reports its token quota as a session update of its own.
+    if (session.turnError?.code === "TOKEN_LIMIT_EXCEEDED")
+      return { kind: "usage_limit", text: session.turnError.message, limitType: "other" };
+    const meta = asObject(result._meta);
+    const acts = (c: LimitClassification) =>
+      c.kind === "usage_limit" || (c.kind === "not_recoverable" && c.reason === "billing");
+    // DimCode ends a failed turn with "refusal" and the error in its result's metadata.
+    const dim = asObject(asObject(meta.dimcode).error);
+    if (result.stopReason === "refusal" && Object.keys(dim).length > 0) {
+      const text = typeof dim.message === "string" ? dim.message : String(dim.reason ?? "");
+      const reason = typeof dim.reason === "string" ? dim.reason : "";
+      if (reason === "window_rate_limit_reached" || reason === "feature_quota_exhausted")
+        return { kind: "usage_limit", text, limitType: "other" };
+      if (/^insufficient_|^member_credit_limit_reached$/.test(reason))
+        return { kind: "not_recoverable", text, reason: "billing" };
+      const c = classifyText(text, now);
+      if (acts(c)) return c;
+    }
+    // Harn's agent loop ends a failed turn normally, with its error class in the metadata.
+    const terminal = asObject(asObject(meta.harn).terminal);
+    if (typeof terminal.terminalClass === "string") {
+      const c = classifyLimit(
+        this.profile,
+        {
+          code: -32603,
+          message: typeof terminal.message === "string" ? terminal.message : "",
+          data: { terminalClass: terminal.terminalClass },
+        },
+        now,
+      );
+      if (acts(c)) return c;
+    }
+    return undefined;
+  }
+
+  /** The agent stopped at a limit that waiting won't fix: say so, rather than nothing. */
+  private onNotResumable(session: SessionState): void {
+    this.status(
+      session,
+      `Rewake: Not resuming. ${capitalize(this.agentName)} stopped at a credit, billing or spending limit, which waiting won't fix.`,
+    );
+  }
+
   private resolveReset(
     session: SessionState,
     text: string,
@@ -864,15 +1103,21 @@ export class SchedulingAddon {
         ? t
         : undefined;
     if (!this.claudeAgent) return sane(hint) ?? sane(parseResetHint(text, now));
-    if (session.rateHint && session.rateHint.at >= since - 1000) {
-      const t = sane(session.rateHint.resetAt);
+    const rate = session.rateLimit;
+    if (
+      rate &&
+      rate.at >= since - 1000 &&
+      rate.info.status === "rejected" &&
+      typeof rate.info.resetsAt === "number"
+    ) {
+      const t = sane(rate.info.resetsAt * 1000);
       if (t !== undefined) return t;
     }
     const fromTranscript = sane(
       resetFromTranscript(this.env, session.cwd, session.sessionId, since)?.resetAt,
     );
     if (fromTranscript !== undefined) return fromTranscript;
-    return sane(parseResetText(text, now)?.resetAt);
+    return sane(hint) ?? sane(parseResetHint(text, now));
   }
 
   private onUsageLimit(
@@ -893,28 +1138,47 @@ export class SchedulingAddon {
       limitType: c.limitType,
       resetKnown: resetAt !== undefined,
     });
-    if (this.pending(session).some((s) => s.kind !== "user" && s.status !== "paused")) {
+    const resumes = this.pending(session).filter((s) => s.kind !== "user");
+    const live = resumes.find((s) => LIVE_RESUME.has(s.status));
+    if (live) {
+      // Another limit with a sooner reset (Sonnet's 5 hours after Opus's week): resume then.
+      const sooner = resetAt === undefined ? undefined : this.resumeAt(resetAt);
+      if (live.status === "scheduled" && sooner !== undefined && sooner < live.dueAt - 60_000) {
+        this.store.update(live.scheduleId, (x) => ({ ...x, dueAt: Math.max(now, sooner) }), now);
+        this.refreshMarker(session);
+        this.status(
+          session,
+          `Rewake: Moved the resume from ${formatWhen(live.dueAt, now, this.opts.locale)} to ${formatWhen(sooner, now, this.opts.locale)}, just after this limit resets.`,
+        );
+        return;
+      }
       this.status(
         session,
         `Rewake: A resume is already scheduled for this thread. ${this.manageHint(session)}`,
       );
       return;
     }
+    // A resume that was missed or is waiting for an answer belongs to an older limit: this one
+    // replaces it.
+    for (const s of resumes)
+      if (s.status === "missed" || s.status === "needs_attention")
+        this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), now);
     const thread = this.threads.get(session.sessionId);
     const gate = this.autoGate(session, resetAt);
-    if (thread?.autoResume && resetAt === undefined && gate === undefined) {
-      // The agent didn't say when it resets: wait the time last chosen in the resume form (C2).
-      session.limit.resetAt =
-        now + (thread.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS) - this.margin();
-      this.scheduleResume(
-        session,
-        "auto_limit_resume",
-        this.threads.resumePrompt(session.sessionId),
-        "auto",
-      );
-      return;
-    }
-    if (thread?.autoResume && resetAt !== undefined && gate === undefined) {
+    // The shared rules decide (src/core/resume.ts): billing never, a reset a day away is asked
+    // about, no reset time waits the time last chosen in the resume form (C2).
+    const delay = thread?.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS;
+    const decision = decideArm({
+      now,
+      ...(resetAt !== undefined && { resetsAt: resetAt }),
+      isBilling: false,
+      auto: thread?.autoResume && gate === undefined ? "always" : "ask",
+      noResetDelayMs: delay,
+    });
+    // A reset that has already passed: resume now (the add-on's own timing rounds it up).
+    const passed = decision.action === "none" && decision.why === "passed";
+    if (thread?.autoResume && gate === undefined && (decision.action === "arm" || passed)) {
+      if (resetAt === undefined) session.limit.resetAt = now + delay - this.margin();
       this.scheduleResume(
         session,
         "auto_limit_resume",
@@ -949,8 +1213,7 @@ export class SchedulingAddon {
         return "the limit has lasted almost a day, so Rewake won't keep trying on its own.";
       return undefined;
     }
-    if (resetAt - this.now() > 24 * 3_600_000)
-      return "the limit resets more than 24 hours from now.";
+    if (resetAt - this.now() > FAR_RESET_MS) return "the limit resets more than 24 hours from now.";
     if ((session.limit?.autoAttempts ?? 0) >= 1)
       return `${capitalize(this.agentName)} gave the same reset time as last time, so resuming again would repeat itself.`;
     return undefined;
@@ -959,7 +1222,22 @@ export class SchedulingAddon {
   /** The "Resume after the limit?" form, or a text fallback if forms aren't supported. */
   private async offerResume(session: SessionState): Promise<void> {
     const limit = session.limit;
-    if (!limit || session.formOpen) return;
+    if (!limit) return;
+    if (session.formOpen) {
+      // Another Rewake question is open; one form at a time, so this one is a line.
+      const how = this.menuEnabled(session)
+        ? 'pick "Resume after the usage limit…" in the Rewake menu under the message box.'
+        : "type /rewake.";
+      this.status(
+        session,
+        `Rewake: ${capitalize(this.agentName)} hit its usage limit${
+          limit.resetAt !== undefined
+            ? `; it resets at ${formatWhen(limit.resetAt, this.now(), this.opts.locale)}`
+            : ""
+        }. To resume when it resets, ${how}`,
+      );
+      return;
+    }
     const waiting = this.pending(session).find((s) => s.kind !== "user");
     if (waiting) return this.addAfterResume(session, waiting);
     const now = this.now();
@@ -975,8 +1253,8 @@ export class SchedulingAddon {
       this.status(
         session,
         limit.resetAt !== undefined
-          ? `Rewake: Stopped at ${this.agentName}'s usage limit. ${when} Type /schedule resume to schedule it.`
-          : `Rewake: Stopped at ${this.agentName}'s usage limit, and it didn't say when the limit resets. To resume later, type for example /schedule in 1h Resume your work.`,
+          ? `Rewake: Stopped at ${this.agentName}'s usage limit. ${when} Type /rewake to schedule it.`
+          : `Rewake: Stopped at ${this.agentName}'s usage limit, and it didn't say when the limit resets. To resume later, type a time, for example /rewake 3:30pm or /rewake in 1h.`,
       );
       return;
     }
@@ -1020,7 +1298,7 @@ export class SchedulingAddon {
       const closed = result.action === "cancel" || response.error !== undefined;
       const how = this.menuEnabled(session)
         ? 'pick "Resume after the usage limit…" in the Rewake menu.'
-        : "type /schedule resume.";
+        : "type /rewake.";
       this.status(
         session,
         closed
@@ -1136,7 +1414,7 @@ export class SchedulingAddon {
     return ` ${what} paused. To send ${rest.length === 0 ? "it" : "them"}, ${
       this.menuEnabled(session)
         ? 'pick "Change a scheduled message…" in the Rewake menu and resume the paused entry.'
-        : "type /schedule list, then /schedule resume N."
+        : "type /rewake list, then /rewake resume N."
     }`;
   }
 
@@ -1160,6 +1438,7 @@ export class SchedulingAddon {
     const jitter = Math.floor(Math.random() * (this.opts.jitterMs ?? 20_000));
     const dueAt = Math.max(now, this.resumeAt(limit.resetAt) + jitter);
     if (kind === "auto_limit_resume") limit.autoAttempts += 1;
+    session.resumesChecked = false;
     this.store.create({
       sessionId: session.sessionId,
       cwd: session.cwd,
@@ -1177,24 +1456,38 @@ export class SchedulingAddon {
         ? `Rewake: This thread will resume when the limit resets (${formatWhen(limit.resetAt, now, this.opts.locale)}), automatically for this thread. ${
             this.menuEnabled(session)
               ? "To cancel it, use the Rewake menu under the message box."
-              : "To cancel it, type /schedule list, then /schedule rm N."
+              : "To cancel it, type /rewake cancel."
           }`
         : `Rewake: This thread will resume when the limit resets (${formatWhen(limit.resetAt, now, this.opts.locale)}). ${
             this.menuEnabled(session)
               ? "To change or cancel it, use the Rewake menu under the message box."
-              : "To change or cancel it, type /schedule list."
+              : "To cancel it, type /rewake cancel."
           }`,
     );
     this.refreshMarker(session);
   }
 
   /** The user continued by hand after the reset: drop pending resumes for that limit. */
-  private onUserTurnSucceeded(session: SessionState): void {
+  private onUserTurnSucceeded(session: SessionState, answered: boolean): void {
     const limit = session.limit;
-    if (!limit || limit.resetAt === undefined || this.now() < limit.resetAt) return;
+    // Claude says the limit is lifted before its reset: another account, another model, or bought
+    // usage. The resume scheduled for the old reset would only interrupt the work later. This
+    // holds after a restart too, when Rewake no longer remembers the limit itself. Other agents
+    // say nothing of the kind, so their full answer (not a stopped turn) to a message that isn't a
+    // slash command (a command may be answered without the model) is taken as the same sign.
+    const rate = session.rateLimit;
+    const lifted = this.claudeAgent
+      ? rate !== undefined &&
+        rate.at >= session.turnStartedAt - 1000 &&
+        (rate.info.status === "allowed" || rate.info.status === "allowed_warning")
+      : answered && !session.userTurnCommand;
+    if (!lifted && (!limit || limit.resetAt === undefined || this.now() < limit.resetAt)) return;
+    // Claude says "allowed" on most turns: look for an old resume once, not on every turn.
+    if (!limit && session.resumesChecked) return;
+    session.resumesChecked = true;
     session.limit = undefined;
     const resumes = this.pending(session).filter(
-      (s) => s.kind !== "user" && s.status !== "sending",
+      (s) => s.kind !== "user" && s.status !== "sending" && s.createdAt < session.turnStartedAt,
     );
     for (const s of resumes)
       this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), this.now());
@@ -1254,7 +1547,8 @@ export class SchedulingAddon {
     return {
       id: MENU_CONFIG_ID,
       name: "Rewake",
-      description: "Agent Rewake: schedule messages in this thread",
+      // Zed shows the description in the menu's hover tooltip, so the version fits there.
+      description: `Agent Rewake ${VERSION}: schedule messages in this thread`,
       category: "_rewake",
       type: "select",
       currentValue: value("home"),
@@ -1767,19 +2061,19 @@ export class SchedulingAddon {
           type: "string",
           title: "Do this",
           oneOf: [
-            { const: "move", title: "Change the time…", description: `/schedule move ${n} <when>` },
+            { const: "move", title: "Change the time…", description: `/rewake move ${n} <when>` },
             {
               const: "edit",
               title: "Change the message…",
-              description: `/schedule edit ${n} <text>`,
+              description: `/rewake edit ${n} <text>`,
             },
-            { const: "now", title: "Send it now", description: `/schedule now ${n}` },
+            { const: "now", title: "Send it now", description: `/rewake now ${n}` },
             {
               const: "pause",
               title: paused ? "Resume it" : "Pause it",
-              description: `/schedule ${paused ? "resume" : "pause"} ${n}`,
+              description: `/rewake ${paused ? "resume" : "pause"} ${n}`,
             },
-            { const: "delete", title: "Delete it…", description: `/schedule rm ${n}` },
+            { const: "delete", title: "Delete it…", description: `/rewake cancel ${n}` },
           ],
           default: "move",
         },
@@ -1803,16 +2097,16 @@ export class SchedulingAddon {
         );
         const text = String(edited?.message ?? "").trim();
         if (!text) return;
-        this.status(session, this.cmdSchedule(session, `edit ${n} ${text}`));
+        this.status(session, this.cmdText(session, `edit ${n} ${text}`));
         return;
       }
       case "now":
-        this.status(session, this.cmdSchedule(session, `now ${n}`));
+        this.status(session, this.cmdText(session, `now ${n}`));
         return;
       case "pause":
         this.status(
           session,
-          this.cmdSchedule(session, `${s.status === "paused" ? "resume" : "pause"} ${n}`),
+          this.cmdText(session, `${s.status === "paused" ? "resume" : "pause"} ${n}`),
         );
         return;
       case "delete": {
@@ -1821,7 +2115,7 @@ export class SchedulingAddon {
           `Delete the message scheduled for ${formatWhen(s.dueAt, this.now(), this.opts.locale)}: "${preview(s.text)}"? Submit deletes it; Decline keeps it.`,
           {},
         );
-        if (sure) this.status(session, this.cmdSchedule(session, `rm ${n}`));
+        if (sure) this.status(session, this.cmdText(session, `cancel ${n}`));
         return;
       }
     }
@@ -1843,7 +2137,7 @@ export class SchedulingAddon {
             : "exceptBypass";
     const content = await this.form(
       session,
-      "Rewake settings.",
+      `Agent Rewake ${VERSION} settings.`,
       {
         autoResume: {
           type: "string",
@@ -1865,6 +2159,19 @@ export class SchedulingAddon {
           ],
           default: current.clock,
         },
+        // Only where Rewake can actually do it (rule A5).
+        ...(this.wake.supported && {
+          keepAwake: {
+            type: "string",
+            title: "Keep this computer awake for resumes and scheduled messages",
+            oneOf: [
+              { const: "plugged-in", title: "While it's plugged in" },
+              { const: "always", title: "Always, also on battery" },
+              { const: "never", title: "Never" },
+            ],
+            default: current.keepAwake,
+          },
+        }),
       },
       ["autoResume", "clock"],
     );
@@ -1877,16 +2184,37 @@ export class SchedulingAddon {
       : now;
     const newThreads = choice === "off" ? "off" : choice === "ask" ? "ask" : "on";
     const autoWhenPromptsSkipped = choice !== "exceptBypass";
-    saveSettings(this.opts.stateDir, { ...current, clock, newThreads, autoWhenPromptsSkipped });
+    const keepAwake: KeepAwake = (["plugged-in", "always", "never"] as const).includes(
+      content.keepAwake as KeepAwake,
+    )
+      ? (content.keepAwake as KeepAwake)
+      : current.keepAwake;
+    saveSettings(this.opts.stateDir, {
+      ...current,
+      clock,
+      newThreads,
+      autoWhenPromptsSkipped,
+      keepAwake,
+    });
     applySettings(this.opts.stateDir);
     const changed: string[] = [];
     if (clock !== current.clock) changed.push(`Times now show like ${clockTime(15, 19)}.`);
+    if (keepAwake !== current.keepAwake)
+      changed.push(
+        {
+          "plugged-in":
+            "Rewake keeps this computer awake for resumes and scheduled messages while it's plugged in.",
+          always:
+            "Rewake keeps this computer awake for resumes and scheduled messages, also on battery.",
+          never: "Rewake lets this computer sleep, even with messages scheduled.",
+        }[keepAwake],
+      );
     if (choice !== now)
       changed.push(
         {
-          all: "New threads resume automatically after usage limits, including threads that bypass permissions.",
+          all: "New threads, and threads Rewake sees for the first time, resume automatically after usage limits, including threads that bypass permissions.",
           exceptBypass:
-            "New threads resume automatically after usage limits, except threads that bypass permissions.",
+            "New threads, and threads Rewake sees for the first time, resume automatically after usage limits, except threads that bypass permissions.",
           ask: "Rewake asks about automatic resume when a new thread opens.",
           off: "Rewake won't resume new threads automatically or ask about it.",
         }[choice],
@@ -1906,7 +2234,7 @@ export class SchedulingAddon {
       "",
       "- **Schedules…** shows this thread's scheduled messages and lets you change them.",
       "- **Schedule a message…** adds one: pick a time, or a repeat such as every weekday at 09:00.",
-      `- You can also type \`/schedule\`, or ask ${this.agentName} to schedule something; you approve it here.`,
+      `- You can also type \`/rewake\`, or ask ${this.agentName} to schedule something; you approve it here.`,
       "",
       `Open source: [Agent Rewake on GitHub](${REPO_URL}). If it saves you time, a star there helps others find it, and you can [support it on Ko-fi](${SUPPORT_URL}).`,
     ].join("\n");
@@ -1919,7 +2247,7 @@ export class SchedulingAddon {
     const lines = ["**Rewake · Scheduled messages**", ""];
     if (list.length === 0) {
       lines.push(
-        "Nothing is scheduled in this thread yet. To add one, pick **Schedule a message…** in the Rewake menu, or type `/schedule in 1h Run the tests`.",
+        "Nothing is scheduled in this thread yet. To add one, pick **Schedule a message…** in the Rewake menu, or type `/rewake in 1h Run the tests`.",
       );
     } else {
       const anyRepeat = list.some((s) => s.repeat);
@@ -1950,7 +2278,7 @@ export class SchedulingAddon {
    * limits, or apply the user's standing answer. The question doesn't block Rewake's other forms:
    * the user can ignore it and start typing.
    */
-  async offerAutoOnNewThread(session: SessionState): Promise<void> {
+  async offerAutoOnNewThread(session: SessionState, onlyWhenOn = false): Promise<void> {
     if (
       !this.clientSupportsForms ||
       this.opts.askOnNewThreads === false ||
@@ -1960,6 +2288,8 @@ export class SchedulingAddon {
       return;
     const settings = loadSettings(this.opts.stateDir);
     if (settings.newThreads === "off") return;
+    // An existing thread opened for the first time is never asked, only switched on.
+    if (onlyWhenOn && settings.newThreads !== "on") return;
     const bypassNote =
       isBypassMode(session.permissionMode) && !settings.autoWhenPromptsSkipped
         ? " This thread bypasses permissions, and your setting excludes those threads: at a limit Rewake asks you instead."
@@ -1994,7 +2324,7 @@ export class SchedulingAddon {
           default: "all",
         },
         // One decision: the message is changed elsewhere (the auto-resume entry,
-        // /schedule prompt), not here.
+        // /rewake prompt), not here.
       },
       ["choice"],
       { exclusive: false },
@@ -2038,7 +2368,7 @@ export class SchedulingAddon {
   private async formAuto(session: SessionState): Promise<void> {
     const now = this.now();
     if (this.threads.get(session.sessionId)?.autoResume) {
-      this.status(session, this.cmdSchedule(session, "auto off"));
+      this.status(session, this.cmdText(session, "auto off"));
       return;
     }
     const content = await this.form(
@@ -2080,7 +2410,7 @@ export class SchedulingAddon {
     if (!this.clientSupportsForms || session.formOpen) {
       this.status(
         session,
-        `${question} ${this.menuEnabled(session) ? "Use the Rewake menu to send or reschedule it." : "Type /schedule list, then /schedule now N or /schedule move N <when>."}`,
+        `${question} ${this.menuEnabled(session) ? "Use the Rewake menu to send or reschedule it." : "Type /rewake list, then /rewake now N or /rewake move N <when>."}`,
       );
       this.refreshMarker(session);
       return;
@@ -2147,33 +2477,72 @@ export class SchedulingAddon {
   private manageHint(session: SessionState): string {
     return this.menuEnabled(session)
       ? "To change it, use the Rewake menu under the message box."
-      : "Type /schedule list to see or change it.";
+      : "Type /rewake list to see or change it.";
   }
 
   private stopHint(session: SessionState, lead = "To stop the reply"): string {
     return this.menuEnabled(session)
-      ? `${lead}, pick "Stop the scheduled reply" in the Rewake menu, or type /stop.`
-      : `${lead}, type /stop.`;
+      ? `${lead}, pick "Stop the scheduled reply" in the Rewake menu, or type /rewake stop.`
+      : `${lead}, type /rewake stop.`;
   }
 
   // ---- commands -------------------------------------------------------------------------------
 
-  private runCommand(session: SessionState, id: JsonRpcId, name: string, rest: string): void {
-    if (name === "schedule" && rest.trim() === "" && this.clientSupportsForms) {
-      // A bare /schedule opens the same form as the menu.
+  private runCommand(session: SessionState, id: JsonRpcId, args: string): void {
+    const command = parseRewake(args);
+    if (command.kind === "home" && this.clientSupportsForms) {
+      // A bare /rewake opens a form: the resume question at a usage limit, otherwise the same
+      // "Schedule a message" form as the menu.
       this.router?.respondToClient(id, { result: { stopReason: "end_turn" } });
-      void this.runMenu(session, "new");
+      void this.runMenu(session, this.limitToContinue(session) ? "resume" : "new");
+      return;
+    }
+    if (
+      command.kind === "cancel" &&
+      command.which === "all" &&
+      this.clientSupportsForms &&
+      this.pending(session).length > 0
+    ) {
+      // Deleting every message asks first, like the menu's Delete.
+      this.router?.respondToClient(id, { result: { stopReason: "end_turn" } });
+      void this.confirmCancelAll(session);
       return;
     }
     let reply: string;
     try {
-      reply = name === "stop" ? this.cmdStop(session) : this.cmdSchedule(session, rest.trim());
+      reply = this.cmdRewake(session, command, args.trim());
     } catch (err) {
       reply = `Rewake: Couldn't do that. ${(err as Error).message}`;
     }
     this.status(session, reply);
     this.router?.respondToClient(id, { result: { stopReason: "end_turn" } });
     this.refreshMarker(session);
+  }
+
+  /** `/rewake cancel all` where forms work: one question, then delete or keep. */
+  private async confirmCancelAll(session: SessionState): Promise<void> {
+    const n = this.pending(session).length;
+    const sure = await this.form(
+      session,
+      n === 1
+        ? "Delete the scheduled message in this thread? Submit deletes it; Decline keeps it."
+        : `Delete all ${n} scheduled messages in this thread? Submit deletes them; Decline keeps them.`,
+      {},
+    );
+    this.status(
+      session,
+      sure
+        ? this.cmdText(session, "cancel all")
+        : n === 1
+          ? "Rewake: Kept your scheduled message."
+          : "Rewake: Kept your scheduled messages.",
+    );
+    this.refreshMarker(session);
+  }
+
+  /** At a usage limit, with no resume scheduled yet: what a bare /rewake continues. */
+  private limitToContinue(session: SessionState): boolean {
+    return session.limit !== undefined && !this.pending(session).some((s) => s.kind !== "user");
   }
 
   private pending(session: SessionState): Schedule[] {
@@ -2188,80 +2557,60 @@ export class SchedulingAddon {
     const s = Number.isInteger(n) && n >= 1 ? list[n - 1] : undefined;
     if (!s)
       throw new Error(
-        `There's no scheduled message number ${arg ?? ""} in this thread. Type /schedule list.`,
+        `There's no scheduled message number ${arg ?? ""} in this thread. Type /rewake list.`,
       );
     return s;
   }
 
-  private cmdSchedule(session: SessionState, args: string): string {
+  private cmdRewake(session: SessionState, command: RewakeCommand, args: string): string {
     const now = this.now();
-    const [sub, ...restWords] = args.split(/\s+/);
-    switch (sub) {
-      case "":
-      case undefined:
-        return `${HELP}\n\n${this.listText(session)}`;
+    switch (command.kind) {
+      case "home":
+        return this.limitToContinue(session)
+          ? this.cmdResumeAfterLimit(session)
+          : `${helpBlock()}\n\n${this.listText(session)}`;
+      case "help":
+        return helpBlock();
       case "list":
         return this.schedulesCard(session, now);
-      case "rm":
-      case "delete": {
-        const s = this.byNumber(session, restWords[0]);
+      case "stop":
+        return this.cmdStop(session);
+      case "continue": {
+        if (!command.when) return this.cmdResumeAfterLimit(session);
+        const when = parseWhen(command.when.replace(/^at\s+/i, ""), now);
+        if (!when.ok) throw new Error(when.error);
+        return this.cmdResumeAfterLimit(session, when.at);
+      }
+      case "cancel": {
+        if (command.which === undefined) {
+          const resumes = this.pending(session).filter((s) => s.kind !== "user");
+          if (resumes.length === 0)
+            return `Rewake: Nothing is set to continue this thread after a usage limit. To delete a scheduled message, type /${COMMAND_NAME} list, then /${COMMAND_NAME} cancel N.`;
+          for (const s of resumes) this.store.remove(s.scheduleId);
+          return "Rewake: Cancelled. This thread won't be resumed after the usage limit.";
+        }
+        if (command.which === "all") {
+          const all = this.pending(session);
+          if (all.length === 0) return "Rewake: No messages are scheduled in this thread.";
+          for (const s of all) this.store.remove(s.scheduleId);
+          return all.length === 1
+            ? "Rewake: Deleted the scheduled message."
+            : `Rewake: Deleted ${all.length} scheduled messages.`;
+        }
+        const s = this.byNumber(session, command.which);
         this.store.remove(s.scheduleId);
         return `Rewake: Deleted the message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
       }
-      case "pause": {
-        const s = this.byNumber(session, restWords[0]);
-        this.store.update(s.scheduleId, (x) => ({ ...x, status: "paused" }), now);
-        return `Rewake: Paused. The message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)} won't be sent until you resume it.`;
-      }
-      case "resume": {
-        if (restWords.length === 0) return this.cmdResumeAfterLimit(session);
-        const s = this.byNumber(session, restWords[0]);
-        const late = s.dueAt <= now;
-        this.store.update(
-          s.scheduleId,
-          (x) => ({ ...x, status: "scheduled", ...(late && { dueAt: now }) }),
-          now,
-        );
-        if (late) setImmediate(() => this.deliverDue(session));
-        return late
-          ? "Rewake: Resumed. Its time has passed, so it will be sent now."
-          : `Rewake: Resumed. It will be sent at ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
-      }
-      case "now": {
-        const s = this.byNumber(session, restWords[0]);
-        this.store.update(s.scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: now }), now);
-        setImmediate(() => this.deliverDue(session));
-        return "Rewake: Sending it now.";
-      }
-      case "move": {
-        const [num, ...whenWords] = restWords;
-        const s = this.byNumber(session, num);
-        const when = parseWhen(whenWords.join(" "), now);
-        if (!when.ok) throw new Error(when.error);
-        this.store.update(
-          s.scheduleId,
-          (x) => ({ ...x, dueAt: when.at, status: "scheduled" }),
-          now,
-        );
-        return `Rewake: Moved. It will be sent at ${formatWhen(when.at, now, this.opts.locale)}.`;
-      }
-      case "edit": {
-        const [num, ...textWords] = restWords;
-        const s = this.byNumber(session, num);
-        const text = textWords.join(" ").trim();
-        if (!text) throw new Error("Give the new message text after the number.");
-        this.store.update(s.scheduleId, (x) => ({ ...x, text }), now);
-        return `Rewake: Updated the message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
-      }
+      case "item":
+        return this.cmdItem(session, command.action, command.n, command.rest);
       case "auto": {
-        const on = restWords[0] === "on" ? true : restWords[0] === "off" ? false : undefined;
-        if (on === undefined) {
+        if (command.on === undefined) {
           const t = this.threads.get(session.sessionId);
-          return `Rewake: Automatic resume after usage limits is ${t?.autoResume ? "on" : "off"} for this thread. Type /schedule auto on or /schedule auto off.`;
+          return `Rewake: Automatic resume after usage limits is ${t?.autoResume ? "on" : "off"} for this thread. Type /${COMMAND_NAME} auto on or /${COMMAND_NAME} auto off.`;
         }
-        this.threads.update(session.sessionId, session.cwd, { autoResume: on }, now);
-        return on
-          ? `Rewake: Automatic resume is on for this thread. After a usage limit, Rewake sends your resume message when the limit resets, follows the new reset time if ${this.agentName} is still limited, and never approves permission requests. Turn it off with /schedule auto off.`
+        this.threads.update(session.sessionId, session.cwd, { autoResume: command.on }, now);
+        return command.on
+          ? `Rewake: Automatic resume is on for this thread. After a usage limit, Rewake sends your resume message when the limit resets, follows the new reset time if ${this.agentName} is still limited, and never approves permission requests. Turn it off with /${COMMAND_NAME} auto off.`
           : "Rewake: Automatic resume is off for this thread. After a usage limit, Rewake will ask first.";
       }
       case "page": {
@@ -2271,23 +2620,25 @@ export class SchedulingAddon {
         });
         return `Rewake: [Open the overview of all scheduled messages](${pathToFileURL(file).href}) (a snapshot). To manage them, run the "Agent Rewake: schedules" task (\`agent-rewake setup zed\` prints it).`;
       }
-      case "every":
-      case "cron":
-        return this.cmdRepeat(session, sub, restWords);
+      case "repeat":
+        return this.cmdRepeat(session, command.sub, command.words);
       case "prompt": {
-        const text = restWords.join(" ").trim();
+        const text = command.text.trim();
         if (!text) {
-          return `Rewake: This thread's resume message is: "${this.threads.resumePrompt(session.sessionId)}". Change it with /schedule prompt <text>.`;
+          return `Rewake: This thread's resume message is: "${this.threads.resumePrompt(session.sessionId)}". Change it with /${COMMAND_NAME} prompt <text>.`;
         }
         this.threads.update(session.sessionId, session.cwd, { resumePrompt: text }, now);
         return "Rewake: Saved this thread's resume message.";
       }
-      default: {
+      case "at": {
         const { at, text } = splitWhen(args, now);
-        if (!text)
+        if (!text) {
+          // A time alone: continue after the usage limit then.
+          if (session.limit) return this.cmdResumeAfterLimit(session, at);
           throw new Error(
-            "Add the message after the time, for example: /schedule 09:00 Continue the refactor.",
+            `Add the message after the time, for example: /${COMMAND_NAME} 9:00 Continue the refactor.`,
           );
+        }
         const s = this.store.create({
           sessionId: session.sessionId,
           cwd: session.cwd,
@@ -2302,9 +2653,62 @@ export class SchedulingAddon {
     }
   }
 
+  /** Run `/rewake <args>` for a form's choice; the reply line. */
+  private cmdText(session: SessionState, args: string): string {
+    return this.cmdRewake(session, parseRewake(args), args);
+  }
+
+  /** `/rewake now|pause|resume|move|edit N …`: change one of this thread's messages. */
+  private cmdItem(
+    session: SessionState,
+    action: "now" | "pause" | "resume" | "move" | "edit",
+    n: string | undefined,
+    rest: string,
+  ): string {
+    const now = this.now();
+    const s = this.byNumber(session, n);
+    switch (action) {
+      case "pause":
+        this.store.update(s.scheduleId, (x) => ({ ...x, status: "paused" }), now);
+        return `Rewake: Paused. The message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)} won't be sent until you resume it.`;
+      case "resume": {
+        const late = s.dueAt <= now;
+        this.store.update(
+          s.scheduleId,
+          (x) => ({ ...x, status: "scheduled", ...(late && { dueAt: now }) }),
+          now,
+        );
+        if (late) setImmediate(() => this.deliverDue(session));
+        return late
+          ? "Rewake: Resumed. Its time has passed, so it will be sent now."
+          : `Rewake: Resumed. It will be sent at ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
+      }
+      case "now":
+        this.store.update(s.scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: now }), now);
+        setImmediate(() => this.deliverDue(session));
+        return "Rewake: Sending it now.";
+      case "move": {
+        const when = parseWhen(rest.replace(/^at\s+/i, ""), now);
+        if (!when.ok) throw new Error(when.error);
+        this.store.update(
+          s.scheduleId,
+          (x) => ({ ...x, dueAt: when.at, status: "scheduled" }),
+          now,
+        );
+        return `Rewake: Moved. It will be sent at ${formatWhen(when.at, now, this.opts.locale)}.`;
+      }
+      case "edit": {
+        const text = rest.trim();
+        if (!text) throw new Error("Give the new message text after the number.");
+        this.store.update(s.scheduleId, (x) => ({ ...x, text }), now);
+        return `Rewake: Updated the message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
+      }
+    }
+  }
+
   /**
-   * `/schedule every day 09:00 <message>` and `/schedule cron 0 9 * * 1-5 <message>`. The reply
-   * says what Rewake understood and the next runs; `/schedule rm N` undoes it.
+   * `/rewake every day 09:00 <message>` and `/rewake cron 0 9 * * 1-5 <message>`. The reply
+   * says what Rewake understood and the next runs; `/rewake cancel N` undoes it.
    */
   private cmdRepeat(session: SessionState, sub: string, words: string[]): string {
     const now = this.now();
@@ -2350,7 +2754,7 @@ export class SchedulingAddon {
       else if (day !== -1) cron = `${at.m} ${at.h} * * ${day}`;
       else
         throw new Error(
-          "After /schedule every, use hour, day, weekday, week or a day name, for example: /schedule every day 09:00 Run the tests.",
+          "After /rewake every, use hour, day, weekday, week or a day name, for example: /rewake every day 09:00 Run the tests.",
         );
     }
     const text = rest.join(" ").trim();
@@ -2358,7 +2762,7 @@ export class SchedulingAddon {
     if (!parsed.ok) throw new Error(parsed.error);
     if (!text)
       throw new Error(
-        "Add the message after the schedule, for example: /schedule every day 09:00 Run the tests.",
+        "Add the message after the schedule, for example: /rewake every day 09:00 Run the tests.",
       );
     const first = nextRun(parsed.cron, now);
     if (first === undefined) throw new Error(`"${cron}" never runs.`);
@@ -2382,17 +2786,28 @@ export class SchedulingAddon {
     return `Rewake: Scheduled to repeat. Rewake understood "${parsed.cron.source}" as: ${describeCron(parsed.cron)}. Next runs: ${runs.join("; ")}. ${this.manageHint(session)}`;
   }
 
-  private cmdResumeAfterLimit(session: SessionState): string {
+  /** `/rewake` (or `/rewake continue`) at a limit: resume at the reset, or at `at` when given. */
+  private cmdResumeAfterLimit(session: SessionState, at?: number): string {
     const limit = session.limit;
     if (!limit)
-      return "Rewake: This thread hasn't hit a usage limit. To schedule a message, type /schedule <when> <message>.";
-    if (limit.resetAt === undefined) {
-      return `Rewake: ${capitalize(this.agentName)} didn't say when the limit resets. Schedule the resume yourself, for example: /schedule in 1h Resume your work.`;
+      return `Rewake: This thread isn't at a usage limit. To schedule a message, type /${COMMAND_NAME} <when> <message>, for example /${COMMAND_NAME} in 1h Run the tests.`;
+    const waiting = this.pending(session).find((s) => s.kind !== "user");
+    if (waiting && at !== undefined) {
+      this.store.update(
+        waiting.scheduleId,
+        (x) => ({ ...x, dueAt: at, status: "scheduled" }),
+        this.now(),
+      );
+      return `Rewake: Moved. This thread will resume at ${formatWhen(at, this.now(), this.opts.locale)}.`;
     }
-    if (this.pending(session).some((s) => s.kind !== "user")) {
+    if (waiting) {
       return this.menuEnabled(session)
         ? 'Rewake: A resume is already scheduled for this thread. To send more messages after it, pick "Resume after the usage limit…" in the Rewake menu.'
-        : "Rewake: A resume is already scheduled for this thread. Type /schedule list to see it.";
+        : `Rewake: A resume is already scheduled for this thread. Type /${COMMAND_NAME} list to see it.`;
+    }
+    if (at !== undefined) limit.resetAt = at - this.margin();
+    if (limit.resetAt === undefined) {
+      return `Rewake: ${capitalize(this.agentName)} didn't say when the limit resets. Give a time, for example: /${COMMAND_NAME} 3:30pm or /${COMMAND_NAME} in 1h.`;
     }
     setImmediate(() =>
       this.scheduleResume(
@@ -2434,6 +2849,75 @@ export class SchedulingAddon {
     this.processRequests();
     // Settings changed in another window or on the schedules page apply here within a heartbeat.
     applySettings(this.opts.stateDir);
+    this.updateWake();
+  }
+
+  /** This computer's sleep settings, re-read at most every ten minutes. */
+  private sleepSettingsNow(now: number): SleepSettings {
+    if (!this.sleepRead || now - this.sleepRead.at > 10 * 60_000)
+      this.sleepRead = { at: now, settings: (this.opts.sleepSettings ?? readSleepSettings)() };
+    return this.sleepRead.settings;
+  }
+
+  /**
+   * Keep the computer from idling to sleep while a thread this process owns has a message due
+   * within a few hours, or a scheduled reply runs; otherwise let it sleep. One store read per call.
+   */
+  private updateWake(): void {
+    const settings = loadSettings(this.opts.stateDir);
+    const now = this.now();
+    const owned = [...this.sessions.values()].filter((s) => this.lock.holds(s.sessionId));
+    const ids = new Set(owned.map((s) => s.sessionId));
+    const due =
+      ids.size === 0
+        ? []
+        : this.store
+            .list()
+            .filter(
+              (s) =>
+                ids.has(s.sessionId) &&
+                (s.status === "scheduled" || s.status === "queued") &&
+                s.dueAt - now <= WAKE_HORIZON_MS,
+            );
+    const delivering = owned.find((s) => s.delivering !== undefined);
+    const want = due.length > 0 || delivering !== undefined;
+    const held = this.wake.set(want, settings.keepAwake);
+    if (!want || settings.keepAwake === "never") return;
+    if (!this.wakeUnsupportedSaid) {
+      // Rewake's own hold doesn't cover everything (battery, Linux, Windows): check what this
+      // computer's own settings will do, and say so once, with where to change them.
+      const hold = this.wake.supported ? settings.keepAwake : "none";
+      const sleep = this.sleepSettingsNow(now);
+      const known = sleep.pluggedInSleepMin !== undefined || sleep.onBattery !== undefined;
+      const risks = sleepRisks(sleep, hold);
+      const where = this.sessions.get(due[0]?.sessionId ?? "") ?? delivering;
+      const first = due[0];
+      if (where && (risks.length > 0 || (!known && !held))) {
+        this.wakeUnsupportedSaid = true;
+        const what = first
+          ? ` before ${first.kind === "user" ? "the scheduled message" : "the resume"} at ${formatWhen(first.dueAt, now, this.opts.locale)}`
+          : "";
+        this.status(
+          where,
+          risks.length > 0
+            ? `Rewake: This computer may sleep${what}: ${risks.join("; ")}. Change that so it stays awake while you're away; the best settings: ${SLEEP_DOCS_URL}`
+            : `Rewake: Make sure this computer won't sleep${what}: Rewake couldn't check its sleep settings. The best settings: ${SLEEP_DOCS_URL}`,
+        );
+      }
+    }
+    if (!held) return;
+    for (const s of due) {
+      // Once per message, not per run: an hourly repeat would otherwise say it every hour.
+      const key = s.scheduleId;
+      const session = this.sessions.get(s.sessionId);
+      if (this.wakeAnnounced.has(key) || !session) continue;
+      this.wakeAnnounced.add(key);
+      const what = s.kind === "user" ? "the scheduled message" : "the resume";
+      this.status(
+        session,
+        `Rewake: Keeping this computer awake until ${what} at ${formatWhen(s.dueAt, now, this.opts.locale)}${settings.keepAwake === "plugged-in" ? ", while it's plugged in" : ""}. Closing the lid still puts it to sleep.`,
+      );
+    }
   }
 
   // ---- the agent's requests ------------------------------------------------------
@@ -2665,7 +3149,15 @@ export class SchedulingAddon {
         this.refreshMarker(session);
         continue;
       }
-      if (now - s.dueAt > this.missedGraceMs && s.attempts.length === 0) {
+      // A resume paused again by the limit is held to its new time as well.
+      const late =
+        decideFire({
+          resume: { dueAt: s.dueAt, status: s.status },
+          now,
+          alreadySent: false,
+          lateMs: this.missedGraceMs,
+        }).action === "notify";
+      if (late && (s.attempts.length === 0 || s.kind !== "user")) {
         this.store.update(s.scheduleId, (x) => ({ ...x, status: "missed" }), now);
         const when = formatWhen(s.dueAt, now, this.opts.locale);
         if (this.clientSupportsForms && !session.formOpen) {
@@ -2680,7 +3172,7 @@ export class SchedulingAddon {
             `Rewake: Missed. A message scheduled for ${when} wasn't sent because Zed or this computer wasn't running then. ${
               this.menuEnabled(session)
                 ? "To send or delete it, use the Rewake menu under the message box."
-                : "Type /schedule list, then /schedule now N to send it or /schedule rm N to delete it."
+                : "Type /rewake list, then /rewake now N to send it or /rewake cancel N to delete it."
             }`,
           );
         }
@@ -2728,7 +3220,7 @@ export class SchedulingAddon {
       else
         this.status(
           session,
-          `Rewake: The message scheduled for ${due} was interrupted, because Zed closed during its reply. Type /schedule list, then /schedule now N to send it again.`,
+          `Rewake: The message scheduled for ${due} was interrupted, because Zed closed during its reply. Type /rewake list, then /rewake now N to send it again.`,
         );
     }
     this.refreshMarker(session);
@@ -2750,6 +3242,8 @@ export class SchedulingAddon {
     );
     if (!sending) return; // deleted in the meantime
     session.delivering = s.scheduleId;
+    this.updateWake();
+    this.startTurn(session);
     const late = now - s.dueAt > 60_000;
     const what = s.kind === "user" ? "message" : "resume message";
     if (s.attempts.length > 0 && this.shown.has(s.scheduleId)) {
@@ -2798,11 +3292,13 @@ export class SchedulingAddon {
   private settle(session: SessionState, scheduleId: string, response: JsonRpcMessage): void {
     const now = this.now();
     session.delivering = undefined;
+    setImmediate(() => this.updateWake());
     const stopReason = asObject(response.result).stopReason;
     const schedule = this.store.get(scheduleId);
-    const limited: LimitClassification = response.error
-      ? classifyLimit(this.profile, response.error, now)
-      : { kind: "other", text: "" };
+    const limited: LimitClassification = this.classifyTurn(session, response) ?? {
+      kind: "other",
+      text: "",
+    };
 
     if (
       response.error &&
@@ -2881,7 +3377,7 @@ export class SchedulingAddon {
         else
           this.status(
             session,
-            `Rewake: Stopped. ${capitalize(this.agentName)} is still at its usage limit and didn't give a new reset time. This thread won't continue on its own. Type /schedule list, then /schedule now N to try again.`,
+            `Rewake: Stopped. ${capitalize(this.agentName)} is still at its usage limit and didn't give a new reset time. This thread won't continue on its own. Type /rewake list, then /rewake now N to try again.`,
           );
       }
     } else if (response.error) {
@@ -2901,7 +3397,7 @@ export class SchedulingAddon {
       else
         this.status(
           session,
-          `Rewake: Couldn't send. ${said} Type /schedule list to retry with /schedule now N.`,
+          `Rewake: Couldn't send. ${said} Type /rewake list to retry with /rewake now N.`,
         );
     } else if (stopReason === "cancelled") {
       this.store.update(scheduleId, (x) => ({ ...x, status: "stopped" }), now);
@@ -2918,7 +3414,9 @@ export class SchedulingAddon {
         ({ followUps: _sent, ...x }) => ({ ...x, status: "sent" }),
         now,
       );
-      if (schedule && schedule.kind !== "user") session.limit = undefined; // the limit episode is over
+      if (limited.kind === "not_recoverable" && limited.reason === "billing")
+        this.onNotResumable(session);
+      else if (schedule && schedule.kind !== "user") session.limit = undefined; // the limit episode is over
       // The next waiting message goes now, after this reply, carrying the rest.
       const [next, ...rest] = schedule?.followUps ?? [];
       if (schedule && next)
@@ -2939,12 +3437,14 @@ export class SchedulingAddon {
     this.refreshMarker(session);
     this.opts.log.info("schedule.settled", {
       scheduleId,
-      outcome: response.error ? limited.kind : String(stopReason),
+      outcome: response.error || limited.kind !== "other" ? limited.kind : String(stopReason),
     });
     const held = session.heldPrompts.shift();
     if (held) {
       session.userTurn = held.id ?? undefined;
       session.userTurnStartedAt = this.now();
+      session.userTurnCommand = promptText(asObject(held.params).prompt).trim().startsWith("/");
+      this.startTurn(session);
       this.router?.forwardClientRequest(held);
     } else {
       setImmediate(() => this.deliverDue(session));
@@ -3048,21 +3548,6 @@ export class SchedulingAddon {
   }
 }
 
-const HELP = `Rewake: Schedule messages in this thread.
-
-/schedule <when> <message>   e.g. /schedule 09:00 Continue the refactor · /schedule in 3h Run the tests
-/schedule every day 09:00 <message>      repeat: every hour|day|weekday|week|monday… [HH:MM]
-/schedule cron "0 9 * * 1-5" <message>   repeat with a cron expression (quotes optional)
-/schedule list               see this thread's scheduled messages
-/schedule rm N · now N · pause N · resume N · move N <when> · edit N <text>
-/schedule resume             schedule the resume message after the current usage limit
-/schedule auto on|off        resume automatically whenever this thread hits a usage limit
-/schedule page               open an overview of all scheduled messages
-/schedule prompt <text>      change this thread's resume message (/schedule prompt shows it)
-/stop                        stop a scheduled reply that is running
-
-Times: 09:00, 9pm, tomorrow 09:00, in 90m, in 3h, 2026-10-06 09:00.`;
-
 const STATUS_WORD: Record<Schedule["status"], string> = {
   scheduled: "scheduled",
   paused: "paused",
@@ -3077,24 +3562,10 @@ const STATUS_WORD: Record<Schedule["status"], string> = {
   needs_attention: "needs you",
 };
 
-/** Split "<when> <message>" by trying the longest time phrase first. */
-export function splitWhen(args: string, now: number): { at: number; text: string } {
-  const words = args.split(/\s+/).filter(Boolean);
-  if (words[0]?.toLowerCase() === "in") {
-    let i = 1;
-    while (i < words.length && /^\d+[dhm](\d+[dhm])*$/i.test(words[i] ?? "")) i++;
-    const r = parseWhen(words.slice(0, i).join(" "), now);
-    if (!r.ok) throw new Error(r.error);
-    return { at: r.at, text: words.slice(i).join(" ") };
-  }
-  let lastError = "Start with a time, for example: /schedule 09:00 Continue the refactor.";
-  for (const take of [2, 1]) {
-    if (words.length < take) continue;
-    const r = parseWhen(words.slice(0, take).join(" "), now);
-    if (r.ok) return { at: r.at, text: words.slice(take).join(" ") };
-    if (take === 1) lastError = r.error;
-  }
-  throw new Error(lastError);
+/** `/rewake help` in the thread: in a text block, so Zed keeps the columns and the <placeholders>. */
+function helpBlock(): string {
+  const [, ...rest] = rewakeHelp(ACP_PLACE).split("\n");
+  return `Rewake: ${ACP_PLACE.typed} in this thread:\n\n\`\`\`text\n${rest.join("\n").trim()}\n\`\`\``;
 }
 
 function mergeCommands(agentCommands: unknown[]): unknown[] {
@@ -3188,17 +3659,23 @@ const UNKNOWN_RESET_DELAYS: Array<[number, string]> = [
   [5 * 3_600_000, "In 5 hours"],
 ];
 
+/** How far ahead a due message keeps the computer awake: covers a 5-hour limit. */
+const WAKE_HORIZON_MS = 6 * 3_600_000;
+
+/** Resumes that will still run on their own. */
+const LIVE_RESUME: ReadonlySet<Schedule["status"]> = new Set([
+  "scheduled",
+  "queued",
+  "sending",
+  "waiting_for_limit",
+]);
+
+/** How much of the agent's last message is kept: enough for any limit text. */
+const MESSAGE_KEPT = 4000;
+
 /** A mode that skips permission prompts, in any agent's words. */
 function isBypassMode(mode: string | undefined): boolean {
   return !!mode && /bypass|full.?access|yolo|dangerous|skip.?permission/i.test(mode);
-}
-
-function isSessionLost(error: NonNullable<JsonRpcMessage["error"]>): boolean {
-  const details = asObject(error.data).details;
-  return (
-    details === "Session not found" ||
-    /session not found|unknown session|no such session/i.test(error.message)
-  );
 }
 
 const REATTACH_FAILED = {

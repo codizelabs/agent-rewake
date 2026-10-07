@@ -17,8 +17,12 @@ const pkg: { name?: string; version?: string } = (() => {
   }
 })();
 
+/** Set by the build (scripts/build.mjs); undefined when running from src/ in tests. */
+declare const __REWAKE_VERSION__: string | undefined;
+
 /** Agent Rewake's own version. */
-export const VERSION: string = pkg.version ?? "0.0.0";
+export const VERSION: string =
+  pkg.version ?? (typeof __REWAKE_VERSION__ === "string" ? __REWAKE_VERSION__ : "0.0.0");
 
 /** The npm package name, for pinned `npx` launches. */
 export const PACKAGE_NAME: string = pkg.name ?? "@codizelabs/agent-rewake";

@@ -1,0 +1,217 @@
+# Contract tests against real agent CLIs, pinned in test/agents/package.json (plan §10.2 L2): the
+# agent still accepts what Rewake installs and still emits what Rewake reads. No account, no
+# sign-in: each test runs the CLI in a temporary home.
+name: contracts
+
+on:
+  pull_request:
+    paths:
+      - "src/hosts/**"
+      - "src/adapters/**"
+      - "src/core/**"
+      - "src/timers/**"
+      - "src/install/**"
+      - "src/cli.ts"
+      - "test/agents/**"
+      - "test/*-contract.test.ts"
+      - "scripts/build.mjs"
+      - ".github/workflows/contracts.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "src/hosts/**"
+      - "src/adapters/**"
+      - "src/core/**"
+      - "src/timers/**"
+      - "src/install/**"
+      - "src/cli.ts"
+      - "test/agents/**"
+      - "test/*-contract.test.ts"
+      - "scripts/build.mjs"
+      - ".github/workflows/contracts.yml"
+  schedule:
+    - cron: "41 2 * * *" # nightly, with ci.yml (plan §10.5)
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: contracts-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  codex:
+    name: codex (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Install the pinned agent CLIs
+        working-directory: test/agents
+        run: npm ci --no-audit --no-fund
+
+      - name: Codex accepts Rewake's plugin
+        env:
+          REWAKE_CODEX_BIN: ${{ github.workspace }}/test/agents/node_modules/.bin/codex
+        run: npx vitest run test/codex-contract.test.ts
+
+  claude-code:
+    name: claude-code (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Install the pinned agent CLIs
+        working-directory: test/agents
+        run: npm ci --no-audit --no-fund
+
+      - name: Claude Code accepts and runs Rewake's mod
+        env:
+          REWAKE_CLAUDE_BIN: ${{ github.workspace }}/test/agents/node_modules/.bin/claude
+        run: npx vitest run test/claude-contract.test.ts
+
+  grok:
+    name: grok (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # Grok's package installs its program into $HOME/.grok/bin: a scratch home keeps it there.
+      - name: Install the pinned agent CLIs
+        working-directory: test/agents
+        run: HOME="$RUNNER_TEMP/grokhome" npm ci --no-audit --no-fund
+
+      - name: Grok loads Rewake's hooks
+        env:
+          REWAKE_GROK_BIN: ${{ runner.temp }}/grokhome/.grok/bin/grok
+        run: npx vitest run test/grok-contract.test.ts
+
+  gemini-cli:
+    name: gemini-cli (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Install the pinned agent CLIs
+        working-directory: test/agents
+        run: HOME="$RUNNER_TEMP/agentshome" npm ci --no-audit --no-fund
+
+      - name: Gemini CLI links and removes Rewake's extension
+        env:
+          REWAKE_GEMINI_BIN: ${{ github.workspace }}/test/agents/node_modules/.bin/gemini
+        run: npx vitest run test/gemini-contract.test.ts
+
+  # GitHub Copilot CLI, the whole loop offline: its own offline provider pointed at a local mock
+  # (test/copilot-loop.test.ts; research testing-harness §2.4).
+  copilot-cli:
+    name: copilot-cli (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Install the pinned agent CLIs
+        working-directory: test/agents
+        run: HOME="$RUNNER_TEMP/agentshome" npm ci --no-audit --no-fund
+
+      - name: Limit, resume, same session, once
+        env:
+          REWAKE_COPILOT_BIN: ${{ github.workspace }}/test/agents/node_modules/.bin/copilot
+        run: npx vitest run test/copilot-loop.test.ts

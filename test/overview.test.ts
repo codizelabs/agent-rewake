@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import { overview, overviewMarkdown, overviewText } from "../src/ui/overview.js";
+import { VERSION } from "../src/version.js";
 
 const NOW = new Date(2026, 9, 4, 14, 0).getTime();
 let dir: string;
@@ -59,5 +60,6 @@ describe("schedules overview", () => {
     const md = overviewMarkdown(overview(dir), NOW, "en-GB");
     expect(md).toContain("| 15:00 today | Scheduled | Message | Run \\| the tests |");
     expect(md).toContain("| 16:00 today | Scheduled | Resume | Resume |");
+    expect(md).toContain(`by Agent Rewake ${VERSION}.`);
   });
 });
