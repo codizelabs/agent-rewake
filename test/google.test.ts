@@ -22,6 +22,7 @@ import {
   antigravityHooks,
   antigravityHost,
   classifyAntigravityStop,
+  resumeAgy,
   surfaceOf,
 } from "../src/hosts/antigravity/host.js";
 import {
@@ -35,6 +36,7 @@ import {
   geminiHooks,
   geminiHost,
   lastErrorText,
+  resumeGemini,
   transcriptSessionId,
   withApiKeyReset,
 } from "../src/hosts/gemini/host.js";
@@ -265,6 +267,22 @@ describe("Gemini CLI", () => {
     expect(call.args.join(" ")).not.toMatch(/--yolo|--skip-trust/);
   });
 
+  it("passes on the reset a limited run gives, as Antigravity does", async () => {
+    const r = new SessionRecords(state, "gemini-cli").update(SID, dir, NOW, (x) => ({
+      ...x,
+      program: FAKE,
+    }));
+    if (!r) throw new Error("no session record");
+    for (const resume of [resumeGemini, resumeAgy]) {
+      const before = Date.now();
+      const result = await resume(r, "Continue.", { ...process.env, FAKE_RESUME: "limited" });
+      expect(result).toMatchObject({ ok: false, reason: "limited" });
+      const at = (result as { resetsAt?: number }).resetsAt ?? 0;
+      expect(at).toBeGreaterThanOrEqual(before + 2 * H);
+      expect(at).toBeLessThanOrEqual(Date.now() + 2 * H);
+    }
+  });
+
   it("writes linkable hooks with millisecond timeouts", () => {
     const json = JSON.parse(geminiHooksJson("/n", "/l.mjs"));
     expect(Object.keys(json.hooks)).toEqual([
@@ -474,6 +492,45 @@ describe("Antigravity CLI", () => {
     expect(notes[1]).toContain("in the Antigravity IDE");
     // Nothing is recorded to continue: only the CLI's conversations can be.
     expect(new SessionRecords(state, "antigravity").get(SID)).toBeUndefined();
+  });
+
+  it("moves a planned resume to a later reset when the conversation hits a new limit", async () => {
+    saveSettings(state, { ...DEFAULT_SETTINGS, newThreads: "on" });
+    const notes: string[] = [];
+    const armed: number[] = [];
+    const handler = antigravityHooks({
+      closed: (ctx) => deps(notes, armed)(ctx.env, ctx.now),
+      program: () => FAKE,
+    });
+    const home = join(dir, "h");
+    const stop = (error: string, now: number) =>
+      runHook(
+        handler,
+        "Stop",
+        JSON.stringify({
+          conversationId: SID,
+          workspacePaths: [join(dir, "app")],
+          transcriptPath: join(home, ".gemini", "antigravity-cli", "brain", SID, "t.jsonl"),
+          terminationReason: "error",
+          error,
+        }),
+        { GEMINI_HOME: join(home, ".gemini") },
+        state,
+        now,
+      );
+    const store = new ScheduleStore(state);
+    await stop("Individual quota reached. Resets in 1h0m0s", NOW);
+    expect(armed).toEqual([NOW + H + 60_000]);
+    // The person carried on (another model) and hit a limit that resets later.
+    const later = NOW + 10 * 60_000;
+    await stop("Individual quota reached. Resets in 5h0m0s", later);
+    expect(store.list()).toHaveLength(1);
+    expect(store.list()[0]).toMatchObject({ status: "scheduled", dueAt: later + 5 * H + 60_000 });
+    expect(armed.at(-1)).toBe(later + 5 * H + 60_000);
+    // One more than a day away: the resume is cancelled and the person asked instead.
+    await stop("Individual quota reached. Resets in 50h0m0s", later + 1000);
+    expect(store.list()[0]?.status).toBe("cancelled");
+    expect(notes.at(-1)).toContain('Run "agent-rewake continue"');
   });
 
   it("only notifies while an agy process runs, and judges a resume by its response", async () => {

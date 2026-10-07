@@ -168,8 +168,12 @@ export function resumeAgy(
         json = undefined;
       }
       const response = typeof json?.response === "string" ? json.response : "";
-      if (QUOTA.test(response) || (!response && QUOTA.test(String(json?.error ?? out))))
-        return resolve({ ok: false, reason: "limited" });
+      const error = response || String(json?.error ?? out);
+      if (QUOTA.test(error)) {
+        const stop = { terminationReason: "error", error };
+        const resetsAt = classifyAntigravityStop(stop, Date.now())?.resetsAt;
+        return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
+      }
       if (response.trim()) return resolve({ ok: true });
       resolve({ ok: false, reason: "failed", detail: "no response" });
     });

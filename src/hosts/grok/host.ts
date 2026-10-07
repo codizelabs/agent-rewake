@@ -228,8 +228,12 @@ export function resumeGrok(
         return resolve({ ok: true });
       }
       // Exit 1 at the limit again (INFERENCE until X-G1): the text says so, on either stream.
-      if (/rate limit|weekly limit|\b429\b|\b402\b/i.test(`${out}\n${err}`))
-        return resolve({ ok: false, reason: "limited" });
+      if (/rate limit|weekly limit|\b429\b|\b402\b/i.test(`${out}\n${err}`)) {
+        // The run logged a billing line: its period's end, when the pool is what ran out.
+        const b = billingReset(grokHome(env), Date.now(), r.sessionId);
+        const resetsAt = b.full ? b.resetsAt : undefined;
+        return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
+      }
       if (SESSION_GONE.test(`${out}\n${err}`))
         return resolve({ ok: false, reason: "closed", detail: "deleted" });
       resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });

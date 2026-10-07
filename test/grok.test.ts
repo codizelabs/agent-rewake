@@ -11,6 +11,7 @@ import {
   grokSessionOpen,
   isGrok,
   resultSession,
+  resumeGrok,
 } from "../src/hosts/grok/host.js";
 import { grokHooksFile, grokHooksJson, runGrokInstall } from "../src/hosts/grok/install.js";
 import { runHook } from "../src/hosts/hook.js";
@@ -69,6 +70,33 @@ describe("Grok's limits", () => {
     );
     expect(billingReset(grok, NOW, "s1")).toMatchObject({ full: true });
     expect(billingReset(grok, NOW, "s3")).toMatchObject({ full: false, seen: true });
+  });
+
+  it("passes on the weekly reset when a resume run hits the limit again", async () => {
+    const end = new Date(Date.now() + 2 * 24 * 3_600_000).toISOString();
+    writeFileSync(
+      join(grok, "logs", "unified.jsonl"),
+      `${JSON.stringify({ ts: "x", msg: "billing: fetched credits config", ctx: { config: { creditUsagePercent: 100, currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end } } } })}\n`,
+    );
+    const program = join(dir, "grok.mjs");
+    writeFileSync(
+      program,
+      'process.stderr.write("You have reached your weekly limit.\\n");\nprocess.exit(1);\n',
+    );
+    const r = {
+      schemaVersion: 1 as const,
+      host: "grok",
+      sessionId: SID,
+      cwd: dir,
+      open: false,
+      program,
+      updatedAt: NOW,
+    };
+    expect(await resumeGrok(r, "Continue.", { ...process.env, GROK_HOME: grok })).toEqual({
+      ok: false,
+      reason: "limited",
+      resetsAt: Date.parse(end),
+    });
   });
 
   it("reads the session a resume ran in from Grok's JSON result", () => {

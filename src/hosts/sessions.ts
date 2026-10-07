@@ -20,7 +20,13 @@ export interface SessionRecord {
   program?: string;
   openedAt?: number;
   closedAt?: number;
-  /** The agent process seen at session start, to notice a session that ended without its hook. */
+  /**
+   * The agent processes that have the session open (the same session can be open in two
+   * terminals), seen at session start: one session end doesn't close it while another runs, and a
+   * session that ended without its hook is noticed.
+   */
+  agents?: { pid: number; name: string }[];
+  /** Written by earlier versions: the one agent process seen at session start. */
   agentPid?: number;
   agentName?: string;
   /** When the person last sent a prompt (Rewake's own resume runs aren't counted). */

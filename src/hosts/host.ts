@@ -53,6 +53,8 @@ export type SendResult =
       ok: false;
       reason: "busy" | "closed" | "limited" | "unsupported" | "failed";
       detail?: string;
+      /** "limited": the next reset the agent's output gave, when it gave one. */
+      resetsAt?: number;
     };
 
 /** The longest a headless resume run may take before Rewake stops it. */

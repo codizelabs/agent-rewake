@@ -178,6 +178,30 @@ describe("fire", () => {
     expect(await fire(r.scheduleId, again.deps)).toBe("sent");
   });
 
+  it("waits for the reset a run still at the limit reports, instead of giving up", async () => {
+    const r = resume({ rearms: 1 });
+    const later = NOW + 5 * 3_600_000;
+    const { deps } = setup({ send: { ok: false, reason: "limited", resetsAt: later } });
+    expect(await fire(r.scheduleId, deps)).toBe("waiting");
+    expect(store.get(r.scheduleId)).toMatchObject({
+      status: "scheduled",
+      dueAt: later + 60_000,
+      rearms: 2,
+    });
+  });
+
+  it("asks rather than waits when that reset is more than a day away", async () => {
+    const r = resume();
+    const weekly = NOW + 3 * 24 * 3_600_000;
+    const { deps, notes } = setup({ send: { ok: false, reason: "limited", resetsAt: weekly } });
+    expect(await fire(r.scheduleId, deps)).toBe("notified");
+    expect(store.get(r.scheduleId)).toMatchObject({
+      status: "needs_attention",
+      dueAt: weekly + 60_000,
+    });
+    expect(notes[0]).toContain("is limited again until");
+  });
+
   it("says when it couldn't send", async () => {
     const r = resume();
     const { deps, notes } = setup({ send: { ok: false, reason: "closed" } });
