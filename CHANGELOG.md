@@ -53,6 +53,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - **Previews outside Zed, Windows:** Rewake's notifications show as Windows notifications (they weren't shown at all), and a resume's timer runs without opening a console window.
 
+- **Previews outside Zed:** a resume's timer is set again when the computer's time zone changes or Node.js moves, so it still runs at the right moment with a Node.js that exists (macOS and Linux's `at` keep local times).
+
 ### Changed
 
 - Usage limits are recognised for every agent in Zed's registry, each from what it actually sends: Claude's rate-limit event (the same test Claude Code uses to continue on its own), Codex's error kinds, Gemini CLI, Qwen, Qoder, Kimi, Z.AI, MiniMax, Auggie, CodeBuddy, Devin, Junie, Mistral Vibe, goose, OpenCode, Kilo, Cline, Grok Build, Kimchi and Harn. Short-term rate limits, which the agent retries itself, are no longer treated as a usage limit.
