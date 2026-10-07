@@ -31,6 +31,7 @@ import {
   STALE_MS,
   safeId,
   WAITING_EXPIRES_MS,
+  WAKE_HORIZON_MS,
   when,
 } from "./logic.js";
 
@@ -50,6 +51,12 @@ let clock = "12h";
 let armed;
 /** `<stateDir>/hosts/claude-code/sessions`, when the installer said where the state folder is. */
 let mirrorDir;
+/** Rewake's keep-awake setting: "plugged-in" (default), "always" or "never". */
+let keepAwake = "plugged-in";
+/** Claude Code's PID when this Mac has caffeinate; null where Rewake can't keep it awake. */
+let wakePid;
+/** The running hold: { mode, stream }. */
+let wakeHold;
 
 const limitKey = (id) => `limit:${id}`;
 const schedKey = (id) => `sched:${id}`;
@@ -68,6 +75,8 @@ async function loadConfig($) {
     try {
       const settings = JSON.parse(await $.fs.read(`${cfg.stateDir}/settings.json`));
       if (settings.clock === "24h" || settings.clock === "12h") clock = settings.clock;
+      if (["plugged-in", "always", "never"].includes(settings.keepAwake))
+        keepAwake = settings.keepAwake;
     } catch {
       // No settings saved yet: the default clock.
     }
@@ -128,11 +137,56 @@ async function arm($, id, ep) {
   armed = { id, timer: $.clock.after(Math.max(0, ep.fireAt - now), () => void fire($, id)) };
 }
 
+/**
+ * Keep this Mac from idling to sleep while a continue is due within a few hours: Rewake's own, or
+ * Claude Code's (its wait holds nothing while the session sits idle). `caffeinate -w` ties the hold
+ * to Claude Code, so it ends with it even after a crash. Returns whether a hold is running.
+ */
+async function updateWake($, ep, now) {
+  const due = ep?.state === "armed" ? ep.fireAt : ep?.state === "native" ? ep.resetAt : undefined;
+  const want =
+    keepAwake !== "never" &&
+    due !== undefined &&
+    due > now - STALE_MS &&
+    due - now <= WAKE_HORIZON_MS;
+  const mode = keepAwake === "always" ? "-i" : "-s";
+  if (wakeHold && (!want || wakeHold.mode !== mode)) {
+    void wakeHold.stream.return?.();
+    wakeHold = undefined;
+  }
+  if (!want || wakeHold) return wakeHold !== undefined;
+  if (wakePid === undefined) {
+    try {
+      // The shell's parent is Claude Code; no caffeinate (Linux, Windows) means no hold here.
+      const r = await $.process.run(["/bin/sh", "-c", "test -x /usr/bin/caffeinate && echo $PPID"]);
+      wakePid = r.exitCode === 0 && /^\d+$/.test(r.stdout.trim()) ? r.stdout.trim() : null;
+    } catch {
+      wakePid = null;
+    }
+  }
+  if (wakePid === null) return false;
+  const stream = $.process.spawn({ argv: ["/usr/bin/caffeinate", mode, "-w", wakePid] });
+  const hold = { mode, stream };
+  wakeHold = hold;
+  void (async () => {
+    try {
+      for await (const _ of stream) {
+        // caffeinate writes nothing; the loop is the hold's life.
+      }
+    } catch {
+      // It couldn't start: no hold.
+    }
+    if (wakeHold === hold) wakeHold = undefined;
+  })();
+  return true;
+}
+
 async function refreshStatus($, id, now) {
   const ep = await $.store.get(limitKey(id));
   const sched = (await $.store.get(schedKey(id))) ?? [];
+  const awake = (await updateWake($, ep, now)) ? " · keeping this Mac awake" : "";
   if (ep?.state === "armed" && ep.fireAt !== undefined) {
-    $.ui.status(`Continues at ${at(ep.fireAt, now)} · /rewake-cancel`);
+    $.ui.status(`Continues at ${at(ep.fireAt, now)}${awake} · /rewake-cancel`);
   } else if (ep?.state === "offered") {
     $.ui.status(
       `Usage limit reached · /rewake-continue to continue after the reset${ep.fireAt !== undefined ? ` ${atWhen(ep.fireAt, now)}` : ""}`,
@@ -334,6 +388,7 @@ async function tick($) {
   const now = await $.clock.now();
   const ep = await $.store.get(limitKey(id));
   if (ep?.state === "armed" && ep.fireAt !== undefined && now >= ep.fireAt) return fire($, id);
+  await updateWake($, ep, now);
   // Scheduled messages wait while a limit is pending; one per tick.
   if (busy || (ep && ep.state !== "sent")) return;
   const sched = (await $.store.get(schedKey(id))) ?? [];

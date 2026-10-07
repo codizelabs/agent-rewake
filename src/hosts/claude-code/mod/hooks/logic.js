@@ -8,6 +8,8 @@ export const HOUR = 60 * MINUTE;
 export const AFTER_RESET_MS = 60_000;
 /** Past this, the machine probably slept through the reset: offer the message, don't send it. */
 export const STALE_MS = 30 * MINUTE;
+/** How far ahead a continue keeps the Mac awake: covers a 5-hour limit (Rewake's WAKE_HORIZON_MS). */
+export const WAKE_HORIZON_MS = 6 * HOUR;
 /** Claude Code's own wait gives up on resets further away than this. */
 export const NATIVE_HORIZON_MS = 24 * HOUR;
 /** A reset further away than this is always asked about, even with "always" (rule 2). */

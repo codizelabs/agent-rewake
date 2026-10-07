@@ -25,6 +25,8 @@ function harness(
     store?: Record<string, unknown>;
     config?: string;
     settings?: string;
+    /** Whether this machine has caffeinate (the mod asks once, through the shell). */
+    caffeinate?: boolean;
   } = {},
 ) {
   const clock = mock.clock(on, { now: T0 });
@@ -36,7 +38,20 @@ function harness(
     status: [] as (string | undefined)[],
     files: {} as Record<string, string>,
     store: { ...(opts.store ?? {}) } as Record<string, unknown>,
+    spawned: [] as string[][],
   };
+  on("process.run", () => ({
+    value:
+      opts.caffeinate === false
+        ? { exitCode: 1, stdout: "", stderr: "" }
+        : { exitCode: 0, stdout: "4242\n", stderr: "" },
+  }));
+  // The kit runs no processes: record the request, then refuse it (the mod drops the hold).
+  on("process.spawn", async function* (_: unknown, e: Ev) {
+    seen.spawned.push(e.argv as string[]);
+    yield* [];
+    return { deny: "no processes in tests" };
+  });
   on("session.start", () => ({ cwd: "/work" }));
   on("command.register", () => ({ value: undefined }));
   on("session.id", () => ({ value: "S1" }));
@@ -470,4 +485,43 @@ test("/rewake-schedule changes nothing when dismissed", async ($, on) => {
   const r = await $.command.run({ command: "rewake-schedule", args: "" } as never);
   expect(r.text).toBe("Nothing was scheduled.");
   expect(seen.store["sched:S1"]).toBeUndefined();
+});
+
+test("keeps the Mac awake, tied to Claude Code, while a continue is due within a few hours", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
+  expect(seen.spawned[0]).toEqual(["/usr/bin/caffeinate", "-s", "-w", "4242"]);
+});
+
+test("doesn't keep the Mac awake where it can't", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+    caffeinate: false,
+  });
+  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
+  expect(seen.spawned).toEqual([]);
+});
+
+test("follows Rewake's setting: never means no hold", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+    config: JSON.stringify({ stateDir: "/state" }),
+    settings: JSON.stringify({ keepAwake: "never" }),
+  });
+  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
+  expect(seen.spawned).toEqual([]);
 });
