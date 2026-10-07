@@ -194,12 +194,12 @@ describe("agent-rewake bundle", () => {
     const original =
       '// mine\n{ "theme": "One Dark", "agent_servers": { "claude-acp": { "type": "registry" } } }\n';
     writeFileSync(join(zed, "settings.json"), original);
-    const env = {
-      ...process.env,
+    // An empty home: agents installed on this computer would change what doctor finds.
+    const env = isolatedEnv({
       AGENT_REWAKE_ZED_CONFIG_DIR: zed,
       AGENT_REWAKE_ZED_DATA_DIR: join(home, "zed-data"),
       AGENT_REWAKE_STATE_DIR: join(home, "doctor-state"),
-    };
+    });
     const cli = (...args: string[]) =>
       spawnSync(process.execPath, [bundle, ...args], { encoding: "utf8", env });
 
