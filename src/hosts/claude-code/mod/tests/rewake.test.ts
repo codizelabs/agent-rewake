@@ -12,7 +12,7 @@ type Ev = Record<string, unknown>;
 type Question = { question: string; options?: (string | { label: string })[] };
 type On = (event: string, ...args: unknown[]) => unknown;
 /** A limit record in $.store, as the mod writes it. */
-type Episode = { state?: string; kind?: string; fireAt?: number };
+type Episode = { state?: string; kind?: string; fireAt?: number; rehits?: number };
 
 /** Stubs every mods API call the mod makes; returns what the test checks. */
 function harness(
@@ -607,6 +607,36 @@ test("reopened while Claude Code's own wait was pending: Rewake asks instead", a
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await clock.advance(1);
   expect(seen.asked).toBe(1);
+});
+
+test("the limit coming back right after continuing: continued once more, then offered", async ($, on) => {
+  let windows = fiveHour("2026-10-06T11:00:00Z");
+  const { clock, seen } = harness(on, {
+    windows: () => windows,
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  for (const [rehits, reset] of [
+    [0, "2026-10-06T11:00:00Z"],
+    [1, "2026-10-06T12:00:00Z"],
+  ] as const) {
+    windows = fiveHour(reset);
+    await $.classic.StopFailure(limit());
+    await clock.advance(1);
+    expect(seen.store["limit:S1"] as Episode).toMatchObject({ state: "armed", rehits });
+    await clock.set(Date.parse(reset) + 2 * MIN);
+    expect(seen.submitted.length).toBe(rehits + 1);
+  }
+  // Hit again within a few minutes of the second continue: asked about, not continued.
+  windows = fiveHour("2026-10-06T13:00:00Z");
+  await clock.advance(3 * MIN);
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.store["limit:S1"] as Episode).toMatchObject({ state: "offered", rehits: 2 });
+  expect(seen.asked).toBe(0);
+  await clock.set(Date.parse("2026-10-06T13:05:00Z"));
+  expect(seen.submitted.length).toBe(2);
 });
 
 /** An armed continue due two minutes in, as another Claude Code process with the session sees it too. */
