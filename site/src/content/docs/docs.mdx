@@ -353,6 +353,8 @@ Your threads, scheduled messages, automatic-resume choices and settings stay as 
 
 Check it with `npx @codizelabs/agent-rewake@latest doctor`. It says if Zed still starts an older version, and what to do.
 
+To see which version a thread runs, hover over the **Rewake** menu, or pick **Rewake** in it for *About*; **Settings…** and the schedules page show it too. In a terminal, `agent-rewake --version` prints it.
+
 - **Why run install again:** `install` writes the exact version into Zed's settings, so Zed keeps the version you installed until you run it again. Updates never happen behind your back.
 - **Why `@latest`:** `npx @codizelabs/agent-rewake install` without it may run a copy npx saved earlier.
 - **Installed with `npm install -g`:** run `npm install -g @codizelabs/agent-rewake@latest`, then `agent-rewake install`, then restart Zed.

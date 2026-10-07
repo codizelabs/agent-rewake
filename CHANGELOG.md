@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Rewake's version where you look for it:** in the Rewake menu's tooltip (next to its About, which had it already), at the top of **Settings…**, on the schedules page's title line and help, in the `/schedule page` snapshot, and in what `about_rewake` tells the agent, so it can say which version you run. The menu's label in the toolbar stays short.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added
