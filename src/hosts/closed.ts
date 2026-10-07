@@ -4,6 +4,7 @@ import { loadSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../core/threads.js";
 import { formatAt } from "../core/time.js";
+import { type AgentProcess, stillRunning } from "../util/proc.js";
 import type { HostAdapter, HostFacts, SendResult } from "./host.js";
 import { type SessionLimit, type SessionRecord, SessionRecords } from "./sessions.js";
 
@@ -44,6 +45,24 @@ export interface ClosedDeps {
   arm: (id: string, at: number) => void;
   disarm: (id: string) => void;
   notify: (title: string, body: string) => void;
+  /** The agent process running this hook (src/util/proc.ts); absent where unknown. */
+  agent?: () => AgentProcess | undefined;
+  /** Whether a recorded agent process still runs (tests replace it). */
+  running?: (p: AgentProcess) => boolean;
+}
+
+/**
+ * Whether a session is still open: its record says so and, when Rewake saw the agent's process at
+ * session start, that process still runs. A session whose agent crashed or was killed never ran
+ * its session-end hook, and would otherwise stay "open" for ever.
+ */
+export function stillOpen(
+  r: SessionRecord,
+  running: (p: AgentProcess) => boolean = (p) => stillRunning(p),
+): boolean {
+  if (!r.open) return false;
+  if (r.agentPid === undefined || !r.agentName) return true;
+  return running({ pid: r.agentPid, name: r.agentName });
 }
 
 /** "GitHub Copilot CLI in shop": the agent and the project folder's name. */
@@ -52,11 +71,17 @@ export function placeOf(host: Pick<ClosedHost, "name">, cwd: string): string {
   return folder ? `${host.name} in the "${folder}" folder` : host.name;
 }
 
+/**
+ * Resumes still to come for a session. Missed ones and ones that need the person's attention were
+ * already reported: they don't stand in the way of a new limit.
+ */
 export function pendingFor(stateDir: string, host: string, sessionId: string): Schedule[] {
   return new ScheduleStore(stateDir)
     .listForSession(sessionId, host)
-    .filter((s) => !TERMINAL_STATUSES.has(s.status));
+    .filter((s) => !TERMINAL_STATUSES.has(s.status) && !REPORTED.has(s.status));
 }
+
+const REPORTED = new Set<Schedule["status"]>(["missed", "needs_attention"]);
 
 /** A limit the person hasn't answered: not billing, not followed by a prompt, nothing armed. */
 export function unanswered(stateDir: string, r: SessionRecord): SessionLimit | undefined {
@@ -103,12 +128,17 @@ export function onSessionStart(
   d: ClosedDeps,
   program?: string,
 ): void {
-  new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (r) => ({
-    ...r,
-    open: true,
-    openedAt: d.now,
-    ...(program && { program }),
-  }));
+  const agent = d.env[FIRE_ENV] ? undefined : d.agent?.();
+  new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (r) => {
+    const { agentPid: _p, agentName: _n, ...rest } = r;
+    return {
+      ...rest,
+      open: true,
+      openedAt: d.now,
+      ...(program && { program }),
+      ...(agent && { agentPid: agent.pid, agentName: agent.name }),
+    };
+  });
 }
 
 export function onPrompt(host: ClosedHost, sessionId: string, cwd: string, d: ClosedDeps): void {
@@ -202,7 +232,7 @@ export function closedAdapter(
       if (!r) return {};
       return {
         userTypedSince: (r.lastPromptAt ?? 0) > s.createdAt,
-        sessionOpen: r.open || host.isOpen?.(r) === true,
+        sessionOpen: stillOpen(r) || host.isOpen?.(r) === true,
       };
     },
     async send(s): Promise<SendResult> {
@@ -211,4 +241,19 @@ export function closedAdapter(
       return host.resume(r, s.text, { ...env, [FIRE_ENV]: s.scheduleId });
     },
   };
+}
+
+/**
+ * Sessions whose agent is gone though their session-end hook never ran: handled now as closed, so
+ * a limit in them is armed or offered as at a normal end. Run by every hook and command that sweeps.
+ */
+export function reapClosed(hosts: readonly ClosedHost[], d: ClosedDeps): number {
+  let n = 0;
+  for (const host of hosts)
+    for (const r of new SessionRecords(d.stateDir, host.id).list()) {
+      if (!r.open || r.agentPid === undefined || stillOpen(r, d.running)) continue;
+      onSessionEnd(host, r.sessionId, r.cwd, { ...d, env: {} });
+      n++;
+    }
+  return n;
 }

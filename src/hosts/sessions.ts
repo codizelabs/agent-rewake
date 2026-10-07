@@ -20,6 +20,9 @@ export interface SessionRecord {
   program?: string;
   openedAt?: number;
   closedAt?: number;
+  /** The agent process seen at session start, to notice a session that ended without its hook. */
+  agentPid?: number;
+  agentName?: string;
   /** When the person last sent a prompt (Rewake's own resume runs aren't counted). */
   lastPromptAt?: number;
   limit?: SessionLimit;

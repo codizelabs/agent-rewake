@@ -14,7 +14,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runContinue, waiting } from "../src/continue.js";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { ScheduleStore } from "../src/core/store.js";
-import { type ClosedDeps, closedAdapter, FIRE_ENV } from "../src/hosts/closed.js";
+import {
+  type ClosedDeps,
+  closedAdapter,
+  FIRE_ENV,
+  pendingFor,
+  reapClosed,
+  stillOpen,
+} from "../src/hosts/closed.js";
 import { copilotHooks, copilotHost, resumeCopilot } from "../src/hosts/copilot/host.js";
 import {
   copilotHooksJson,
@@ -106,7 +113,11 @@ describe("Copilot's limit texts", () => {
   });
 });
 
-function harness(settings = DEFAULT_SETTINGS) {
+function harness(
+  settings = DEFAULT_SETTINGS,
+  agent?: { pid: number; name: string },
+  alive: () => boolean = () => true,
+) {
   saveSettings(state, settings);
   const armed: [string, number][] = [];
   const notes: string[] = [];
@@ -117,6 +128,8 @@ function harness(settings = DEFAULT_SETTINGS) {
     arm: (id, at) => armed.push([id, at]),
     disarm: () => {},
     notify: (_t, b) => notes.push(b),
+    agent: () => agent,
+    running: () => alive(),
   });
   const handler = copilotHooks({ closed: (ctx) => deps(ctx.env, ctx.now), program: () => FAKE });
   const event = (
@@ -205,6 +218,57 @@ describe("Copilot's hooks", () => {
     const h = harness();
     await h.event("userPromptSubmitted", { prompt: "continue" }, { [FIRE_ENV]: "x" });
     expect(new SessionRecords(state, "copilot-cli").get(SID)?.lastPromptAt).toBeUndefined();
+  });
+});
+
+describe("a session that ended without its session-end hook", () => {
+  it("is open while its agent runs, and handled as closed once the agent is gone", async () => {
+    let alive = true;
+    const h = harness(DEFAULT_SETTINGS, { pid: 4242, name: "copilot" }, () => alive);
+    await h.event("sessionStart", { source: "startup" });
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
+    const records = new SessionRecords(state, "copilot-cli");
+    const r = records.get(SID);
+    expect(r).toMatchObject({ open: true, agentPid: 4242, agentName: "copilot" });
+    expect(stillOpen(r as NonNullable<typeof r>, () => alive)).toBe(true);
+    expect(reapClosed([copilotHost], h.deps())).toBe(0);
+    // The terminal was killed: no sessionEnd ran.
+    alive = false;
+    expect(reapClosed([copilotHost], h.deps())).toBe(1);
+    expect(records.get(SID)?.open).toBe(false);
+    expect(h.notes.at(-1)).toContain('Run "agent-rewake continue"');
+    expect(waiting({ hosts: [copilotHost], deps: h.deps() })).toHaveLength(1);
+  });
+
+  it("doesn't take a session with no agent process recorded for closed", () => {
+    const r = {
+      schemaVersion: 1 as const,
+      host: "copilot-cli",
+      sessionId: SID,
+      cwd: work,
+      open: true,
+      updatedAt: NOW,
+    };
+    expect(stillOpen(r, () => false)).toBe(true);
+  });
+
+  it("lets a new limit through after a missed or needs-attention resume", async () => {
+    const h = harness();
+    const store = new ScheduleStore(state);
+    for (const status of ["missed", "needs_attention", "scheduled"] as const) {
+      const s = store.create({
+        sessionId: SID,
+        cwd: work,
+        text: "Continue.",
+        dueAt: NOW,
+        kind: "limit_resume",
+        createdBy: "auto",
+        now: NOW,
+      });
+      store.put({ ...s, host: "copilot-cli", status });
+    }
+    expect(pendingFor(state, "copilot-cli", SID).map((s) => s.status)).toEqual(["scheduled"]);
+    void h;
   });
 });
 
