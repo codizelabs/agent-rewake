@@ -30,7 +30,7 @@ import {
   pluginDir,
   runAntigravityInstall,
 } from "../src/hosts/antigravity/install.js";
-import { type ClosedDeps, closedAdapter } from "../src/hosts/closed.js";
+import { type ClosedDeps, closedAdapter, FIRE_ENV, stillOpen } from "../src/hosts/closed.js";
 import {
   classifyGeminiError,
   geminiHooks,
@@ -284,6 +284,49 @@ describe("Gemini CLI", () => {
       expect(at).toBeGreaterThanOrEqual(before + 2 * H);
       expect(at).toBeLessThanOrEqual(Date.now() + 2 * H);
     }
+  });
+
+  it("knows a limited run from Gemini's JSON error on stderr", async () => {
+    const r = new SessionRecords(state, "gemini-cli").update(SID, dir, NOW, (x) => ({
+      ...x,
+      program: FAKE,
+    }));
+    if (!r) throw new Error("no session record");
+    const before = Date.now();
+    const result = await resumeGemini(r, "Continue.", {
+      ...process.env,
+      FAKE_RESUME: "limited-stderr",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "limited" });
+    const at = (result as { resetsAt?: number }).resetsAt ?? 0;
+    expect(at).toBeGreaterThanOrEqual(before + 2 * H - 1_000);
+    expect(at).toBeLessThanOrEqual(Date.now() + 2 * H);
+  });
+
+  it("doesn't count its own resume run as the session being open", async () => {
+    const handler = geminiHooks({
+      closed: (ctx) => deps([], [])(ctx.env, ctx.now),
+      program: () => FAKE,
+    });
+    new SessionRecords(state, "gemini-cli").update(SID, dir, NOW, (x) => ({
+      ...x,
+      open: false,
+      closedAt: NOW,
+      program: FAKE,
+    }));
+    // Rewake's run starts the session, then stops at the limit again: with `-o json`, Gemini CLI
+    // exits without its SessionEnd hook.
+    await runHook(
+      handler,
+      "SessionStart",
+      JSON.stringify({ session_id: SID, cwd: dir, hook_event_name: "SessionStart" }),
+      { GEMINI_SESSION_ID: SID, [FIRE_ENV]: "resume-1" },
+      state,
+      NOW + 60_000,
+    );
+    const r = new SessionRecords(state, "gemini-cli").get(SID);
+    expect(r?.open).toBe(false);
+    if (r) expect(stillOpen(r)).toBe(false);
   });
 
   it("writes linkable hooks with millisecond timeouts", () => {

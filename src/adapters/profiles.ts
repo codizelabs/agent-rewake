@@ -570,6 +570,9 @@ export function grokText(text: string): LimitClassification | undefined {
   if (/^You've hit your team's API rate limit|^You've hit the rate limit for your plan/m.test(text))
     return { kind: "transient", text };
   if (/^You've reached your free Grok Build usage limit/m.test(text)) return usage(text);
+  // The same limit as Grok's StopFailure hook gives it: the API's own error, not that sentence
+  // ("API error (status 429 Too Many Requests): subscription:free-usage-exhausted: …", 1.0.46).
+  if (/\bsubscription:free-usage-exhausted\b/.test(text)) return usage(text);
   if (/temporarily (?:overloaded|unavailable)/i.test(text)) return { kind: "transient", text };
   if (
     /out of credits or over your spending limit|credit limit for your plan|spending cap|requires a Grok subscription/i.test(

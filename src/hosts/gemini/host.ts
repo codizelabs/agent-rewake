@@ -121,6 +121,9 @@ export function resumeGemini(
   const program = nodeAware(r.program, node);
   return new Promise((resolve) => {
     let out = "";
+    // With `-o json`, Gemini CLI writes an API error (a usage limit too) to stderr, as
+    // `{"session_id", "error": {"message", "code": 429}}`, and exits with 429 & 255 (v0.62.0).
+    let err = "";
     const child = spawn(
       program.command,
       [
@@ -134,18 +137,23 @@ export function resumeGemini(
         "-o",
         "json",
       ],
-      { cwd: r.cwd || undefined, env, stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
+      { cwd: r.cwd || undefined, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
     );
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < 1 << 20) out += d.toString("utf8");
+    });
+    child.stderr.on("data", (d: Buffer) => {
+      if (err.length < 1 << 20) err += d.toString("utf8");
     });
     const timedOut = resumeDeadline(child);
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
     child.on("exit", (code) => {
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       if (code === 41) return resolve({ ok: false, reason: "failed", detail: "signed-out" });
-      if (GEMINI_LIMIT.test(out)) {
-        const resetsAt = classifyGeminiError(out, Date.now())?.resetsAt;
+      // stderr only when the run failed: a run that recovered may have logged a limit on the way.
+      const said = GEMINI_LIMIT.test(out) ? out : code !== 0 && GEMINI_LIMIT.test(err) ? err : "";
+      if (said) {
+        const resetsAt = classifyGeminiError(said, Date.now())?.resetsAt;
         return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       }
       if (code === 0) return resolve({ ok: true });

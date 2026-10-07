@@ -203,6 +203,19 @@ describe("rollout files", () => {
     expect(userMessages(tail)).toEqual(["first", "Continue."]);
   });
 
+  it("lists the person's messages as Codex 0.160.1 records them", () => {
+    // Shapes from a real 0.160.1 session file: `codex exec`, then a queued message.
+    const user = (text: string) =>
+      `{"type":"event_msg","payload":{"type":"item_completed","thread_id":"t","turn_id":"u","item":{"type":"UserMessage","id":"i","content":[{"type":"text","text":${JSON.stringify(text)},"text_elements":[]}]}}}`;
+    const tail = [
+      user("say hi"),
+      '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>"}]}}',
+      user("Continue."),
+      '{"type":"event_msg","payload":{"type":"item_completed","thread_id":"t","turn_id":"u","item":{"type":"AgentMessage","id":"m","content":[{"type":"Text","text":"done"}]}}}',
+    ].join("\n");
+    expect(userMessages(tail)).toEqual(["say hi", "Continue."]);
+  });
+
   it("gets the thread id from the file name and recognises Codex's layout", () => {
     const p =
       "/h/.codex/sessions/2026/10/07/rollout-2026-10-07T11-58-00-0199a7f2-1b2c-7d3e-8f40-142dd9b73ad5.jsonl";
