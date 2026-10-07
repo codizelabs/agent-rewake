@@ -3,7 +3,8 @@ import { expect, mock, test } from "claude-code/testing";
 const T0 = Date.parse("2026-10-06T10:00:00Z");
 const MIN = 60_000;
 const H = 60 * MIN;
-const CONTINUE = "Your usage limit has reset. Continue from where you left off.";
+const CONTINUE =
+  "[Sent automatically by Agent Rewake after the usage limit reset] Continue from where you left off.";
 
 type Window = { kind: string; percentUsed: number; resetsAt?: string };
 /** An event or call input in the test runtime (the generated mod types aren't in Rewake's repo). */
@@ -39,6 +40,7 @@ function harness(
     files: {} as Record<string, string>,
     store: { ...(opts.store ?? {}) } as Record<string, unknown>,
     spawned: [] as string[][],
+    commands: [] as string[],
   };
   on("process.run", () => ({
     value:
@@ -53,7 +55,10 @@ function harness(
     return { deny: "no processes in tests" };
   });
   on("session.start", () => ({ cwd: "/work" }));
-  on("command.register", () => ({ value: undefined }));
+  on("command.register", (_: unknown, e: Ev) => {
+    seen.commands.push(e.name as string);
+    return { value: undefined };
+  });
   on("session.id", () => ({ value: "S1" }));
   on("session.usage", () => ({
     value: {
@@ -200,9 +205,10 @@ test('"always" still asks about a reset more than a day away', async ($, on) => 
 test('"always" arms without asking when the reset is within a day', async ($, on) => {
   const { clock, seen } = harness(on, {
     windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
     store: { prefs: { autoContinue: "always" } },
   });
-  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await $.classic.StopFailure(limit());
   await clock.advance(1);
   expect(seen.asked).toBe(0);
@@ -377,10 +383,11 @@ test("a copy of the record, without text, goes to the shared state folder", asyn
 
 test("Claude Code's own auto-continuation (origin auto-continuation) settles the episode", async ($, on) => {
   const { clock, seen } = harness(on, {
+    setting: false,
     windows: () => fiveHour("2026-10-06T11:00:00Z"),
     store: { prefs: { autoContinue: "always" } },
   });
-  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await $.classic.StopFailure(limit());
   await clock.advance(1);
   expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
@@ -489,10 +496,11 @@ test("/rewake-schedule changes nothing when dismissed", async ($, on) => {
 
 test("keeps the Mac awake, tied to Claude Code, while a continue is due within a few hours", async ($, on) => {
   const { clock, seen } = harness(on, {
+    setting: false,
     windows: () => fiveHour("2026-10-06T11:00:00Z"),
     store: { prefs: { autoContinue: "always" } },
   });
-  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await $.classic.StopFailure(limit());
   await clock.advance(1);
   expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
@@ -501,11 +509,12 @@ test("keeps the Mac awake, tied to Claude Code, while a continue is due within a
 
 test("doesn't keep the Mac awake where it can't", async ($, on) => {
   const { clock, seen } = harness(on, {
+    setting: false,
     windows: () => fiveHour("2026-10-06T11:00:00Z"),
     store: { prefs: { autoContinue: "always" } },
     caffeinate: false,
   });
-  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await $.classic.StopFailure(limit());
   await clock.advance(1);
   expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
@@ -514,14 +523,88 @@ test("doesn't keep the Mac awake where it can't", async ($, on) => {
 
 test("follows Rewake's setting: never means no hold", async ($, on) => {
   const { clock, seen } = harness(on, {
+    setting: false,
     windows: () => fiveHour("2026-10-06T11:00:00Z"),
     store: { prefs: { autoContinue: "always" } },
     config: JSON.stringify({ stateDir: "/state" }),
     settings: JSON.stringify({ keepAwake: "never" }),
   });
-  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await $.classic.StopFailure(limit());
   await clock.advance(1);
   expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
   expect(seen.spawned).toEqual([]);
+});
+
+test('the Desktop app asks even with "always" (its own checkbox would continue too)', async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "desktop", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.asked).toBe(1);
+});
+
+test("a later window more than a day away is offered, not waited for silently", async ($, on) => {
+  let windows = fiveHour("2026-10-06T11:00:00Z");
+  const { clock, seen } = harness(on, {
+    windows: () => windows,
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  windows = [{ kind: "seven_day", percentUsed: 100, resetsAt: "2026-10-09T09:00:00Z" }];
+  await clock.advance(62 * MIN);
+  expect(seen.submitted.length).toBe(0);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("offered");
+});
+
+test("a limit that never gets a reset time stops holding up scheduled messages", async ($, on) => {
+  const { clock, seen } = harness(on, { windows: () => [] });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.command.run({ command: "rewake", args: "in 30m run the tests" } as never);
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("waiting");
+  await clock.advance(31 * MIN);
+  expect(seen.store["limit:S1"]).toBeUndefined();
+  expect(seen.submitted).toEqual(["run the tests"]);
+});
+
+test("registers every command it answers", async ($, on) => {
+  const { seen } = harness(on);
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  expect(seen.commands.sort()).toEqual(
+    [
+      "rewake",
+      "rewake-ask",
+      "rewake-cancel",
+      "rewake-clear",
+      "rewake-continue",
+      "rewake-schedule",
+    ].sort(),
+  );
+});
+
+test("reopened while Claude Code's own wait was pending: Rewake asks instead", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    store: {
+      "limit:S1": {
+        state: "native",
+        createdAt: T0 - 10 * MIN,
+        rehits: 0,
+        attempts: 0,
+        kind: "five_hour",
+        resetAt: T0 + H,
+        fireAt: T0 + H + MIN,
+      },
+    },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await clock.advance(1);
+  expect(seen.asked).toBe(1);
 });
