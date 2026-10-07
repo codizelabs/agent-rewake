@@ -1,10 +1,4 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -68,9 +62,9 @@ describe("Devin Desktop: Rewake's agents in its ACP registry file", () => {
     expect(out).toContain("restart Devin Desktop");
     // Uninstall removes only Rewake's agents.
     const back = planDevin(file, launch, true);
-    expect(
-      "changes" in back && JSON.parse(back.changes[0]?.after ?? "{}").agents,
-    ).toEqual([{ id: "mine" }]);
+    expect("changes" in back && JSON.parse(back.changes[0]?.after ?? "{}").agents).toEqual([
+      { id: "mine" },
+    ]);
   });
 
   it("leaves an unreadable file alone", () => {
