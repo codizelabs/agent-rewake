@@ -8,6 +8,8 @@ import { isProcessAlive } from "../../core/lock.js";
 import {
   type ClosedDeps,
   type ClosedHost,
+  ensureProgram,
+  FIRE_ENV,
   onLimit,
   onPrompt,
   onSessionEnd,
@@ -234,6 +236,9 @@ export function grokHooks(deps: GrokHookDeps): HookHandler {
       if (ctx.input.subagentType) return undefined;
       const cwd = str(ctx.input.cwd) || str(ctx.input.workspaceRoot);
       const d = deps.closed(ctx);
+      // Rewake's own resume runs aren't the person's: no program lookup for them.
+      if (!ctx.env[FIRE_ENV])
+        ensureProgram(grokHost(ctx.env), id, cwd, d, () => deps.program(ctx.env));
       const host = grokHost(ctx.env);
       switch (ctx.event) {
         case "SessionStart":

@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runContinue, waiting } from "../src/continue.js";
+import { copilotCode } from "../src/core/limits/agents.js";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { ScheduleStore } from "../src/core/store.js";
 import {
@@ -602,5 +603,32 @@ describe("install --only copilot-cli", () => {
         .output,
     ).toContain(`needs ${MIN_COPILOT} or newer`);
     expect((await install({ programs: [] })).output).toContain("wasn't found");
+  });
+});
+
+describe("Copilot's coded errors (1.0.92, tested offline)", () => {
+  it("reads the code in the hook's message, even when Copilot calls it recoverable", () => {
+    const text = JSON.stringify({
+      message: "Sorry, you've exceeded your weekly rate limit.",
+      code: "user_weekly_rate_limited",
+      type: "user_weekly_rate_limited",
+    });
+    expect(classifyCopilotError(text, NOW, true)).toEqual({ kind: "weekly", billing: false });
+    expect(copilotCode(JSON.stringify({ code: "session_quota_exceeded" }))).toEqual({
+      kind: "session",
+      billing: false,
+    });
+    // The text inside a JSON body, and Copilot's own "Last error" wording, read as the weekly limit.
+    expect(
+      classifyCopilotError(
+        JSON.stringify({ message: "Sorry, you've exceeded your weekly rate limit." }),
+        NOW,
+      ),
+    ).toMatchObject({ billing: false });
+    expect(
+      classifyCopilotError("429 Sorry, you've exceeded your weekly rate limit.", NOW),
+    ).toMatchObject({ billing: false });
+    // An uncoded error Copilot recovers from stays Copilot's to handle.
+    expect(classifyCopilotError("429 Too Many Requests", NOW, true)).toBeUndefined();
   });
 });

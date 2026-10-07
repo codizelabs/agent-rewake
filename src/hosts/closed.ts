@@ -160,6 +160,24 @@ export function onSessionStart(
   });
 }
 
+/**
+ * Fill in the agent's program when the record has none: any hook can find it, and the session-start
+ * hook may race another one or be missed.
+ */
+export function ensureProgram(
+  host: ClosedHost,
+  sessionId: string,
+  cwd: string,
+  d: ClosedDeps,
+  program: () => string | undefined,
+): void {
+  const records = new SessionRecords(d.stateDir, host.id);
+  if (records.get(sessionId)?.program) return;
+  const found = program();
+  if (found)
+    records.update(sessionId, cwd, d.now, (r) => (r.program ? r : { ...r, program: found }));
+}
+
 export function onPrompt(host: ClosedHost, sessionId: string, cwd: string, d: ClosedDeps): void {
   // Rewake's own resume run sends the continue message: that isn't the person typing.
   if (d.env[FIRE_ENV]) return;

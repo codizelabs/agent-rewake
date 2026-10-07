@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostLimit } from "../core/limits/types.js";
+import { SessionLock } from "../core/lock.js";
 import { writeFileAtomic } from "../core/store.js";
 import { ensurePrivateDir } from "../util/paths.js";
 
@@ -41,6 +42,9 @@ export interface SessionLimit extends HostLimit {
   seenAt: number;
 }
 
+/** A short sleep without a timer (hooks are short synchronous runs). */
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+
 /** Session ids become file names: only the shapes agents use. */
 export const safeSessionId = (id: unknown): id is string =>
   typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id);
@@ -62,7 +66,7 @@ export class SessionRecords {
   private readonly dir: string;
 
   constructor(
-    stateDir: string,
+    private readonly stateDir: string,
     private readonly host: string,
   ) {
     this.dir = join(stateDir, "hosts", host, "sessions");
@@ -95,6 +99,25 @@ export class SessionRecords {
     change: (r: SessionRecord) => SessionRecord,
   ): SessionRecord | undefined {
     if (!safeSessionId(sessionId)) return undefined;
+    // Agents start several hooks at once (Copilot: the prompt and session start ~50 ms apart):
+    // one writer at a time, or the later write drops what the earlier one recorded.
+    const lock = new SessionLock(this.stateDir);
+    const key = `record:${this.host}:${sessionId}`;
+    const until = Date.now() + 2000;
+    while (!lock.acquire(key) && Date.now() < until) Atomics.wait(PAUSE, 0, 0, 20);
+    try {
+      return this.updateLocked(sessionId, cwd, now, change);
+    } finally {
+      lock.release(key);
+    }
+  }
+
+  private updateLocked(
+    sessionId: string,
+    cwd: string,
+    now: number,
+    change: (r: SessionRecord) => SessionRecord,
+  ): SessionRecord | undefined {
     const current: SessionRecord = this.get(sessionId) ?? {
       schemaVersion: 1,
       host: this.host,
