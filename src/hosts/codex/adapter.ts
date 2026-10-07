@@ -1,3 +1,4 @@
+import { MAX_REARMS } from "../../core/resume.js";
 import type { Schedule } from "../../core/store.js";
 import type { HostAdapter, HostFacts, SendResult } from "../host.js";
 import { codexProgram, type Program, queueMessage, readUsage, type Usage } from "./cli.js";
@@ -33,6 +34,8 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
   const queue = deps.queue ?? queueMessage;
   /** Sign-in problems found by `check`, reported by `send`. */
   const signedOut = new Set<string>();
+  /** Resumes whose usage check never answered (offline, Codex stuck), reported by `send`. */
+  const unanswered = new Set<string>();
 
   return {
     id: "codex",
@@ -58,12 +61,14 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
         }
       }
       const codex = programOf(s, deps.node);
+      let noAnswer = false;
       if (codex) {
         const u = await usage(codex, envOf(s, deps.env));
         if (u.ok) {
           if (u.allowed !== undefined) facts.usageAllowed = u.allowed;
           if (u.allowed === false && u.resetsAt && u.resetsAt > now) facts.newResetsAt = u.resetsAt;
         } else if (u.reason === "signed-out") signedOut.add(s.scheduleId);
+        else if (u.reason !== "spawn") noAnswer = true;
       }
       // Codex couldn't say (no answer, no figure): don't send before the reset the session file
       // recorded (research §4.4), so a time chosen before the reset waits for it.
@@ -75,6 +80,13 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
       ) {
         facts.usageAllowed = false;
         facts.newResetsAt = limit.resetsAt;
+      }
+      // No answer at all (offline, or Codex stuck): `codex queue` would still succeed and the turn
+      // then fail, spending the resume. Check again later; after the last re-check, tell the person.
+      unanswered.delete(s.scheduleId);
+      if (facts.usageAllowed === undefined && noAnswer) {
+        if ((s.rearms ?? 0) < MAX_REARMS) facts.usageAllowed = false;
+        else unanswered.add(s.scheduleId);
       }
       return facts;
     },
@@ -91,6 +103,7 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
 
     async send(s): Promise<SendResult> {
       if (signedOut.has(s.scheduleId)) return { ok: false, reason: "failed", detail: "signed-out" };
+      if (unanswered.has(s.scheduleId)) return { ok: false, reason: "failed", detail: "no-usage" };
       const codex = programOf(s, deps.node);
       const thread = s.sessionRef?.threadId;
       if (!codex || !thread) return { ok: false, reason: "unsupported", detail: "no Codex found" };
