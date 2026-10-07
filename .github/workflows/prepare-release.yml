@@ -1,0 +1,58 @@
+# Prepares a release (plan §10A.4): run by hand with the new version. It sets package.json's
+# version (and the lockfile's), moves CHANGELOG.md's [Unreleased] under that version, and opens a
+# pull request from release/<version> into develop, labelled release. Merging it, then the release
+# pull request from develop into main, is still a person's decision (release-gate.yml).
+name: prepare-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The new version, x.y.z"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  prepare:
+    name: prepare-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the release branch
+      pull-requests: write # open its pull request
+    steps:
+      - name: Check out develop
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          persist-credentials: true # zizmor: ignore[artipacked] the next steps push one branch
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Set the version and move the changelog
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/prepare-release.mjs "$VERSION"
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit, push and open the pull request
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Commits carry the owner's name (CONTRIBUTING.md), never a bot's.
+          git config user.name "KASHAN HAIDER"
+          git config user.email "41765372+SMKH-PRO@users.noreply.github.com"
+          git switch -c "release/$VERSION"
+          git add package.json package-lock.json CHANGELOG.md
+          git commit -m "Release $VERSION"
+          git push origin "release/$VERSION"
+          gh pr create --base develop --head "release/$VERSION" --label release \
+            --title "Release $VERSION" \
+            --body "Sets the version to $VERSION and moves the changelog's [Unreleased] section under it. After this merges, open the release pull request from develop into main."

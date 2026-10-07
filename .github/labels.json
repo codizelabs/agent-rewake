@@ -37,6 +37,8 @@
 
     { "name": "dependencies", "color": "0366d6", "description": "Updates a dependency (Dependabot)" },
     { "name": "javascript", "color": "168700", "description": "Updates npm dependencies (Dependabot)" },
-    { "name": "github_actions", "color": "000000", "description": "Updates GitHub Actions (Dependabot)" }
+    { "name": "github_actions", "color": "000000", "description": "Updates GitHub Actions (Dependabot)" },
+    {"name": "no-changelog", "color": "ededed", "description": "A change people can't see: the changelog check doesn't apply"},
+    {"name": "release", "color": "0e8a16", "description": "A release pull request (prepare-release)"}
   ]
 }
