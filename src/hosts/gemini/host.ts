@@ -2,20 +2,29 @@ import { spawn } from "node:child_process";
 import { closeSync, openSync, readSync } from "node:fs";
 import { classifyGeminiError, durationMs, GEMINI_LIMIT } from "../../core/limits/agents.js";
 import { recogniseForHost } from "../../core/limits/recognise.js";
-import { nextMidnight } from "../../core/time.js";
+import { RESET_MARGIN_MS } from "../../core/resume.js";
+import { ScheduleStore } from "../../core/store.js";
+import { formatAt, nextMidnight, parseWhen } from "../../core/time.js";
 import {
+  armClosed,
   type ClosedDeps,
   type ClosedHost,
   onLimit,
   onPrompt,
   onSessionEnd,
   onSessionStart,
+  pendingFor,
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { resumeDeadline, type SendResult } from "../host.js";
-import { type SessionLimit, type SessionRecord, safeSessionId } from "../sessions.js";
+import {
+  type SessionLimit,
+  type SessionRecord,
+  SessionRecords,
+  safeSessionId,
+} from "../sessions.js";
 
 /**
  * Google's Gemini CLI in a terminal (plan §9.5; Gemini CLI v0.62.0 sources, research note §B):
@@ -166,6 +175,55 @@ function sessionOf(input: Record<string, unknown>): string | undefined {
   return safeSessionId(input.session_id) ? input.session_id : undefined;
 }
 
+/** What the extension's `/rewake` command sends: this marker, then what the person typed. */
+export const REWAKE_MARKER = "[agent-rewake command]";
+
+/** Offered in the session after a usage limit. */
+export function offerText(resetsAt: number | undefined, now: number): string {
+  return resetsAt
+    ? `Rewake: Gemini hit its usage limit, which resets ${formatAt(resetsAt, now)}. To continue this conversation then, type /rewake.`
+    : "Rewake: Gemini hit its usage limit. To continue this conversation later, type /rewake with a time, for example /rewake 3:30pm.";
+}
+
+/** The answer to `/rewake`, `/rewake <time>` or `/rewake cancel`, shown in the session. */
+export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDeps): string {
+  const store = new ScheduleStore(d.stateDir);
+  if (args === "cancel") {
+    const pending = pendingFor(d.stateDir, GEMINI_ID, id);
+    for (const s of pending) {
+      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
+      d.disarm(s.scheduleId);
+    }
+    return pending.length > 0
+      ? "Rewake: Cancelled. This conversation won't be continued on its own."
+      : "Rewake: Nothing is scheduled for this conversation.";
+  }
+  const records = new SessionRecords(d.stateDir, GEMINI_ID);
+  const r = records.get(id) ?? records.update(id, cwd, d.now, (x) => x);
+  if (!r) return "Rewake: This conversation can't be continued later.";
+  let at: number | undefined;
+  if (args) {
+    const when = parseWhen(args, d.now);
+    if (!when.ok) return `Rewake: Didn't understand "${args}". Try /rewake 3:30pm.`;
+    at = when.at;
+  } else {
+    const l = r.limit;
+    if (!l || (r.lastPromptAt ?? 0) > l.seenAt)
+      return "Rewake: This conversation isn't at a usage limit. To continue it at a time anyway: /rewake 3:30pm";
+    if (l.billing)
+      return "Rewake: This limit is about credits or billing, so waiting won't fix it and Rewake won't continue this conversation. Fix that, then continue it yourself.";
+    if (l.resetsAt === undefined)
+      return "Rewake doesn't know when this limit resets. Type /rewake with a time, for example /rewake 3:30pm.";
+    at = l.resetsAt + RESET_MARGIN_MS;
+  }
+  for (const s of pendingFor(d.stateDir, GEMINI_ID, id)) {
+    store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
+    d.disarm(s.scheduleId);
+  }
+  armClosed(geminiHost, r, at, d);
+  return `Rewake will continue this conversation ${formatAt(at, d.now)}, if Gemini CLI is closed by then and this computer is awake. To cancel: /rewake cancel`;
+}
+
 export function geminiHooks(deps: GeminiHookDeps): HookHandler {
   return {
     isMine: (input, env) =>
@@ -182,9 +240,17 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
         case "SessionStart":
           onSessionStart(geminiHost, id, cwd, d, deps.program(ctx.env));
           break;
-        case "BeforeAgent":
+        case "BeforeAgent": {
+          // `/rewake …` (the extension's command) arrives as a marked prompt: Rewake answers it
+          // and blocks the turn, so no model request is made (research DG-U2, tested on 0.62.0).
+          const prompt = typeof ctx.input.prompt === "string" ? ctx.input.prompt : "";
+          if (prompt.startsWith(REWAKE_MARKER)) {
+            const reason = rewakeCommand(prompt.slice(REWAKE_MARKER.length).trim(), id, cwd, d);
+            return JSON.stringify({ decision: "deny", reason });
+          }
           onPrompt(geminiHost, id, cwd, d);
           break;
+        }
         case "AfterAgent": {
           if (ctx.input.stop_hook_active) break;
           const t = ctx.input.transcript_path;
@@ -192,14 +258,13 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
           const limit = text
             ? recogniseForHost({ agent: "gemini", source: "session-file", text }, ctx.now)
             : undefined;
-          if (limit)
-            onLimit(
-              geminiHost,
-              id,
-              cwd,
-              withApiKeyReset(limit, deps.apiKey?.(ctx.env) === true, ctx.now),
-              d,
-            );
+          if (limit) {
+            const l = withApiKeyReset(limit, deps.apiKey?.(ctx.env) === true, ctx.now);
+            onLimit(geminiHost, id, cwd, l, d);
+            // Offered in the session, where the person is: /rewake answers without a model call.
+            if (!l.billing)
+              return JSON.stringify({ systemMessage: offerText(l.resetsAt, ctx.now) });
+          }
           break;
         }
         case "SessionEnd":
