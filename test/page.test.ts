@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ScheduleStore } from "../src/core/store.js";
+import { loadSettings } from "../src/core/settings.js";
+import { registerHost, ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import { type InputEvent, parseInput } from "../src/ui/input.js";
 import { SchedulesPage } from "../src/ui/page.js";
@@ -260,5 +261,68 @@ describe("the schedules page", () => {
     expect(p.done).toBe(false);
     key(p, "q");
     expect(p.done).toBe(true);
+  });
+});
+
+describe("resumes of agents outside Zed", () => {
+  function hostRow() {
+    registerHost("codex");
+    const store = new ScheduleStore(dir);
+    const s = store.create({
+      sessionId: "019a-thread-codex",
+      cwd: "/work/shop",
+      text: "Continue.",
+      dueAt: T0 + HOUR,
+      kind: "limit_resume",
+      createdBy: "auto",
+      now: T0,
+    });
+    store.put({ ...s, host: "codex", sessionRef: { threadId: s.sessionId } });
+    return s.scheduleId;
+  }
+
+  it("names the agent, and every change moves or removes its timer", () => {
+    const id = hostRow();
+    const changed: string[] = [];
+    const p = new SchedulesPage({
+      stateDir: dir,
+      now: () => T0,
+      locale: "en-GB",
+      noColor: true,
+      hostName: (h) => (h === "codex" ? "Codex" : undefined),
+      onHostChange: (x) => changed.push(x),
+    });
+    const text = p.render(120, 30).lines.map(plain).join("\n");
+    expect(text).toContain("Codex");
+    expect(text).toContain("Session 019a-thr");
+    p.action("pause");
+    expect(new ScheduleStore(dir).get(id)?.status).toBe("paused");
+    p.action("pause");
+    p.action("now");
+    expect(p.toast).toBe(
+      "Resuming the Codex session within a few seconds. If it's open in Codex, Rewake won't send it and tells you in a desktop notification.",
+    );
+    expect(changed).toEqual([id, id, id]);
+  });
+
+  it("turns on the one automatic-resume setting for them, never a Zed thread's", () => {
+    hostRow();
+    const p = new SchedulesPage({
+      stateDir: dir,
+      now: () => T0,
+      noColor: true,
+      hostName: () => "Codex",
+    });
+    p.render(120, 30);
+    expect(p.render(120, 30).lines.map(plain).join("\n")).toContain("Auto-resume: off");
+    p.action("auto");
+    expect(p.dialog).toMatchObject({ title: "Resume automatically after every usage limit?" });
+    (p.dialog as { onYes: () => void }).onYes();
+    expect(loadSettings(dir).newThreads).toBe("on");
+    expect(new ThreadStore(dir).get("019a-thread-codex")).toBeUndefined();
+    p.dialog = undefined;
+    p.action("auto");
+    expect(loadSettings(dir).newThreads).toBe("ask");
+    expect(p.toast).toBe("Automatic resume is off: Rewake asks after each usage limit.");
   });
 });

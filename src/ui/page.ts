@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describeCron, nextRun, nextRuns, parseCron } from "../core/cron.js";
-import { applySettings } from "../core/settings.js";
+import { applySettings, loadSettings, saveSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { type ThreadSettings, ThreadStore } from "../core/threads.js";
 import { formatClock, formatWhen, parseWhen } from "../core/time.js";
@@ -48,6 +48,8 @@ interface Row {
   thread: ThreadSettings | undefined;
   /** Position among that thread's pending messages, as `/schedule list` numbers them. */
   n: number;
+  /** For a resume of an agent outside Zed: that agent's name ("Codex"). */
+  host?: string;
 }
 
 type Dialog =
@@ -170,6 +172,13 @@ export interface PageOptions {
   threadId?: string;
   /** Plain output: no colour (NO_COLOR). Bold, dim and reverse still mark state. */
   noColor?: boolean;
+  /** The name of an agent outside Zed whose resume a row is ("Codex"), by its host id. */
+  hostName?: (host: string) => string | undefined;
+  /**
+   * Called after a resume of an agent outside Zed changes, so its OS timer follows (re-armed at
+   * the new time, removed when paused or deleted). Zed's add-on needs no timer.
+   */
+  onHostChange?: (scheduleId: string) => void;
 }
 
 export class SchedulesPage {
@@ -222,6 +231,7 @@ export class SchedulesPage {
     this.rows = all.filter(keep).map((s) => ({
       schedule: s,
       thread: this.threads.get(s.sessionId),
+      ...(s.host !== undefined && { host: this.opts.hostName?.(s.host) ?? s.host }),
       n: (pendingByThread.get(s.sessionId) ?? []).indexOf(s) + 1,
     }));
     const again = this.rows.findIndex((r) => r.schedule.scheduleId === selectedId);
@@ -413,6 +423,15 @@ export class SchedulesPage {
 
   // ---- actions ---------------------------------------------------------------------------------
 
+  /** A row changed: an agent outside Zed's resume gets its timer moved or removed. */
+  private touched(s: Schedule): void {
+    if (s.host) this.opts.onHostChange?.(s.scheduleId);
+  }
+
+  private hostName(s: Schedule): string | undefined {
+    return s.host ? (this.opts.hostName?.(s.host) ?? s.host) : undefined;
+  }
+
   action(id: string): void {
     const row = this.current();
     const s = row?.schedule;
@@ -472,6 +491,7 @@ export class SchedulesPage {
               },
               this.now(),
             );
+            this.touched(s);
             this.toast = `Moved to ${formatWhen(at, this.now(), this.opts.locale)}.`;
           },
         );
@@ -482,7 +502,10 @@ export class SchedulesPage {
           return;
         }
         this.store.update(s.scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: now }), now);
-        this.toast = "Sending within a few seconds, if its thread is open in Zed.";
+        this.touched(s);
+        this.toast = s.host
+          ? `Resuming the ${this.hostName(s)} session within a few seconds. If it's open in ${this.hostName(s)}, Rewake won't send it and tells you in a desktop notification.`
+          : "Sending within a few seconds, if its thread is open in Zed.";
         break;
       case "pause":
         if (s.status === "paused") {
@@ -491,11 +514,13 @@ export class SchedulesPage {
             (x) => ({ ...x, status: "scheduled", ...(x.dueAt < now && { dueAt: now }) }),
             now,
           );
+          this.touched(s);
           this.toast = "Resumed. It will be sent at its time.";
         } else if (s.status === "sending") {
           this.toast = "It's being sent right now, so it can't be paused.";
         } else {
           this.store.update(s.scheduleId, (x) => ({ ...x, status: "paused" }), now);
+          this.touched(s);
           this.toast = "Paused. Press p again to resume it.";
         }
         break;
@@ -510,11 +535,40 @@ export class SchedulesPage {
           yes: "Delete",
           onYes: () => {
             this.store.remove(s.scheduleId);
+            this.touched(s);
             this.toast = "Deleted.";
           },
         };
         return;
       case "auto": {
+        if (s.host) {
+          // Outside Zed it's one setting, shared with Zed's new threads, not a thread's own (and a
+          // thread record written here would make that agent's hooks take the session for Zed's).
+          const settings = loadSettings(this.opts.stateDir);
+          if (settings.newThreads === "on") {
+            saveSettings(this.opts.stateDir, { ...settings, newThreads: "ask" });
+            this.toast = "Automatic resume is off: Rewake asks after each usage limit.";
+            return;
+          }
+          this.dialog = {
+            kind: "confirm",
+            title: "Resume automatically after every usage limit?",
+            body: [
+              "Applies to new Zed threads and to every session of the agents outside Zed",
+              "that Rewake is set up in. A reset more than a day away is always asked about.",
+              "Rewake never approves permission requests.",
+            ],
+            yes: "Turn on",
+            onYes: () => {
+              saveSettings(this.opts.stateDir, {
+                ...loadSettings(this.opts.stateDir),
+                newThreads: "on",
+              });
+              this.toast = "Automatic resume is on.";
+            },
+          };
+          return;
+        }
         const on = row.thread?.autoResume === true;
         const flip = () => {
           this.threads.update(s.sessionId, s.cwd, { autoResume: !on }, this.now());
@@ -881,7 +935,7 @@ export class SchedulesPage {
         b.id === "pause" && row?.schedule.status === "paused"
           ? "Resume"
           : b.id === "auto"
-            ? `Auto-resume: ${row?.thread?.autoResume ? "on" : "off"}`
+            ? `Auto-resume: ${(row?.schedule.host ? loadSettings(this.opts.stateDir).newThreads === "on" : row?.thread?.autoResume) ? "on" : "off"}`
             : b.label;
       const disabled = !row && !["new", "help", "quit"].includes(b.id);
       buttons.push({
@@ -1115,12 +1169,13 @@ function columns(w: number): Column[] {
   const agent: Column = {
     title: "Agent",
     width: 14,
-    value: (r) => r.thread?.agentName ?? r.thread?.agentId ?? "—",
+    value: (r) => r.thread?.agentName ?? r.thread?.agentId ?? r.host ?? "—",
   };
   const thread: Column = {
     title: "Thread",
     width: 22,
-    value: (r) => r.thread?.title ?? `Thread ${r.schedule.sessionId.slice(0, 8)}`,
+    value: (r) =>
+      r.thread?.title ?? `${r.host ? "Session" : "Thread"} ${r.schedule.sessionId.slice(0, 8)}`,
   };
   const showRepeats = w >= 110;
   const fixed = [
