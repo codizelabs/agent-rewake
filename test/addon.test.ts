@@ -779,6 +779,31 @@ describe("resume after a usage limit", () => {
     h.addon.stop();
   });
 
+  it("asks before sending a resume that was paused again, when it's found well after its new time", async () => {
+    const h = await harness(dir, { claude: true });
+    await hitLimit(h, 2);
+    await answer(h, { prompt: "Resume" });
+    h.advance(3 * HOUR + 60_000);
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt").at(-1);
+    h.agent(rateEvent(RESET + 5 * HOUR));
+    h.agent({ id: sent?.id, error: limitErr });
+    await settle();
+    expect(h.store.list()[0]).toMatchObject({ status: "scheduled", attempts: [{ n: 1 }] });
+
+    // The computer slept through the new time (22:01) and wakes two hours later.
+    h.advance(7 * HOUR);
+    h.addon.tick();
+    await settle();
+    expect(h.toAgent.filter((m) => m.method === "session/prompt")).toHaveLength(2); // not again
+    expect(h.store.list()[0]?.status).toBe("missed");
+    expect(formMessage(h)).toMatch(
+      /^Rewake: A message scheduled for Sunday 4 October at 22:01 wasn't sent, because Zed or this computer wasn't running then: "Resume"\. Send it now\?$/,
+    );
+    h.addon.stop();
+  });
+
   it("shows a message once when it's sent again after a usage limit", async () => {
     const h = await harness(dir, { claude: true });
     h.prompt(2, "/schedule in 1h Run the tests");
@@ -2133,6 +2158,41 @@ describe("usage limits for every agent", () => {
     h.addon.stop();
   });
 
+  it("keeps and sends the resume of every thread limited at the same time", async () => {
+    const h = await harness(dir, CODEX);
+    const ids = ["s-1", "s-2", "s-3"];
+    for (const [i, sid] of ids.slice(1).entries()) {
+      h.client({ id: 10 + i, method: "session/new", params: { cwd: "/project", mcpServers: [] } });
+      await settle();
+      h.agent({ id: 10 + i, result: { sessionId: sid } });
+      await settle();
+    }
+    for (const [i, sid] of ids.entries()) {
+      new ThreadStore(dir).update(sid, "/project", { autoResume: true }, T0);
+      h.client({
+        id: 20 + i,
+        method: "session/prompt",
+        params: { sessionId: sid, prompt: [{ type: "text", text: "keep going" }] },
+      });
+      await settle();
+      h.agent({ id: 20 + i, error: codexLimit });
+      await settle();
+    }
+    const resumes = h.store.list().filter((s) => s.status === "scheduled");
+    expect(resumes.map((s) => s.sessionId).sort()).toEqual(ids);
+    expect(new Set(resumes.map((s) => s.scheduleId)).size).toBe(3);
+
+    h.advance(4 * HOUR + 35 * 60_000); // the reset, plus Rewake's margin
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt" && typeof m.id === "string");
+    expect(sent.map((m) => (m.params as { sessionId: string }).sessionId).sort()).toEqual(ids);
+    for (const m of sent) h.agent({ id: m.id, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().map((s) => s.status)).toEqual(["sent", "sent", "sent"]);
+    h.addon.stop();
+  });
+
   it("has Auto-resume in the menu for every agent", async () => {
     for (const o of [CODEX, { ...GEMINI, sessionResult: {} }]) {
       const h = await harness(mkdtempSync(join(tmpdir(), "rewake-auto-")), o);
@@ -2479,6 +2539,36 @@ describe("the limit ends early", () => {
     h.agent({ id: 3, result: { stopReason: "end_turn" } });
     await settle();
     expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.addon.stop();
+  });
+
+  it("cancels the resume when another agent answers again before the reset (another account)", async () => {
+    const h = await harness(dir, { agentName: "gemini-cli", agentTitle: "Gemini CLI" });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent({ id: 2, error: { code: 429, message: "Quota exceeded. Try again in 3 hours." } });
+    await settle();
+    await answer(h, { prompt: "Resume" });
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.advance(HOUR); // still before the reset
+    // The agent's own command may not reach the model: it proves nothing.
+    h.prompt(3, "/stats");
+    await settle();
+    h.agent({ id: 3, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    // A turn the person stopped may never have reached the model either.
+    h.prompt(4, "carry on");
+    await settle();
+    h.agent({ id: 4, result: { stopReason: "cancelled" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(1);
+    h.prompt(5, "carry on");
+    await settle();
+    h.agent({ id: 5, result: { stopReason: "end_turn" } });
+    await settle();
+    expect(h.store.list().filter((s) => s.status === "scheduled")).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(/^Rewake: Cancelled the scheduled resume/);
     h.addon.stop();
   });
 });

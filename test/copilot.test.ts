@@ -122,13 +122,14 @@ function harness(
 ) {
   saveSettings(state, settings);
   const armed: [string, number][] = [];
+  const disarmed: string[] = [];
   const notes: string[] = [];
   const deps = (env: NodeJS.ProcessEnv = {}, now = NOW): ClosedDeps => ({
     stateDir: state,
     now,
     env,
     arm: (id, at) => armed.push([id, at]),
-    disarm: () => {},
+    disarm: (id) => disarmed.push(id),
     notify: (_t, b) => notes.push(b),
     agent: () => agent,
     running: () => alive(),
@@ -148,7 +149,7 @@ function harness(
       state,
       now,
     );
-  return { armed, notes, deps, event };
+  return { armed, disarmed, notes, deps, event };
 }
 
 describe("Copilot's hooks", () => {
@@ -188,6 +189,18 @@ describe("Copilot's hooks", () => {
         /^Rewake will continue GitHub Copilot CLI in the "shop" folder at (3:01 PM|15:01) today\. Keep this computer on and awake until then\./,
       ),
     ]);
+  });
+
+  it("cancels an armed resume when the person types in the session again", async () => {
+    const h = harness({ ...DEFAULT_SETTINGS, newThreads: "on" });
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
+    await h.event("sessionEnd", { reason: "error" });
+    const [id] = h.armed[0] ?? [];
+    expect(new ScheduleStore(state).get(id ?? "")?.status).toBe("scheduled");
+    await h.event("sessionStart", { source: "resume" }, {}, NOW + 1000);
+    await h.event("userPromptSubmitted", { prompt: "go on" }, {}, NOW + 2000);
+    expect(new ScheduleStore(state).get(id ?? "")?.status).toBe("cancelled");
+    expect(h.disarmed).toEqual([id]);
   });
 
   it("never offers a billing limit, or one the person answered by typing", async () => {
@@ -241,7 +254,7 @@ describe("a session that ended without its session-end hook", () => {
     await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
     const records = new SessionRecords(state, "copilot-cli");
     const r = records.get(SID);
-    expect(r).toMatchObject({ open: true, agentPid: 4242, agentName: "copilot" });
+    expect(r).toMatchObject({ open: true, agents: [{ pid: 4242, name: "copilot" }] });
     expect(stillOpen(r as NonNullable<typeof r>, () => alive)).toBe(true);
     expect(reapClosed([copilotHost], h.deps())).toBe(0);
     // The terminal was killed: no sessionEnd ran.
@@ -262,6 +275,26 @@ describe("a session that ended without its session-end hook", () => {
       updatedAt: NOW,
     };
     expect(stillOpen(r, () => false)).toBe(true);
+    // A record from an earlier version names one agent process.
+    expect(stillOpen({ ...r, agentPid: 4242, agentName: "copilot" }, () => false)).toBe(false);
+  });
+
+  it("stays open while the same session runs in another terminal", async () => {
+    const a = harness(DEFAULT_SETTINGS, { pid: 1001, name: "copilot" });
+    const b = harness(DEFAULT_SETTINGS, { pid: 1002, name: "copilot" });
+    await a.event("sessionStart", { source: "startup" });
+    await b.event("sessionStart", { source: "resume" });
+    await a.event("errorOccurred", { error: { message: WEEKLY_IN } });
+    await b.event("sessionEnd", { reason: "user_exit" });
+    const records = new SessionRecords(state, "copilot-cli");
+    const r = records.get(SID);
+    expect(r).toMatchObject({ open: true, agents: [{ pid: 1001, name: "copilot" }] });
+    expect(stillOpen(r as NonNullable<typeof r>, () => true)).toBe(true);
+    expect(b.notes).toEqual([]);
+    // The last terminal closes: now the limit is offered.
+    await a.event("sessionEnd", { reason: "user_exit" });
+    expect(records.get(SID)?.open).toBe(false);
+    expect(a.notes.at(-1)).toContain('Run "agent-rewake continue"');
   });
 
   it("lets a new limit through after a missed or needs-attention resume", async () => {
@@ -472,6 +505,24 @@ describe("Copilot at fire time", () => {
     const id = await armed();
     expect(await fire(id, deps({ FAKE_COPILOT: "limited" }))).toBe("waiting");
     expect(new ScheduleStore(state).get(id)?.status).toBe("scheduled");
+  });
+
+  it("passes on the reset a limited run's message gives", async () => {
+    const r = new SessionRecords(state, "copilot-cli").update(SID, work, NOW, (x) => ({
+      ...x,
+      program: FAKE,
+    }));
+    if (!r) throw new Error("no session record");
+    const before = Date.now();
+    const result = await resumeCopilot(r, "Continue.", {
+      ...process.env,
+      FAKE_COPILOT: "limited",
+      FAKE_COPILOT_ERROR: WEEKLY_IN,
+    });
+    expect(result).toMatchObject({ ok: false, reason: "limited" });
+    const at = (result as { resetsAt?: number }).resetsAt ?? 0;
+    expect(at).toBeGreaterThanOrEqual(before + 3 * H);
+    expect(at).toBeLessThanOrEqual(Date.now() + 3 * H);
   });
 
   it("reports a session Copilot no longer has as deleted, not a failure", async () => {
