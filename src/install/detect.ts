@@ -384,10 +384,20 @@ function orList(items: string[]): string {
  * in Zed's Agent Panel, with the tools found on this computer named as used on their own: Codex
  * works in Zed, so the sentence speaks of Codex outside it.
  */
-export function otherAgentsNote(found: Found[]): string | undefined {
-  if (found.length === 0) return undefined;
+export function otherAgentsNote(found: Found[], previews: string[] = []): string | undefined {
+  if (found.length === 0 && previews.length === 0) return undefined;
   const names = [...new Set(found.map((f) => f.name))];
-  return `Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with ${orList(names)} used on ${names.length === 1 ? "its" : "their"} own in a terminal, another editor or a desktop app.`;
+  const and = (xs: string[]) =>
+    xs.length < 2 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`;
+  const where =
+    previews.length > 0
+      ? `Rewake works in Zed's Agent Panel (not with Zed's own agent) and, as a preview you set up, in ${and(previews)}.`
+      : "Rewake works only in Zed's Agent Panel (not with Zed's own agent).";
+  const not =
+    (names.length > 0
+      ? ` It isn't set up for ${orList(names)} used on ${names.length === 1 ? "its" : "their"} own in a terminal, another editor or a desktop app.`
+      : "") + (previews.length > 0 ? " Previews cover only the places named." : "");
+  return `${where}${not}`;
 }
 
 /**

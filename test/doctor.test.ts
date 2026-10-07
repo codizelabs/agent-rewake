@@ -252,7 +252,7 @@ describe("doctor: other coding agents", () => {
       ],
     });
     expect(texts(f, "info")).toContain(
-      "Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with Claude Code used on its own in a terminal, another editor or a desktop app.",
+      "Rewake works only in Zed's Agent Panel (not with Zed's own agent). It isn't set up for Claude Code used on its own in a terminal, another editor or a desktop app.",
     );
     expect(texts(run()).join()).not.toContain("used on their own");
   });
@@ -267,7 +267,7 @@ describe("doctor: other coding agents", () => {
       }),
     ).join();
     expect(f).not.toContain(general);
-    expect(f).toContain("or with Codex used on its own");
+    expect(f).toContain("It isn't set up for Codex used on its own");
   });
 });
 

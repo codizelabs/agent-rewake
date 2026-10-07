@@ -103,6 +103,7 @@ const run = (args: Partial<Parameters<typeof runInstall>[0]>) => {
     keybinding: false,
     env,
     agents: [],
+    previews: [],
     out: (t) => {
       output += t;
     },
@@ -325,7 +326,7 @@ describe("agent-rewake install", () => {
       },
     });
     expect(beforeQuestion).toContain(
-      "Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with Codex used on its own in a terminal, another editor or a desktop app.",
+      "Rewake works only in Zed's Agent Panel (not with Zed's own agent). It isn't set up for Codex used on its own in a terminal, another editor or a desktop app.",
     );
     // Without other agents, nothing is added.
     expect((await run({ dryRun: true })).output).not.toContain("used on their own");
@@ -341,7 +342,7 @@ describe("agent-rewake install", () => {
       { id: "codex" as const, name: "Codex", version: "0.160.1", surfaces: ["terminal"] },
     ];
     const specific = await run({ agents });
-    expect(specific.output).toContain("or with Codex used on its own");
+    expect(specific.output).toContain("It isn't set up for Codex used on its own");
     expect(specific.output).not.toContain("It can't reach Zed's own agent");
     writeFileSync(file("settings.json"), SETTINGS);
     expect((await run({})).output).toContain("It can't reach Zed's own agent");

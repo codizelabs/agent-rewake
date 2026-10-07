@@ -8,18 +8,15 @@ import { SchedulingAddon } from "./addon.js";
 import { runContinue } from "./continue.js";
 import { applySettings } from "./core/settings.js";
 import { type DoctorContext, detailLines, diagnose, findZedApps, render } from "./doctor.js";
-import {
-  pluginDir as antigravityPluginDir,
-  runAntigravityInstall,
-} from "./hosts/antigravity/install.js";
-import { modInstalled, runClaudeInstall } from "./hosts/claude-code/install.js";
+import { runAntigravityInstall } from "./hosts/antigravity/install.js";
+import { runClaudeInstall } from "./hosts/claude-code/install.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
-import { pluginInstalled } from "./hosts/codex/plugin.js";
-import { hooksFile, runCopilotInstall } from "./hosts/copilot/install.js";
+import { runCopilotInstall } from "./hosts/copilot/install.js";
 import { runGeminiInstall } from "./hosts/gemini/install.js";
-import { grokHooksFile, runGrokInstall } from "./hosts/grok/install.js";
+import { runGrokInstall } from "./hosts/grok/install.js";
 import { readStdin, runHook } from "./hosts/hook.js";
 import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
+import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
 import {
   agyPrograms,
   codexPrograms,
@@ -28,7 +25,6 @@ import {
   detectAgents,
   geminiPrograms,
   grokPrograms,
-  withoutInstalled,
 } from "./install/detect.js";
 import {
   keyChord,
@@ -398,16 +394,13 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
     platform: process.platform,
     home: homedir(),
     zedApps: () => findZedApps(process.platform, homedir(), env),
-    agents: () =>
-      withoutInstalled(
-        detectAgents({ env, home: homedir(), platform: process.platform }),
-        (id) =>
-          (id === "codex" && pluginInstalled(env, homedir())) ||
-          (id === "claude-code" && modInstalled(env, homedir())) ||
-          (id === "copilot-cli" && existsSync(hooksFile(env, homedir()))) ||
-          (id === "grok" && existsSync(grokHooksFile(env, homedir()))) ||
-          (id === "antigravity" && existsSync(antigravityPluginDir(env, homedir()))),
-      ),
+    agents: () => {
+      const ids = new Set(installedPreviews(env, homedir(), stateDir(env)));
+      return detectAgents({ env, home: homedir(), platform: process.platform }).filter(
+        (f) => !ids.has(f.id),
+      );
+    },
+    previews: () => previewNames(env),
     launch: launchCommand(),
     version: VERSION,
     nodeVersion: process.versions.node,
@@ -640,4 +633,9 @@ async function runContinueCommand(
     out: (t) => process.stdout.write(t),
     ask: prompt,
   });
+}
+
+/** The previews set up on this computer, by name. */
+function previewNames(env: NodeJS.ProcessEnv): string[] {
+  return installedPreviews(env, homedir(), stateDir(env)).map((id) => PREVIEW_NAMES[id] ?? id);
 }

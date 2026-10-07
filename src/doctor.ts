@@ -73,6 +73,8 @@ export interface DoctorContext {
   nodeVersion: string;
   /** Other coding agents on this computer (src/install/detect.ts); none when not given. */
   agents?: () => Found[];
+  /** Names of the previews set up here (src/hosts/previews.ts); none when not given. */
+  previews?: () => string[];
 }
 
 export interface ZedApp {
@@ -219,7 +221,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   const update = `npx ${"@codizelabs/agent-rewake"}@latest install`;
 
   // Other coding agents on this computer, and whether the line about them was shown yet.
-  const reach = otherAgentsNote(ctx.agents?.() ?? []);
+  const reach = otherAgentsNote(ctx.agents?.() ?? [], ctx.previews?.() ?? []);
   let reachShown = false;
 
   // ---- Zed ------------------------------------------------------------------------------------

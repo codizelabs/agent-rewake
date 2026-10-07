@@ -155,7 +155,7 @@ describe("wording", () => {
   it("says Rewake works only in Zed's Agent Panel, with the tools found here as examples", () => {
     expect(otherAgentsNote([])).toBeUndefined();
     expect(otherAgentsNote([codex])).toBe(
-      "Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with Codex used on its own in a terminal, another editor or a desktop app.",
+      "Rewake works only in Zed's Agent Panel (not with Zed's own agent). It isn't set up for Codex used on its own in a terminal, another editor or a desktop app.",
     );
     expect(
       otherAgentsNote([
@@ -165,7 +165,7 @@ describe("wording", () => {
         { id: "antigravity", name: "Antigravity", surfaces: ["terminal", "app", "IDE"] },
       ]),
     ).toBe(
-      "Rewake works only in Zed's Agent Panel. It doesn't work with Zed's own agent, or with Claude Code, Codex, Grok Build or Antigravity used on their own in a terminal, another editor or a desktop app.",
+      "Rewake works only in Zed's Agent Panel (not with Zed's own agent). It isn't set up for Claude Code, Codex, Grok Build or Antigravity used on their own in a terminal, another editor or a desktop app.",
     );
   });
 });
@@ -175,5 +175,17 @@ describe("installed previews", () => {
     const codex: Found = { id: "codex", name: "Codex", surfaces: ["terminal"] };
     const grok: Found = { id: "grok", name: "Grok Build", surfaces: ["terminal"] };
     expect(withoutInstalled([codex, grok], (id) => id === "codex")).toEqual([grok]);
+  });
+});
+
+describe("with previews installed", () => {
+  const codex: Found = { id: "codex", name: "Codex", surfaces: ["terminal"] };
+  it("says where Rewake works, previews included", () => {
+    expect(otherAgentsNote([codex], ["Claude Code"])).toBe(
+      "Rewake works in Zed's Agent Panel (not with Zed's own agent) and, as a preview you set up, in Claude Code. It isn't set up for Codex used on its own in a terminal, another editor or a desktop app. Previews cover only the places named.",
+    );
+    expect(otherAgentsNote([], ["Claude Code", "Codex"])).toBe(
+      "Rewake works in Zed's Agent Panel (not with Zed's own agent) and, as a preview you set up, in Claude Code and Codex. Previews cover only the places named.",
+    );
   });
 });
