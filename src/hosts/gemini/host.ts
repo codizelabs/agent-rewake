@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { closeSync, openSync, readSync } from "node:fs";
 import { classifyLimit, classifyText } from "../../adapters/profiles.js";
+import { nextMidnight } from "../../core/time.js";
 import {
   type ClosedDeps,
   type ClosedHost,
@@ -79,8 +81,11 @@ export function classifyGeminiError(
   };
 }
 
-/** The text of the session file's newest record when that record is an error (a later turn means
- * the person carried on). */
+/**
+ * The text of the session file's newest message when that message is an error (a later turn means
+ * the person carried on). Bookkeeping records Gemini appends after it (`$set`, `$rewindTo`,
+ * `$patch`, `info`, `warning`; research DG-S2) are passed over.
+ */
 export function lastErrorText(transcript: string): string | undefined {
   let tail: string;
   try {
@@ -95,7 +100,8 @@ export function lastErrorText(transcript: string): string | undefined {
     } catch {
       continue;
     }
-    if (r.type !== "error") return undefined;
+    if (r.type === "user" || r.type === "gemini") return undefined;
+    if (r.type !== "error") continue;
     const c = r.content;
     if (typeof c === "string") return c;
     if (Array.isArray(c))
@@ -106,6 +112,38 @@ export function lastErrorText(transcript: string): string | undefined {
     return undefined;
   }
   return undefined;
+}
+
+/**
+ * The session's own id, from the session file's first line (`{sessionId, projectHash, …}`). The
+ * hook's `session_id` changes when the person switches to a fallback model (research DG-E8), but
+ * the file and the id `gemini --resume` takes stay the same.
+ */
+export function transcriptSessionId(transcript: unknown): string | undefined {
+  if (typeof transcript !== "string") return undefined;
+  let fd: number | undefined;
+  try {
+    fd = openSync(transcript, "r");
+    const buf = Buffer.alloc(4096);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    const first = buf.subarray(0, n).toString("utf8").split("\n")[0] ?? "";
+    const id = (JSON.parse(first) as { sessionId?: unknown }).sessionId;
+    return safeSessionId(id) ? id : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+/** API-key sign-in with no reset in the error: Gemini API daily quotas reset at midnight Pacific. */
+export function withApiKeyReset(
+  limit: Omit<SessionLimit, "seenAt">,
+  apiKey: boolean,
+  now: number,
+): Omit<SessionLimit, "seenAt"> {
+  if (!apiKey || limit.billing || limit.resetsAt !== undefined) return limit;
+  return { ...limit, resetsAt: nextMidnight("America/Los_Angeles", now) };
 }
 
 export function resumeGemini(
@@ -161,6 +199,15 @@ const isGeminiTranscript = (p: unknown) =>
 export interface GeminiHookDeps {
   closed: (ctx: HookContext) => ClosedDeps;
   program: (env: NodeJS.ProcessEnv) => string | undefined;
+  /** Whether Gemini CLI signs in with an API key (install.ts reads its settings). */
+  apiKey?: (env: NodeJS.ProcessEnv) => boolean;
+}
+
+/** The session's id: the session file's own, else the hook's (before the file exists). */
+function sessionOf(input: Record<string, unknown>): string | undefined {
+  const fromFile = transcriptSessionId(input.transcript_path);
+  if (fromFile) return fromFile;
+  return safeSessionId(input.session_id) ? input.session_id : undefined;
 }
 
 export function geminiHooks(deps: GeminiHookDeps): HookHandler {
@@ -169,9 +216,10 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
       !env.GROK_HOOK_EVENT &&
       safeSessionId(input.session_id) &&
       (typeof env.GEMINI_SESSION_ID === "string" || isGeminiTranscript(input.transcript_path)),
-    sessionId: (input) => (safeSessionId(input.session_id) ? input.session_id : undefined),
+    sessionId: (input) => sessionOf(input),
     async handle(ctx) {
-      const id = ctx.input.session_id as string;
+      const id = sessionOf(ctx.input);
+      if (!id) return undefined;
       const cwd = typeof ctx.input.cwd === "string" ? ctx.input.cwd : (ctx.env.GEMINI_CWD ?? "");
       const d = deps.closed(ctx);
       switch (ctx.event) {
@@ -186,7 +234,14 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
           const t = ctx.input.transcript_path;
           const text = typeof t === "string" ? lastErrorText(t) : undefined;
           const limit = text ? classifyGeminiError(text, ctx.now) : undefined;
-          if (limit) onLimit(geminiHost, id, cwd, limit, d);
+          if (limit)
+            onLimit(
+              geminiHost,
+              id,
+              cwd,
+              withApiKeyReset(limit, deps.apiKey?.(ctx.env) === true, ctx.now),
+              d,
+            );
           break;
         }
         case "SessionEnd":

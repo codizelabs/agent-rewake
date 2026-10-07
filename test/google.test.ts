@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runContinue } from "../src/continue.js";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { ScheduleStore } from "../src/core/store.js";
+import { nextMidnight } from "../src/core/time.js";
 import {
   antigravityHooks,
   antigravityHost,
@@ -32,6 +33,8 @@ import {
   geminiHooks,
   geminiHost,
   lastErrorText,
+  transcriptSessionId,
+  withApiKeyReset,
 } from "../src/hosts/gemini/host.js";
 import { geminiHooksJson, runGeminiInstall } from "../src/hosts/gemini/install.js";
 import { runHook } from "../src/hosts/hook.js";
@@ -115,6 +118,36 @@ describe("Gemini CLI", () => {
     ).toEqual({ kind: "billing", billing: true });
   });
 
+  it("passes over the bookkeeping records Gemini appends after an error", () => {
+    const f = join(dir, "s.jsonl");
+    writeFileSync(
+      f,
+      [
+        JSON.stringify({ sessionId: "11111111-2222-3333-4444-555555555555", kind: "main" }),
+        JSON.stringify({ type: "user", content: "go" }),
+        JSON.stringify({ type: "error", content: "RESOURCE_EXHAUSTED" }),
+        JSON.stringify({ $set: { lastUpdated: "2026-10-07T12:00:00Z" } }),
+        JSON.stringify({ type: "info", content: "Switched model" }),
+        "",
+      ].join("\n"),
+    );
+    expect(lastErrorText(f)).toBe("RESOURCE_EXHAUSTED");
+    expect(transcriptSessionId(f)).toBe("11111111-2222-3333-4444-555555555555");
+    expect(transcriptSessionId(join(dir, "missing.jsonl"))).toBeUndefined();
+  });
+
+  it("gives an API-key quota with no reset the next midnight Pacific", () => {
+    const now = Date.parse("2026-10-07T12:00:00Z"); // 05:00 in Los Angeles (PDT)
+    const limit = { kind: "daily", billing: false };
+    expect(withApiKeyReset(limit, true, now).resetsAt).toBe(Date.parse("2026-10-08T07:00:00Z"));
+    expect(withApiKeyReset(limit, false, now).resetsAt).toBeUndefined();
+    expect(withApiKeyReset({ ...limit, resetsAt: now + H }, true, now).resetsAt).toBe(now + H);
+    // Across the change back to standard time (1 November 2026): midnight PST is 08:00 UTC.
+    expect(nextMidnight("America/Los_Angeles", Date.parse("2026-11-01T12:00:00Z"))).toBe(
+      Date.parse("2026-11-02T08:00:00Z"),
+    );
+  });
+
   it("only counts the newest record of the session file", () => {
     const f = join(dir, "s.jsonl");
     const err = JSON.stringify({ type: "error", content: "RESOURCE_EXHAUSTED" });
@@ -156,8 +189,27 @@ describe("Gemini CLI", () => {
         NOW,
       );
     await event("SessionStart");
-    await event("AfterAgent");
+    // The person switched to a fallback model: Gemini gives the hook a new session_id, but the
+    // file (and the id `gemini --resume` takes) stays the same.
+    writeFileSync(
+      transcript,
+      `${JSON.stringify({ sessionId: SID, kind: "main" })}\n${readFileSync(transcript, "utf8")}`,
+    );
+    await runHook(
+      handler,
+      "AfterAgent",
+      JSON.stringify({
+        session_id: "fallback-0001",
+        transcript_path: transcript,
+        cwd: join(dir, "shop"),
+        hook_event_name: "AfterAgent",
+      }),
+      { GEMINI_SESSION_ID: "fallback-0001" },
+      state,
+      NOW,
+    );
     await event("SessionEnd");
+    expect(new SessionRecords(state, "gemini-cli").get("fallback-0001")).toBeUndefined();
     expect(new SessionRecords(state, "gemini-cli").get(SID)).toMatchObject({
       open: false,
       program: FAKE,
@@ -253,14 +305,18 @@ describe("Gemini CLI", () => {
         ...o,
       }).then((code) => ({ code, output }));
     };
-    const off = await run();
-    expect(off.code).toBe(1);
-    expect(off.output).toContain("Gemini CLI runs extension hooks only when they're turned on");
+    // Turned off explicitly: refused, with where to turn them on.
     mkdirSync(join(home, ".gemini"), { recursive: true });
     writeFileSync(
       join(home, ".gemini", "settings.json"),
-      '{ // on\n "hooksConfig": { "enabled": true } }',
+      '{ // off\n "hooksConfig": { "enabled": false } }',
     );
+    const off = await run();
+    expect(off.code).toBe(1);
+    expect(off.output).toContain("Gemini CLI's hooks are turned off");
+    expect(calls).toEqual([]);
+    // Not set at all: on, as Gemini's own default is.
+    writeFileSync(join(home, ".gemini", "settings.json"), "{}");
     expect((await run()).code).toBe(0);
     expect(calls).toEqual([["extensions", "link", join(state, "hosts", "gemini-extension")]]);
     expect(calls.flat()).not.toContain("--consent");
