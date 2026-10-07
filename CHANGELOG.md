@@ -62,6 +62,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **Previews outside Zed:** a resume's timer is set again when the computer's time zone changes or Node.js moves, so it still runs at the right moment with a Node.js that exists (macOS and Linux's `at` keep local times).
 
 - **Antigravity preview:** at a usage limit in the Antigravity app or IDE, which Rewake can't continue, a notification says when the limit resets (once per conversation and reset). `install --only antigravity` also works where only the app or IDE is installed.
+- **Codex preview:** when Codex can't say whether usage is back at the reset (the computer is offline, or Codex doesn't answer), Rewake checks again a few minutes later instead of sending. Before, the message was queued anyway, the turn then failed, and the resume counted as sent. If Codex still hasn't answered after the last check, Rewake tells you to resume the thread yourself.
+- **Claude Code preview:** with the same session open in two Claude Code windows, the continue after a usage limit is sent once, not once from each.
 
 ### Changed
 

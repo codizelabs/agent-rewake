@@ -15,7 +15,7 @@ import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { type Schedule, ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import { codexAdapter } from "../src/hosts/codex/adapter.js";
-import { codexProgram } from "../src/hosts/codex/cli.js";
+import { codexProgram, type Usage } from "../src/hosts/codex/cli.js";
 import { codexHooks } from "../src/hosts/codex/hooks.js";
 import { MIN_CODEX, pickCodex, runCodexInstall } from "../src/hosts/codex/install.js";
 import {
@@ -357,6 +357,64 @@ describe("Codex at fire time", () => {
     const s = await armed();
     expect(await fire(s.scheduleId, deps({ FAKE_CODEX_USAGE: "signed-out" }))).toBe("failed");
     expect(calls().filter((c) => c.args[0] === "queue")).toEqual([]);
+  });
+
+  /** Fire deps whose usage check answers from `answers` in turn (then "allowed"), at the record's dueAt. */
+  const answering = (answers: Usage[], notes: string[]) => ({
+    ...deps({}),
+    now: () => (resumes()[0] as Schedule).dueAt,
+    hosts: new Map([
+      [
+        "codex",
+        codexAdapter({
+          env: { ...process.env, FAKE_CODEX_LOG: log },
+          node: process.execPath,
+          readUsage: async () => answers.shift() ?? { ok: true, allowed: true },
+        }),
+      ],
+    ]),
+    notify: (_title: string, body: string) => {
+      notes.push(body);
+      return true;
+    },
+  });
+
+  it("checks again later when Codex's usage check doesn't answer (offline), then sends", async () => {
+    const s = await armed();
+    const d = answering(
+      [
+        { ok: false, reason: "timeout" },
+        { ok: false, reason: "error" },
+      ],
+      [],
+    );
+    expect(await fire(s.scheduleId, d)).toBe("waiting");
+    expect(await fire(s.scheduleId, d)).toBe("waiting");
+    expect(calls().filter((c) => c.args[0] === "queue")).toEqual([]);
+    expect(await fire(s.scheduleId, d)).toBe("sent");
+    expect(calls().filter((c) => c.args[0] === "queue")).toHaveLength(1);
+  });
+
+  it("sends as before when this Codex has no usage check to ask", async () => {
+    const s = await armed();
+    const d = answering([{ ok: false, reason: "unsupported" }], []);
+    expect(await fire(s.scheduleId, d)).toBe("sent");
+    expect(calls().filter((c) => c.args[0] === "queue")).toHaveLength(1);
+  });
+
+  it("tells the person, without sending, when the usage check never answers", async () => {
+    const s = await armed();
+    const notes: string[] = [];
+    const d = answering(
+      Array.from({ length: 5 }, () => ({ ok: false, reason: "timeout" }) as const),
+      notes,
+    );
+    for (let i = 0; i < 4; i++) expect(await fire(s.scheduleId, d)).toBe("waiting");
+    expect(await fire(s.scheduleId, d)).toBe("failed");
+    expect(calls().filter((c) => c.args[0] === "queue")).toEqual([]);
+    expect(notes).toEqual([
+      'Codex in the "shop" folder: Rewake couldn\'t continue the thread. Resume the thread in Codex to continue.',
+    ]);
   });
 
   it("runs an npm install's codex script with Node, which a timer's PATH may not find", () => {
