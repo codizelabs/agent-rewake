@@ -177,6 +177,8 @@ Each preview needs a recent version of its agent:
 - `doctor` warns when an agent is too old.
 - `doctor` also notes when an agent is newer than any version tested. It should still work; if Rewake misses a usage limit there, [open an issue](https://github.com/codizelabs/agent-rewake/issues) with what `agent-rewake doctor --details` shows.
 
+In JetBrains IDEs (AI Assistant 2026.2 or newer), run `npx @codizelabs/agent-rewake install --only jetbrains` (there's no menu entry for this), then pick **Claude Agent (with Rewake)** or **Codex (with Rewake)** in AI Assistant. Rewake resumes a conversation only while the IDE stays open: after a restart, JetBrains starts a new session. The Claude Code plugin for JetBrains runs Claude Code in the IDE's terminal, so the Claude Code setup already covers it.
+
 For every preview, keep the computer on and awake until the time Rewake gives. On macOS the Claude Code preview keeps it from idling to sleep while a continue is due within six hours, and every preview does while the agent works on the resumed session (the **Keep this computer awake** setting decides). `install` and `doctor` list the previews you set up.
 
 ### Claude Code
@@ -392,7 +394,7 @@ Everything here is also in the Rewake menu.
 | `agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]…` | Add Rewake to your Zed agents (shows the changes and asks first) |
 | `agent-rewake uninstall [--yes] [--dry-run]` | Put every agent back the way it was |
 | `agent-rewake install` (in a terminal) | Shows what's on your computer and lets you tick the places to set up; then shows every change and asks once |
-| `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`. With `--yes` and no place named: Zed |
+| `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`, `jetbrains`. With `--yes` and no place named: Zed |
 | `agent-rewake continue [--always \| --ask \| --cancel]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit. `--always` does it from now on, `--ask` asks again, `--cancel` cancels all planned resumes |
 | `agent-rewake doctor [--details]` | Whether Rewake can work in your Zed, and what to do next; `--details` adds versions and folders for bug reports |
 | `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |

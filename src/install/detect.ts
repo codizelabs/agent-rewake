@@ -27,6 +27,7 @@ export type PlaceId =
   | "grok"
   | "gemini-cli"
   | "antigravity"
+  | "jetbrains"
   | "zed";
 
 export interface Found {

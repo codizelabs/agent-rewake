@@ -6,6 +6,7 @@ import { pluginInstalled } from "./codex/plugin.js";
 import { hooksFile as copilotHooksFile } from "./copilot/install.js";
 import { extensionDir as geminiExtensionDir } from "./gemini/install.js";
 import { grokHooksFile } from "./grok/install.js";
+import { jetbrainsInstalled } from "./jetbrains/install.js";
 
 /**
  * Which previews (`install --only <place>`) are set up on this computer, read-only, so `install`
@@ -19,6 +20,7 @@ export const PREVIEW_NAMES: Partial<Record<PlaceId, string>> = {
   grok: "Grok Build",
   "gemini-cli": "Gemini CLI",
   antigravity: "Antigravity CLI",
+  jetbrains: "JetBrains IDEs (AI Assistant)",
 };
 
 export function installedPreviews(
@@ -33,6 +35,7 @@ export function installedPreviews(
     ["grok", () => existsSync(grokHooksFile(env, home))],
     ["gemini-cli", () => existsSync(geminiExtensionDir(stateDir))],
     ["antigravity", () => existsSync(antigravityPluginDir(env, home))],
+    ["jetbrains", () => jetbrainsInstalled(env, home)],
   ];
   return checks.filter(([, on]) => on()).map(([id]) => id);
 }
