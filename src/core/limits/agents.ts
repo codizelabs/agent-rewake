@@ -34,12 +34,37 @@ const str = (v: unknown) => (typeof v === "string" ? v : "");
  * client gets after "Error: ", so the rules are the shared ones (`classifyTurnEnd("copilot", …)`):
  * Copilot's own sentences, "reset in 2 hours", and reset dates printed in UTC.
  */
+/**
+ * A usage limit from the error code Copilot's service sends (`user_weekly_rate_limited`,
+ * `user_session_rate_limited`, `session_quota_exceeded`; research impl-claude-copilot B.3.2,
+ * testing-harness §2.4). The hook's message is that error as JSON. Undefined: no code it knows.
+ */
+export function copilotCode(text: string): SessionLimit | undefined {
+  let e: { code?: unknown; type?: unknown };
+  try {
+    e = JSON.parse(text) as { code?: unknown; type?: unknown };
+  } catch {
+    return undefined;
+  }
+  const code = typeof e?.code === "string" ? e.code : typeof e?.type === "string" ? e.type : "";
+  if (code === "user_weekly_rate_limited") return { kind: "weekly", billing: false };
+  if (code === "user_session_rate_limited" || code === "session_quota_exceeded")
+    return { kind: "session", billing: false };
+  return undefined;
+}
+
 export function classifyCopilotError(
   text: unknown,
   now: number,
   recoverable = false,
 ): SessionLimit | undefined {
-  if (recoverable || typeof text !== "string" || text === "") return undefined;
+  if (typeof text !== "string" || text === "") return undefined;
+  // Copilot's hook carries the provider's error as a JSON string: its code says which limit.
+  const coded = copilotCode(text);
+  if (coded) return coded;
+  // Copilot marks every retry "recoverable", a weekly limit too (1.0.92, tested offline): the flag
+  // only excuses what the text calls short-term.
+  if (recoverable) return undefined;
   const t = text.slice(0, 4096);
   const c = classifyTurnEnd("copilot", `Error: ${t}`, "end_turn", now);
   if (c?.kind === "not_recoverable") return { kind: "billing", billing: true };

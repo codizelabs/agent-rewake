@@ -6,6 +6,8 @@ import { nextMidnight } from "../../core/time.js";
 import {
   type ClosedDeps,
   type ClosedHost,
+  ensureProgram,
+  FIRE_ENV,
   onLimit,
   onPrompt,
   onSessionEnd,
@@ -178,6 +180,8 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
       if (!id) return undefined;
       const cwd = typeof ctx.input.cwd === "string" ? ctx.input.cwd : (ctx.env.GEMINI_CWD ?? "");
       const d = deps.closed(ctx);
+      // Rewake's own resume runs aren't the person's: no program lookup for them.
+      if (!ctx.env[FIRE_ENV]) ensureProgram(geminiHost, id, cwd, d, () => deps.program(ctx.env));
       switch (ctx.event) {
         case "SessionStart":
           onSessionStart(geminiHost, id, cwd, d, deps.program(ctx.env));
