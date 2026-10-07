@@ -5,8 +5,9 @@
 // Set the state with `set()` (or POST /__mock): mode "ok" | "limit", until, claim (Claude's
 // window: five_hour | seven_day) and profile, the limit's wire format when the path alone doesn't
 // say: "copilot" (a weekly limit), "xai-free" or "xai-402" (Grok). It records each request's method,
-// path, whether it was refused, and its body (made-up test data). Codex signed in with ChatGPT also
-// reads its usage from the mock (`chatgpt_base_url` = `<url>/backend-api`), from the same state.
+// path, whether it was refused, its body and the text of its user messages (made-up test data).
+// Codex signed in with ChatGPT also reads its usage from the mock (`chatgpt_base_url` =
+// `<url>/backend-api`), from the same state.
 import { createServer } from "node:http";
 
 const sec = (ms) => Math.floor(ms / 1000);
@@ -121,6 +122,24 @@ function codexUsage(refused, s) {
       secondary_window: null,
     },
   };
+}
+
+/** The text of a message's content: a string, or the text of each of its parts. */
+const textOf = (content) =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.map((p) => (typeof p?.text === "string" ? p.text : "")).join("")
+      : "";
+
+/** The user messages of a request, in order: Chat Completions, Responses, Messages or Gemini. */
+function userTexts(body) {
+  const turns = body.messages ?? (Array.isArray(body.input) ? body.input : body.contents) ?? [];
+  if (!Array.isArray(turns)) return [];
+  return turns
+    .filter((m) => m?.role === "user")
+    .map((m) => textOf(m.content ?? m.parts))
+    .filter(Boolean);
 }
 
 const json = (res, status, body, headers = {}) => {
@@ -305,7 +324,13 @@ export function startMock() {
             : undefined;
       const refused =
         family !== undefined && limited() && !/count_?tokens/i.test(path) && req.method === "POST";
-      state.log.push({ method: req.method, path, limited: refused, body: raw });
+      state.log.push({
+        method: req.method,
+        path,
+        limited: refused,
+        body: raw,
+        user: userTexts(body),
+      });
       if (req.method === "HEAD" || path === "/api/hello") return res.writeHead(200).end();
       if (/\/messages\/count_tokens$/.test(path)) return json(res, 200, { input_tokens: 10 });
       if (/:countTokens$/.test(path)) return json(res, 200, { totalTokens: 10 });

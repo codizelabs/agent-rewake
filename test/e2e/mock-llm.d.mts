@@ -6,6 +6,8 @@ export interface MockRequest {
   limited: boolean;
   /** The request body. */
   body: string;
+  /** The text of each user message in the request, in order. */
+  user: string[];
 }
 export interface Mock {
   url: string;
