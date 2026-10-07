@@ -16,6 +16,7 @@ import { ensurePrivateDir } from "../../util/paths.js";
 import { VERSION } from "../../version.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { newerThanTested, untestedText, versionOf } from "../versions.js";
+import { REWAKE_MARKER } from "./host.js";
 
 /**
  * `agent-rewake install --only gemini-cli` (a preview, until GG-G1/GG-G3 are checked with a real
@@ -101,6 +102,12 @@ export function writeExtension(stateDir: string, node: string, launcher: string)
     ensurePrivateDir(join(dir, "hooks")),
     "hooks.json",
     geminiHooksJson(node, launcher),
+  );
+  // `/rewake`: its marker prompt is answered by the BeforeAgent hook, never by the model.
+  writeFileAtomic(
+    ensurePrivateDir(join(dir, "commands")),
+    "rewake.toml",
+    `description = "Continue this conversation after its usage limit resets. Also: /rewake 3:30pm, /rewake cancel"\nprompt = "${REWAKE_MARKER} {{args}}"\n`,
   );
   return dir;
 }
