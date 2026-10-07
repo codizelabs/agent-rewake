@@ -170,22 +170,39 @@ export function isCodexRollout(path: unknown): path is string {
   );
 }
 
-/** The person's messages in a rollout's tail (`event_msg` / `user_message`), oldest first. */
+/**
+ * The person's messages in a rollout's tail, oldest first. Codex 0.160.1 records each as an
+ * `event_msg` / `item_completed` whose item is a `UserMessage` (text parts in `content`); earlier
+ * versions as `event_msg` / `user_message`.
+ */
 export function userMessages(tail: string): string[] {
   const out: string[] = [];
   for (const line of tail.split("\n")) {
-    if (!line.includes('"user_message"')) continue;
+    if (!line.includes('"user_message"') && !line.includes('"UserMessage"')) continue;
     try {
       const rec = JSON.parse(line) as {
         type?: string;
-        payload?: { type?: string; message?: unknown };
+        payload?: {
+          type?: string;
+          message?: unknown;
+          item?: { type?: string; content?: unknown };
+        };
       };
-      if (
-        rec.type === "event_msg" &&
-        rec.payload?.type === "user_message" &&
-        typeof rec.payload.message === "string"
+      const p = rec.payload;
+      if (rec.type !== "event_msg" || !p) continue;
+      if (p.type === "user_message" && typeof p.message === "string") out.push(p.message);
+      else if (
+        p.type === "item_completed" &&
+        p.item?.type === "UserMessage" &&
+        Array.isArray(p.item.content)
       )
-        out.push(rec.payload.message);
+        out.push(
+          p.item.content
+            .map((c: { type?: unknown; text?: unknown }) =>
+              c?.type === "text" && typeof c.text === "string" ? c.text : "",
+            )
+            .join(""),
+        );
     } catch {
       // A partial first line.
     }
