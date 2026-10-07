@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -24,7 +30,11 @@ describe("Devin Desktop: Rewake's agents in its ACP registry file", () => {
     expect(file).toBe(join(home, ".windsurf", "acp", "registry.json"));
     writeFileSync(
       file,
-      JSON.stringify({ version: "1.0.0", agents: [{ id: "mine" }], extensions: [] }),
+      JSON.stringify({
+        version: "1.0.0",
+        agents: [{ id: "mine" }],
+        extensions: [],
+      }),
     );
     const plan = planDevin(file, launch, false, "darwin", "arm64");
     expect("changes" in plan && plan.changes[0]?.summary).toEqual([
@@ -50,9 +60,7 @@ describe("Devin Desktop: Rewake's agents in its ACP registry file", () => {
     ).toBe(0);
     const v = JSON.parse(readFileSync(file, "utf8"));
     expect(v.agents[0]).toEqual({ id: "mine" });
-    expect(
-      v.agents[1].distribution.binary[`darwin-${process.arch === "arm64" ? "aarch64" : "x86_64"}`],
-    ).toEqual({
+    expect(v.agents[1].distribution.binary["darwin-aarch64"]).toEqual({
       cmd: "/usr/local/bin/node",
       args: ["/x/agent-rewake.js", "--wrap-registry", "claude-acp"],
     });
@@ -60,9 +68,9 @@ describe("Devin Desktop: Rewake's agents in its ACP registry file", () => {
     expect(out).toContain("restart Devin Desktop");
     // Uninstall removes only Rewake's agents.
     const back = planDevin(file, launch, true);
-    expect("changes" in back && JSON.parse(back.changes[0]?.after ?? "{}").agents).toEqual([
-      { id: "mine" },
-    ]);
+    expect(
+      "changes" in back && JSON.parse(back.changes[0]?.after ?? "{}").agents,
+    ).toEqual([{ id: "mine" }]);
   });
 
   it("leaves an unreadable file alone", () => {
