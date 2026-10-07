@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- **Claude Code in VS Code, Cursor and the Claude desktop app:** a usage limit in Claude Code's panel is now handled like one in the terminal: Rewake asks, then continues the same session when the limit resets. Before, Rewake ignored limits there, because the panels run Claude Code the way Zed does (through the Agent SDK); only Zed's own sessions are left to the Zed add-on now. Scheduled messages already worked in the panels.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added

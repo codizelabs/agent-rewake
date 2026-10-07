@@ -28,6 +28,8 @@ function harness(
     settings?: string;
     /** Whether this machine has caffeinate (the mod asks once, through the shell). */
     caffeinate?: boolean;
+    /** How Claude Code was started (`CLAUDE_CODE_ENTRYPOINT`). */
+    entrypoint?: string;
   } = {},
 ) {
   const clock = mock.clock(on, { now: T0 });
@@ -59,6 +61,9 @@ function harness(
     seen.commands.push(e.name as string);
     return { value: undefined };
   });
+  on("env.get", (_: unknown, e: Ev) => ({
+    value: e.name === "CLAUDE_CODE_ENTRYPOINT" ? opts.entrypoint : undefined,
+  }));
   on("session.id", () => ({ value: "S1" }));
   on("session.usage", () => ({
     value: {
@@ -404,12 +409,43 @@ test("an Agent SDK or -p session (not interactive) is left alone", async ($, on)
   const { clock, seen } = harness(on, {
     windows: () => fiveHour("2026-10-06T11:00:00Z"),
     store: { prefs: { autoContinue: "always" } },
+    entrypoint: "sdk-ts",
   });
   await $.session.start({ surface: null, isInteractive: false, cwd: "/work" } as never);
   await $.classic.StopFailure(limit());
   await clock.advance(2 * H);
   expect(seen.store["limit:S1"]).toBeUndefined();
   expect(seen.submitted.length).toBe(0);
+});
+
+test("the VS Code panel (Agent SDK, a person at the prompt): asks, then continues once after the reset", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    answer: "FIRST",
+    entrypoint: "claude-vscode",
+  });
+  await $.session.start({ surface: null, isInteractive: false, cwd: "/work" } as never);
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  // Claude Code's own auto-continue is terminal-only, so Rewake asks even with the setting on.
+  expect(seen.asked).toBe(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
+  await clock.advance(62 * MIN);
+  expect(seen.submitted).toEqual([CONTINUE]);
+  await clock.advance(30 * MIN);
+  expect(seen.submitted.length).toBe(1);
+});
+
+test('the desktop app\'s panel always asks, even with "always"', async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+    entrypoint: "claude-desktop",
+  });
+  await $.session.start({ surface: null, isInteractive: false, cwd: "/work" } as never);
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.asked).toBe(1);
 });
 
 test("/rewake cancel cancels only the continue; scheduled messages stay", async ($, on) => {
