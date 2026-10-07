@@ -110,6 +110,9 @@ Usage:
   agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]...
                                    Add Rewake to the agents you already use in Zed, keeping
                                    their threads (shows the changes and asks first)
+  agent-rewake install --only <place>[,<place>...]
+                                   Add a preview outside Zed: claude-code, codex, copilot-cli,
+                                   grok, gemini-cli, antigravity (zed is the default)
   agent-rewake uninstall [--yes] [--dry-run]
                                    Take Rewake out of your agents and remove its Zed entries
   agent-rewake setup zed           Print the Zed settings, task and keybinding (to add by hand)
@@ -119,6 +122,8 @@ Usage:
                                    --ask: go back to asking each time.
                                    --cancel: cancel every planned resume.
   agent-rewake fire <id>           Run by Rewake's timers at a resume's time (safe to run any time)
+  agent-rewake hook <agent> <event>
+                                   Run by an agent's hooks outside Zed, not by you
   agent-rewake --version
   agent-rewake --help
 

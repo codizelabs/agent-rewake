@@ -13,7 +13,7 @@ import { grokHooksFile } from "./grok/install.js";
  * what the preview covers: Codex's covers its terminal, not its desktop app.
  */
 export const PREVIEW_NAMES: Partial<Record<PlaceId, string>> = {
-  "claude-code": "Claude Code (terminal and the Code tab of the Claude desktop app)",
+  "claude-code": "Claude Code (terminal)",
   codex: "Codex (terminal)",
   "copilot-cli": "GitHub Copilot CLI",
   grok: "Grok Build",
