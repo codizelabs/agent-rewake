@@ -3,6 +3,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
 import { compareVersions, copilotPrograms, type Program } from "../../install/detect.js";
+import {
+  unknownVersionText,
+  type VersionProbe,
+  versionProbe,
+  withVersion,
+} from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 
@@ -59,14 +65,18 @@ export interface CopilotInstallOptions {
   out: (text: string) => void;
   ask: (question: string) => Promise<boolean>;
   programs?: Program[];
+  /** Reads a version detection missed (tests: none). */
+  probe?: VersionProbe;
 }
 
 export async function runCopilotInstall(o: CopilotInstallOptions): Promise<number> {
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? copilotPrograms({ env: o.env, home, platform: process.platform });
-  const copilot = [...programs].sort((a, b) =>
+  const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
+  const picked = [...programs].sort((a, b) =>
     compareVersions(b.version ?? "0", a.version ?? "0"),
   )[0];
+  const copilot = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   const file = hooksFile(o.env, home);
   const installed = existsSync(file);
 
@@ -100,6 +110,8 @@ export async function runCopilotInstall(o: CopilotInstallOptions): Promise<numbe
       ].join("\n"),
     );
   }
+  if (!o.uninstall && copilot && !copilot.version)
+    o.out(unknownVersionText("GitHub Copilot CLI", MIN_COPILOT, "copilot update", "copilot-cli"));
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;

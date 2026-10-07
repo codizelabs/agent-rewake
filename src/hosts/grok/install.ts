@@ -3,6 +3,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
 import { compareVersions, grokPrograms, type Program } from "../../install/detect.js";
+import {
+  unknownVersionText,
+  type VersionProbe,
+  versionProbe,
+  withVersion,
+} from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { grokHome } from "./host.js";
@@ -57,12 +63,18 @@ export interface GrokInstallOptions {
   out: (text: string) => void;
   ask: (question: string) => Promise<boolean>;
   programs?: Program[];
+  /** Reads a version detection missed (tests: none). */
+  probe?: VersionProbe;
 }
 
 export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? grokPrograms({ env: o.env, home, platform: process.platform });
-  const grok = [...programs].sort((a, b) => compareVersions(b.version ?? "0", a.version ?? "0"))[0];
+  const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
+  const picked = [...programs].sort((a, b) =>
+    compareVersions(b.version ?? "0", a.version ?? "0"),
+  )[0];
+  const grok = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   const file = grokHooksFile(o.env, home);
   const installed = existsSync(file);
 
@@ -93,6 +105,8 @@ export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
       ].join("\n"),
     );
   }
+  if (!o.uninstall && grok && !grok.version)
+    o.out(unknownVersionText("Grok Build", MIN_GROK, "grok update", "grok"));
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;
