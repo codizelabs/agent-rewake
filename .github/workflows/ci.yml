@@ -80,12 +80,41 @@ jobs:
         shell: bash
         run: node scripts/tarball-smoke.mjs "$RUNNER_TEMP/rewake-smoke"
 
+  # The whole loop in Zed's Agent Panel against the real Claude adapter and Claude Code, offline:
+  # a local mock of Anthropic's API, and macOS's sandbox denying every other connection
+  # (test/claude-loop.test.ts; plan §10.2 L3, §10A.3 e2e-hosts).
+  e2e-hosts:
+    name: e2e-hosts (macos-latest)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Limit, resume, same session, once
+        env:
+          REWAKE_E2E: "1"
+        run: npx vitest run test/claude-loop.test.ts
+
   # The single status check to require in branch rulesets: it fails if any matrix job failed or
   # was cancelled, and passes only when all of them passed.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [check, tarball-smoke]
+    needs: [check, tarball-smoke, e2e-hosts]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     permissions: {}
@@ -94,7 +123,9 @@ jobs:
         env:
           RESULT: ${{ needs.check.result }}
           SMOKE: ${{ needs.tarball-smoke.result }}
+          E2E: ${{ needs.e2e-hosts.result }}
         run: |
-          echo "check result: $RESULT; tarball-smoke result: $SMOKE"
+          echo "check: $RESULT; tarball-smoke: $SMOKE; e2e-hosts: $E2E"
           test "$RESULT" = "success"
           test "$SMOKE" = "success"
+          test "$E2E" = "success"
