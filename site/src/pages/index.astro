@@ -85,9 +85,9 @@ const faq: Array<{ q: string; a: string[] }> = [
     ],
   },
   {
-    q: "Does it work with Claude Code in a terminal, the Claude desktop app, or Zed's own agent?",
+    q: "Does it work with Claude Code in a terminal, in VS Code or Cursor, the Claude desktop app, or Zed's own agent?",
     a: [
-      "Claude Code in a terminal: yes, as a preview. Pick it in `npx @codizelabs/agent-rewake install`, or run `npx @codizelabs/agent-rewake install --only claude-code`. The Claude desktop app's Code tab isn't supported yet. Claude's own apps (claude.ai and the desktop app's chat) and Zed's own agent can't be reached: Zed doesn't let add-ons into its own agent. Claude Code and the desktop app also each have their own setting to continue after a usage limit.",
+      "Claude Code in a terminal, and in its panel in VS Code or Cursor: yes, as a preview. Pick it in `npx @codizelabs/agent-rewake install`, or run `npx @codizelabs/agent-rewake install --only claude-code`. The Claude desktop app's Code tab hasn't been tried yet. Claude's own apps (claude.ai and the desktop app's chat) and Zed's own agent can't be reached: Zed doesn't let add-ons into its own agent. Claude Code and the desktop app also each have their own setting to continue after a usage limit.",
     ],
   },
   {
@@ -145,12 +145,12 @@ const logo = (svg: string, key: string) =>
 
 /** The "Works with" tiles. Every line is in the docs section the tile links to. */
 const previews = [
-  { name: "Claude Code", id: "claude-code", svg: claudeLogo, what: "Asks once at the limit, then continues the session at the reset." },
-  { name: "Codex", id: "codex", svg: codexLogo, what: "Type rewake at the limit; the thread continues at the reset." },
+  { name: "Claude Code", id: "claude-code", svg: claudeLogo, what: "Asks once at the limit, then continues the session at the reset.", tag: "Preview · terminal, VS Code, Cursor" },
+  { name: "Codex", id: "codex", svg: codexLogo, what: "Type rewake at the limit; the thread continues at the reset.", tag: "Preview · terminal · limit not tried yet" },
   { name: "GitHub Copilot CLI", id: "github-copilot-cli", svg: copilotLogo, what: "Continues a closed session after the reset." },
   { name: "Gemini CLI", id: "gemini-cli", svg: geminiLogo, what: "Continues a closed session after the reset." },
   { name: "Grok Build", id: "grok-build", svg: grokLogo, what: "Continues a closed session after the reset." },
-  { name: "Antigravity CLI", id: "antigravity-cli", svg: antigravityLogo, what: "Continues a closed session after the reset." },
+  { name: "Antigravity CLI", id: "antigravity-cli", svg: antigravityLogo, what: "Continues a closed session after the reset.", tag: "Preview · not yet tried" },
 ];
 const zedAgents = [
   { name: "Claude Agent", svg: claudeLogo },
@@ -285,7 +285,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v0.1 · free and open source</a>
             <h1 class="rise">{words.map((w, i) => <><span style={`--i:${i}`}>{w}</span>{" "}</>)}</h1>
             <p class="lede">
-              A free, open-source add-on for your coding agents. In Zed, Claude, Codex, Gemini or any other agent picks the work back up on its own when its usage limit resets. Previews bring it to Claude Code, Codex and four more agents in the terminal.
+              A free, open-source add-on for your coding agents. In Zed, Claude, Codex, Gemini or any other agent picks the work back up on its own when its usage limit resets. Previews bring it to Claude Code (in a terminal, VS Code or Cursor), Codex and four more agents.
             </p>
             <p class="install-label">Install in one line</p>
             <div class="install-cmd">
@@ -344,7 +344,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
               <p><b>A terminal agent:</b> start a new session. Codex asks you once to trust Rewake's hooks.</p>
             </li>
           </ol>
-          <p class="install-meta">For Zed's Agent Panel and six terminal agents (<a href={href("docs/#is-it-for-you")}>is it for you?</a>) · Needs Node.js 22+, plus Zed 1.22+ for Zed; each agent's minimum version is in <a href={href("docs/#outside-zed-previews")}>its guide</a> · macOS, Linux and Windows · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
+          <p class="install-meta">For Zed's Agent Panel and six terminal agents (<a href={href("docs/#is-it-for-you")}>is it for you?</a>) · Needs Node.js 22+, plus Zed 1.22+ for Zed; each agent's minimum version is in <a href={href("docs/#outside-zed-previews")}>its guide</a> · macOS, Linux and Windows (previews tried by hand on macOS so far) · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
         </div>
       </section>
 
@@ -496,12 +496,12 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
                     <h3><a href={href(`docs/#${a.id}`)}>{a.name}<span class="agent-go" aria-hidden="true"> →</span></a></h3>
                     <p>{a.what}</p>
                   </div>
-                  <span class="agent-tag">Preview · terminal</span>
+                  <span class="agent-tag">{a.tag ?? "Preview · terminal"}</span>
                 </li>
               ))
             }
           </ul>
-          <p class="sub"><a href={href("docs/#agents")}>Every agent's guide, with the versions it needs</a></p>
+          <p class="sub">Previews are new: tried by hand on a Mac with a test limit, not yet a real one. <a href={href("docs/#agents")}>Every agent's guide, with the versions it needs and what's been tried</a></p>
         </div>
       </section>
 
