@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **The README, docs and website say what's been tried for each preview, and what hasn't:** Claude Code in a terminal, VS Code and Cursor, Copilot CLI, Gemini CLI and Grok Build were tried by hand on a Mac with a test usage limit (none has met a real one yet); Codex only in automated tests; Antigravity CLI not yet. The docs also explain that a closed session is continued without your shell profile's settings, that Copilot's and Grok's limits don't say when they reset (so `continue` asks you when), and how Gemini CLI shows Rewake's answer to `/rewake`.
+
 ### Fixed
 
 - **Claude Code in VS Code, Cursor and the Claude desktop app:** a usage limit in Claude Code's panel is now handled like one in the terminal: Rewake asks, then continues the same session when the limit resets. Before, Rewake ignored limits there, because the panels run Claude Code the way Zed does (through the Agent SDK); only Zed's own sessions are left to the Zed add-on now. Scheduled messages already worked in the panels.
