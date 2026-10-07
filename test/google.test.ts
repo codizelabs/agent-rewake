@@ -17,6 +17,8 @@ import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { ScheduleStore } from "../src/core/store.js";
 import { nextMidnight } from "../src/core/time.js";
 import {
+  agyOpenIn,
+  agyProcesses,
   antigravityHooks,
   antigravityHost,
   classifyAntigravityStop,
@@ -323,6 +325,39 @@ describe("Gemini CLI", () => {
     const noTerminal = await run({ interactive: false });
     expect(noTerminal.code).toBe(1);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("Antigravity CLI: is a conversation open?", () => {
+  const ps = (command: string, args: string[]) => {
+    if (command === "ps")
+      return [
+        "  101 /usr/local/bin/agy",
+        "  102 node /opt/homebrew/lib/node_modules/agy/bin/agy --conversation x",
+        "  103 agy remote-control start",
+        "  104 /usr/bin/vim agy.txt",
+      ].join("\n");
+    if (command === "lsof")
+      return (
+        { "101": "p101\nfcwd\nn/work/other\n", "102": "p102\nfcwd\nn/work/shop\n" }[
+          args[2] as string
+        ] ?? ""
+      );
+    return "";
+  };
+
+  it("finds agy run directly or through Node, but not Remote Control's service", () => {
+    expect(agyProcesses("darwin", ps)).toEqual([
+      { pid: 101, cwd: "/work/other" },
+      { pid: 102, cwd: "/work/shop" },
+    ]);
+  });
+
+  it("holds a resume back only for an agy in that folder, or one whose folder is unknown", () => {
+    expect(agyOpenIn("/work/shop", agyProcesses("darwin", ps))).toBe(true);
+    expect(agyOpenIn("/work/api", agyProcesses("darwin", ps))).toBe(false);
+    expect(agyOpenIn("/work/api", [{ pid: 7 }])).toBe(true);
+    expect(agyOpenIn("/work/api", [])).toBe(false);
   });
 });
 
