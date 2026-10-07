@@ -4,6 +4,7 @@ import { pluginDir as antigravityPluginDir } from "./antigravity/install.js";
 import { modInstalled } from "./claude-code/install.js";
 import { pluginInstalled } from "./codex/plugin.js";
 import { hooksFile as copilotHooksFile } from "./copilot/install.js";
+import { devinFile, devinInstalled } from "./devin/install.js";
 import { extensionDir as geminiExtensionDir } from "./gemini/install.js";
 import { grokHooksFile } from "./grok/install.js";
 import { jetbrainsInstalled } from "./jetbrains/install.js";
@@ -21,6 +22,7 @@ export const PREVIEW_NAMES: Partial<Record<PlaceId, string>> = {
   "gemini-cli": "Gemini CLI",
   antigravity: "Antigravity CLI",
   jetbrains: "JetBrains IDEs (AI Assistant)",
+  "devin-desktop": "Devin Desktop (formerly Windsurf)",
 };
 
 export function installedPreviews(
@@ -36,6 +38,7 @@ export function installedPreviews(
     ["gemini-cli", () => existsSync(geminiExtensionDir(stateDir))],
     ["antigravity", () => existsSync(antigravityPluginDir(env, home))],
     ["jetbrains", () => jetbrainsInstalled(env, home)],
+    ["devin-desktop", () => devinInstalled(devinFile(env, home, process.platform))],
   ];
   return checks.filter(([, on]) => on()).map(([id]) => id);
 }

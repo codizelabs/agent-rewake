@@ -144,7 +144,6 @@ export async function runJetbrainsInstall(o: JetbrainsInstallOptions): Promise<n
     );
     return 0;
   }
-  const change = plan.changes[0] as FileChange;
   o.out(
     [
       o.uninstall
