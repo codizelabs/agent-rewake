@@ -59,11 +59,11 @@ When an agent stops at its usage limit, Rewake adds a form to the thread with yo
 
 **More work after the resume:** while a resume is scheduled, **Rewake → Add a message after the resume…** queues follow-ups (up to 20). Each goes when the reply before it finishes.
 
-**Change the resume message** in the form, or with `/schedule prompt <text>`. If you continue the thread yourself after the reset, or before it and the agent answers (another account, another model), the pending resume is cancelled.
+**Change the resume message** in the form, or with `/rewake prompt <text>`. If you continue the thread yourself after the reset, or before it and the agent answers (another account, another model), the pending resume is cancelled.
 
 ### Make it automatic
 
-When you open a new thread, Rewake asks once whether to resume it automatically. Choose *every new thread*, *this thread only*, or *don't ask again*. For a thread that's already open, use **Rewake → Turn on auto-resume after limits…** (or `/schedule auto on`).
+When you open a new thread, Rewake asks once whether to resume it automatically. Choose *every new thread*, *this thread only*, or *don't ask again*. For a thread that's already open, use **Rewake → Turn on auto-resume after limits…** (or `/rewake auto on`).
 
 Automatic resume asks you instead of sending when:
 
@@ -79,9 +79,9 @@ Credit, spend and billing limits are never resumed: waiting doesn't fix them, an
 **Rewake → Schedule a message…**: type the message, pick a time (in 30 minutes, 1 or 3 hours, tomorrow morning, when the usage limit resets, or a custom time), and press **Submit**. Or type it:
 
 ```text
-/schedule 09:00 Check the build
-/schedule in 3h Run the tests
-/schedule every weekday 09:00 Summarise yesterday's commits
+/rewake 09:00 Check the build
+/rewake in 3h Run the tests
+/rewake every weekday 09:00 Summarise yesterday's commits
 ```
 
 To repeat on any schedule, pick **Custom time…** and type a cron expression such as `0 9 * * 1-5`; Rewake shows what it understood and the next runs before saving.
@@ -169,7 +169,16 @@ Rewake works the same way in front of every external agent Zed runs: Claude Agen
 
 To continue a Claude Code, Codex or other agent session after a usage limit outside Zed, in a terminal, install a preview. Previews aren't installed by default, haven't been checked with every account type yet, and may change. Each agent's guide follows this section.
 
-In Gemini CLI you can also type `/rewake` in the conversation after a limit: Rewake answers without using the model, and continues the conversation at the reset once Gemini CLI is closed (`/rewake 3:30pm` for another time, `/rewake cancel`).
+**One command everywhere:** `/rewake` is Rewake's only command in a conversation, the same in Zed, Claude Code and Gemini CLI. Rewake answers it itself, without using the model.
+
+| Place | Type | At a limit | Also |
+|---|---|---|---|
+| Zed (and other ACP clients) | `/rewake` | Opens the resume question, or resumes at the reset (`/rewake 3:30pm` for another time) | Everything in [Commands in a thread](#reference) |
+| Claude Code | `/rewake` | Continues after the reset (`/rewake 3:30pm` for another time) | `/rewake in 1h <message>`, `list`, `cancel [N\|all]`, `auto on\|off` |
+| Gemini CLI | `/rewake` | Continues once Gemini CLI is closed, at the reset (`/rewake 3:30pm` for another time) | `list`, `cancel` |
+| Codex | `rewake`, without the slash | Continues after the reset (`rewake 3:30pm` for another time) | `rewake list`, `rewake cancel` |
+
+`/rewake cancel` cancels the continue, and `/rewake help` lists what works where you are; anything a place can't do gets one line saying so. Codex is the one place without the slash: the Codex terminal answers a slash command it doesn't know with "Unrecognized command" and never passes it on. GitHub Copilot CLI, Grok Build and Antigravity CLI have no command in the conversation: use `npx @codizelabs/agent-rewake continue` once the session is closed.
 
 Each preview needs a recent version of its agent:
 
@@ -207,8 +216,8 @@ Preview, for Claude Code in a terminal. The Claude desktop app's Code tab isn't 
    It adds Rewake's plugin with Claude Code's own plugin commands.
 2. Start a new Claude Code session, and work as usual.
 3. At a usage limit, Rewake asks once whether to continue the session after the reset: at that time, or at that time and from then on in every session when the reset is within a day. When Claude Code's own "Continue automatically at usage limit" will most likely continue the session (its setting on, a reset within a day), Rewake leaves it to Claude Code and doesn't ask. Keep Claude Code open: Rewake runs inside it. A continue that came due while it was closed is offered when you reopen the session, not sent.
-4. To cancel a planned continue, type `/rewake-cancel`. To be asked each time again, `/rewake-ask`.
-5. To send a message later, type `/rewake-schedule`: choose when, then what.
+4. If you didn't answer the question, type `/rewake` to continue after the reset (or `/rewake 3:30pm` for another time). To cancel a planned continue, type `/rewake cancel`. To be asked each time again, `/rewake auto off`.
+5. To send a message later, type `/rewake` alone and choose when, then what, or type it in one go: `/rewake in 1h Run the tests`. `/rewake list` shows what's scheduled, `/rewake cancel N` deletes one, and `/rewake help` lists the rest.
 6. Check the setup: `npx @codizelabs/agent-rewake doctor`.
 7. To remove it: `npx @codizelabs/agent-rewake uninstall --only claude-code`.
 
@@ -228,8 +237,8 @@ Preview, for Codex in a terminal.
 
    It adds Rewake's hooks to Codex and checks that Codex lists them.
 2. Once, in Codex: trust Rewake's hooks when Codex says "Hooks need review".
-3. At a usage limit, type `rewake` in the thread. Rewake says when it will continue the thread, after the reset. If Rewake doesn't know when the limit resets, type a time with it, for example `rewake 3:30pm`.
-4. Keep the computer on and awake until then. If Codex is closed at that time, the thread continues when you next open it. To cancel, send any other message in the thread.
+3. At a usage limit, type `rewake` in the thread (without the slash: the Codex terminal refuses slash commands it doesn't know). Rewake says when it will continue the thread, after the reset. If Rewake doesn't know when the limit resets, type a time with it, for example `rewake 3:30pm`. `rewake list` shows it, and `rewake help` lists the rest.
+4. Keep the computer on and awake until then. If Codex is closed at that time, the thread continues when you next open it. To cancel, type `rewake cancel`, or send any other message in the thread.
 5. Check the setup: `npx @codizelabs/agent-rewake doctor`.
 6. To remove it: `npx @codizelabs/agent-rewake uninstall --only codex`.
 
@@ -330,9 +339,9 @@ Preview. Rewake continues a conversation once it's closed.
 Start with `agent-rewake doctor`. It checks Zed (installed, version, AI features on), your agents and which have Rewake, whether Zed has started it, the version and Node.js Zed uses, settings that override Rewake's, sign-in, your scheduled messages and recent start failures, and gives the fix for each. It works offline and prints no folders, accounts or keys (`--details` adds versions and folders for bug reports). In Zed, `dev: open acp logs` shows the agent connection. Then [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
 - **Installed, but nothing happens (`doctor` says "Not used yet"):** Zed starts Rewake only when you open or start a thread with a Rewake agent in the **Agent Panel**; restarting Zed isn't enough. If you chat with Claude in the Claude desktop app, claude.ai or a terminal, Rewake can't reach it there: see [Is it for you?](#is-it-for-you). To remove it: `agent-rewake uninstall`.
-- **No Rewake menu, or `/schedule` goes to the agent:** quit Zed completely and reopen it after `install`. Check that `install` listed the agent you use. For agents without their own toolbar options, type `/schedule`: it opens the same forms.
+- **No Rewake menu, or `/rewake` goes to the agent:** quit Zed completely and reopen it after `install`. Check that `install` listed the agent you use. For agents without their own toolbar options, type `/rewake`: it opens the same forms.
 - **Will it send while Zed is closed?** No: Rewake runs inside Zed. After a restart, open the thread once. Late messages ask before sending.
-- **The resume form didn't appear:** it appears only for limits that a wait fixes. Use **Rewake → Resume after the usage limit…** or `/schedule resume`.
+- **The resume form didn't appear:** it appears only for limits that a wait fixes. Use **Rewake → Resume after the usage limit…** or `/rewake`.
 - **The thread stopped responding after a limit:** a known Zed issue ([#55501](https://github.com/zed-industries/zed/issues/55501)). Rewake reconnects a thread whose session the agent lost; without Rewake, reload the agent in Zed.
 - **"Another Zed window owns this thread":** the thread is open in two windows; only one sends.
 
@@ -363,10 +372,11 @@ To see which version a thread runs, hover over the **Rewake** menu. Picking **Re
 
 ### Version-specific steps
 
-None so far: every version updates with the two steps above. If a release ever needs anything more (a newer Node.js or Zed, a setting renamed, stored messages in a new format), it's listed here and under **Upgrade notes** for that version in the [CHANGELOG](https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md), and `doctor` checks for it where it can.
+Every version updates with the two steps above. If a release ever needs anything more (a newer Node.js or Zed, a setting renamed, stored messages in a new format), it's listed here and under **Upgrade notes** for that version in the [CHANGELOG](https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md), and `doctor` checks for it where it can.
 
 | From | To | Extra steps |
 |---|---|---|
+| 0.1.x | 0.2.0 or later | None to update. In a thread, type `/rewake` where you typed `/schedule`, and `/rewake stop` for `/stop` (`/schedule rm N` is now `/rewake cancel N`); Zed refuses the old names as unknown commands. In Claude Code, `/rewake-schedule`, `/rewake-cancel` and `/rewake-ask` are now `/rewake`, `/rewake cancel` and `/rewake auto off` |
 | Any earlier version | Any later version | None |
 
 ## Uninstall
@@ -386,18 +396,21 @@ Everything here is also in the Rewake menu.
 
 | Command | What it does |
 |---|---|
-| `/schedule` | Open the "Schedule a message" form |
-| `/schedule <when> <message>` | Schedule a message. When: `09:00`, `9pm`, `tomorrow 09:00`, `in 90m`, `2026-10-06 09:00` (local time, up to 30 days ahead) |
-| `/schedule every hour\|day\|weekday\|week\|monday… [HH:MM] <message>` | Repeat a message |
-| `/schedule cron <expression> <message>` | Repeat on a cron expression, e.g. `"0 9 * * 1-5"` |
-| `/schedule list` | This thread's scheduled messages |
-| `/schedule rm N`, `/schedule now N`, `/schedule pause N`, `/schedule resume N` | Delete, send now, pause, or resume a paused message |
-| `/schedule move N <when>`, `/schedule edit N <text>` | Change the time or the text |
-| `/schedule resume` | Schedule the resume message after the current usage limit |
-| `/schedule auto on`, `/schedule auto off` | Automatic resume for this thread |
-| `/schedule prompt <text>` | Set this thread's resume message |
-| `/schedule page` | Open an overview of every scheduled message |
-| `/stop` | Stop a scheduled reply that is running |
+| `/rewake` | At a usage limit, the resume question; otherwise the "Schedule a message" form |
+| `/rewake <when> <message>` | Schedule a message. When: `09:00`, `9pm`, `at 6pm`, `tomorrow 09:00`, `in 90m`, `2026-10-06 09:00` (local time, up to 30 days ahead) |
+| `/rewake <when>`, `/rewake continue` | Resume after the current usage limit, at that time or at the reset |
+| `/rewake every hour\|day\|weekday\|week\|monday… [HH:MM] <message>` | Repeat a message |
+| `/rewake cron <expression> <message>` | Repeat on a cron expression, e.g. `"0 9 * * 1-5"` |
+| `/rewake list` | This thread's scheduled messages |
+| `/rewake cancel` | Cancel the resume after the usage limit |
+| `/rewake cancel N`, `/rewake cancel all` | Delete message N, or every message in this thread |
+| `/rewake now N`, `/rewake pause N`, `/rewake resume N` | Send now, pause, or resume a paused message |
+| `/rewake move N <when>`, `/rewake edit N <text>` | Change the time or the text |
+| `/rewake auto on`, `/rewake auto off` | Automatic resume for this thread |
+| `/rewake prompt <text>` | Set this thread's resume message |
+| `/rewake page` | Open an overview of every scheduled message |
+| `/rewake stop` | Stop a scheduled reply that is running |
+| `/rewake help` | What `/rewake` does here |
 
 </details>
 
@@ -432,7 +445,7 @@ Everything here is also in the Rewake menu.
 | Sent | The agent replied |
 | Failed | The agent returned an error |
 | Missed | Due while Zed or the computer wasn't running |
-| Stopped | Stopped with `/stop` |
+| Stopped | Stopped with `/rewake stop` |
 | Cancelled | Cancelled, for example because you continued by hand |
 | Needs you | Waiting for you to confirm, for example a reset more than a day away |
 | Waiting for limit | Reserved; a resume waiting for its reset shows as *Scheduled* |

@@ -12,7 +12,7 @@ import { oneLine, STATUS_WORDS } from "./overview.js";
 
 /**
  * The schedules page: a table of every scheduled message with clickable rows,
- * buttons for every action, hover hints that name the matching `/schedule` command, a tip line,
+ * buttons for every action, hover hints that name the matching `/rewake` command, a tip line,
  * a help screen and dialogs. Pure: it draws frames from the shared store and reacts to input
  * events; `tui.ts` connects it to a terminal. Keyboard and mouse can do everything.
  */
@@ -46,7 +46,7 @@ export interface Frame {
 interface Row {
   schedule: Schedule;
   thread: ThreadSettings | undefined;
-  /** Position among that thread's pending messages, as `/schedule list` numbers them. */
+  /** Position among that thread's pending messages, as `/rewake list` numbers them. */
   n: number;
   /** For a resume of an agent outside Zed: that agent's name ("Codex"). */
   host?: string;
@@ -83,7 +83,7 @@ type Dialog =
 
 export const TIPS = [
   "In any thread, the Rewake menu under the message box does everything this page does.",
-  "Type /schedule in a thread to open the scheduling form, or /schedule 09:00 Run the tests to skip it.",
+  "Type /rewake in a thread to open the scheduling form, or /rewake 09:00 Run the tests to skip it.",
   "When Claude hits its usage limit, Rewake asks in the thread whether to resume after the reset.",
   "Hold Shift while dragging to select text on this page.",
   "Messages are sent while Zed is open with that thread's project. Missed ones wait for you here.",
@@ -102,43 +102,43 @@ const BUTTONS: Array<{ id: string; key: string; label: string; hint: string }> =
     id: "new",
     key: "n",
     label: "New",
-    hint: "New: schedule a message in a thread. In a thread, the Rewake menu or /schedule does the same.",
+    hint: "New: schedule a message in a thread. In a thread, the Rewake menu or /rewake does the same.",
   },
   {
     id: "edit",
     key: "e",
     label: "Edit",
-    hint: "Edit: change the message text. In its thread: /schedule edit {n} <text>",
+    hint: "Edit: change the message text. In its thread: /rewake edit {n} <text>",
   },
   {
     id: "time",
     key: "t",
     label: "Time",
-    hint: "Time: pick a new time. In its thread: /schedule move {n} <when>",
+    hint: "Time: pick a new time. In its thread: /rewake move {n} <when>",
   },
   {
     id: "now",
     key: "s",
     label: "Send now",
-    hint: "Send now: sends it within a few seconds if its thread is open in Zed. In its thread: /schedule now {n}",
+    hint: "Send now: sends it within a few seconds if its thread is open in Zed. In its thread: /rewake now {n}",
   },
   {
     id: "pause",
     key: "p",
     label: "Pause",
-    hint: "Pause: keep it, but don't send it until you resume it. In its thread: /schedule pause {n}",
+    hint: "Pause: keep it, but don't send it until you resume it. In its thread: /rewake pause {n}",
   },
   {
     id: "delete",
     key: "d",
     label: "Delete",
-    hint: "Delete: remove it (asks first). In its thread: /schedule rm {n}",
+    hint: "Delete: remove it (asks first). In its thread: /rewake cancel {n}",
   },
   {
     id: "auto",
     key: "a",
     label: "Auto-resume",
-    hint: "Auto-resume: resume this message's thread automatically after every usage limit (Claude). In a thread: /schedule auto on",
+    hint: "Auto-resume: resume this message's thread automatically after every usage limit (Claude). In a thread: /rewake auto on",
   },
   {
     id: "help",
@@ -631,7 +631,7 @@ export class SchedulesPage {
     }
     if (known.length === 0) {
       this.toast =
-        "Open a thread in Zed with an agent that has Rewake first, then schedule from here or with /schedule.";
+        "Open a thread in Zed with an agent that has Rewake first, then schedule from here or with /rewake.";
       return;
     }
     this.dialog = {
@@ -987,7 +987,7 @@ export class SchedulesPage {
       { text: "[n] New", style: "accent", hit: "btn:new", hint: BUTTONS[0]?.hint },
     ]);
     say("• In a thread: the Rewake menu under the message box → Schedule a message…");
-    say("• In a thread: type /schedule 09:00 Run the tests");
+    say("• In a thread: type /rewake 09:00 Run the tests");
     say("");
     say(
       "When Claude hits its usage limit, Rewake asks in the thread whether to resume later.",
@@ -1129,7 +1129,7 @@ const HELP = [
   "",
   "# Schedule a message",
   "Here: [n] New, pick the thread, type the message, pick a time.",
-  "In a thread: the Rewake menu under the message box, or /schedule.",
+  "In a thread: the Rewake menu under the message box, or /rewake.",
   "",
   "# Change one",
   "Click a row (or use ↑ ↓), then a button below. Double-click a row to change its time.",
@@ -1139,8 +1139,8 @@ const HELP = [
   "a auto-resume · Tab switch view · f finished · x tips · ? help · q close",
   "",
   "# The same in a thread",
-  "/schedule 09:00 Run the tests · /schedule list · /schedule move 1 18:30",
-  "/schedule edit 1 <text> · /schedule now 1 · /schedule rm 1 · /stop",
+  "/rewake 09:00 Run the tests · /rewake list · /rewake move 1 18:30",
+  "/rewake edit 1 <text> · /rewake now 1 · /rewake cancel 1 · /rewake stop",
   "",
   "# Good to know",
   "Messages are sent while Zed is open with that thread's project.",

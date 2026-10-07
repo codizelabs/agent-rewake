@@ -532,7 +532,7 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
     findings.push({
       area: "Recently",
       level: "info",
-      text: `${agentName(id, env)} didn't accept Rewake's tools, so it can't suggest schedules. The Rewake menu and /schedule still work.`,
+      text: `${agentName(id, env)} didn't accept Rewake's tools, so it can't suggest schedules. The Rewake menu and /rewake still work.`,
     });
   const ascii = (process.platform === "win32" && !env.WT_SESSION) || env.TERM === "dumb";
   process.stdout.write(

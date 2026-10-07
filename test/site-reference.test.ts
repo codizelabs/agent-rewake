@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { REWAKE_COMMANDS } from "../src/addon.js";
+import { ACP_PLACE } from "../src/addon.js";
+import { rewakeHelp } from "../src/core/command.js";
 import { STATUS_WORDS } from "../src/ui/overview.js";
 
 // The docs site's reference page must match the code.
@@ -20,15 +21,16 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe("docs site reference page", () => {
-  it("documents every /schedule subcommand in the command hint", () => {
-    const hint = REWAKE_COMMANDS.find((c) => c.name === "schedule")?.input?.hint ?? "";
-    const subcommands = hint
-      .split(" | ")
-      .map((part) => part.trim().split(/\s+/)[0] ?? "")
-      .filter((word) => /^[a-z]+$/.test(word));
-    expect(subcommands.length).toBeGreaterThan(5);
-    for (const sub of subcommands) expect(reference, sub).toContain(`/schedule ${sub}`);
-    expect(reference).toContain("`/stop`");
+  it("documents every /rewake form that the command's help lists", () => {
+    const forms = rewakeHelp(ACP_PLACE)
+      .split("\n")
+      .filter((l) => l.startsWith("/rewake"))
+      .flatMap((l) => (l.split(/\s{3,}/)[0] ?? "").split(" · "))
+      .map((f) => f.replace(/^\/rewake\s*/, "").split(/[\s|]/)[0] ?? "")
+      .filter((w) => /^[a-z]+$/.test(w));
+    expect(forms.length).toBeGreaterThan(8);
+    for (const sub of forms) expect(reference, sub).toContain(`/rewake ${sub}`);
+    for (const sub of ["help", "continue", "stop"]) expect(reference).toContain(`/rewake ${sub}`);
   });
 
   it("documents every scheduled-message state", () => {

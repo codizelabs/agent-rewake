@@ -9,7 +9,7 @@ import { type Mock, startMock } from "./e2e/mock-llm.mjs";
  * The whole loop in Zed's Agent Panel, offline (plan §10.2 L3; research testing-harness §2.1.4):
  * a client speaks ACP to the built bundle, which runs the real Claude adapter and Claude Code
  * (from npm ci) against a local mock of Anthropic's API. The mock answers with a subscriber's
- * session limit; Rewake offers to resume; "/schedule resume" schedules it; at the reset Rewake sends
+ * session limit; Rewake offers to resume; "/rewake resume" schedules it; at the reset Rewake sends
  * its resume message and the same session continues, once.
  *
  * Offline by construction: the agent's only endpoint is the mock, and on macOS the run is wrapped in
@@ -132,7 +132,7 @@ describe.runIf(enabled)("Zed's Agent Panel, offline: limit → resume (Claude)",
       ).toBe(true);
       await d.request("session/prompt", {
         sessionId,
-        prompt: [{ type: "text", text: "/schedule resume" }],
+        prompt: [{ type: "text", text: "/rewake resume" }],
       });
       expect(
         await d.until(

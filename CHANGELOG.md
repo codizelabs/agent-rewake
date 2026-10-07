@@ -4,14 +4,11 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-### Added
-
-- **Rewake's version where you look for it:** in the Rewake menu's tooltip (next to its About, which had it already), at the top of **Settings…**, on the schedules page's title line and help, in the `/schedule page` snapshot, and in what `about_rewake` tells the agent, so it can say which version you run. The menu's label in the toolbar stays short.
-
 ## [0.2.0] - 2026-10-07
 
 ### Added
 
+- **Rewake's version where you look for it:** in the Rewake menu's tooltip (next to its About, which had it already), at the top of **Settings…**, on the schedules page's title line and help, in the `/schedule page` snapshot, and in what `about_rewake` tells the agent, so it can say which version you run. The menu's label in the toolbar stays short.
 - **A guide for each agent:** the website's "Works with" section shows every supported agent with its logo, each linking to a step-by-step guide in the docs (install, what happens at the limit, scheduling, checking and removing, the version it needs and what it can't do): Zed, Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI. The site's title and summary name the terminal agents too, not only Zed.
 - **Agent versions in `doctor`:** an agent older than Rewake supports is named, whether or not its preview is set up, with the command that updates it. A set-up agent newer than the version Rewake was tested with is noted too (it should still work), and `install` says the same. The docs list each preview's minimum and tested version.
 - **Your computer's own sleep settings are checked** on macOS, Windows and Linux (GNOME, KDE, systemd-logind), without admin rights and without changing anything. If one would let the computer sleep while a resume waits (sleeping after some minutes when plugged in, on battery, or, in `doctor`, closing the lid), the thread says so once, `agent-rewake continue` says so after arming, and `agent-rewake doctor` shows it under **Sleep settings**, each with a link to the new **Keep your computer awake** section of the docs, which gives the best settings for each system. A setting your organisation manages is named as such.
@@ -93,6 +90,9 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Changed
 
+- **One command, `/rewake`, everywhere Rewake runs.** Zed (and other ACP clients), Claude Code and Gemini CLI all take `/rewake`, with the same words: `/rewake` at a usage limit continues after the reset, `/rewake 3:30pm` continues then, `/rewake in 1h Run the tests` sends a message later, `/rewake list`, `/rewake cancel` (the continue), `/rewake cancel N` or `all`, `/rewake auto on|off`, and `/rewake help`, which lists what works in that place. Anything a place can't do gets one line saying so. Rewake answers the command itself, without using the model. In Codex it's `rewake` without the slash (now also `rewake list`, `rewake cancel` and `rewake help`): the Codex terminal refuses slash commands it doesn't know before any hook sees them.
+- **Zed:** `/schedule` and `/stop` are replaced by `/rewake` and `/rewake stop`, with the same subcommands (`/schedule rm N` is `/rewake cancel N`, `/schedule resume` after a limit is `/rewake`). A bare `/rewake` at a limit opens the resume question. Zed shows one command, `/rewake`, in its `/` menu.
+- **Claude Code preview:** `/rewake-schedule`, `/rewake-cancel`, `/rewake-continue`, `/rewake-clear` and `/rewake-ask` are folded into `/rewake` (`/rewake` alone asks when, then what; `/rewake cancel`; `/rewake`; `/rewake cancel all`; `/rewake auto off`). `/rewake list` numbers messages so `/rewake cancel N` can delete one, and `/rewake auto on` turns on continuing without asking.
 - The website, README and docs are written for every place Rewake works, not only Zed: install is "run one command, pick where, restart that tool", "Is it for you?" is a table by place, "How it works" shows three diagrams (Zed's agent connection, a plugin inside Claude Code, and hooks with the system's own timer), and "When it sends", the comparison and the questions cover the previews too.
 - The README opens with what Rewake does for each agent ("Auto-resume Claude Code after a usage limit", "Auto-resume Codex when the usage limit resets", and the other previews). The npm description and keywords name the agents too.
 
@@ -123,6 +123,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - New `agent-rewake fire <id>`, run by Rewake's own one-shot timers (launchd on macOS, systemd or `at` on Linux, Task Scheduler on Windows) at a resume's time. It's the base for resuming agents outside Zed and isn't used yet. Agents Rewake runs in Zed are marked, so a later integration for the same agent's own app never resumes them a second time.
 - Scheduled messages saved by a later version of Rewake for an agent this version doesn't support are left alone (never sent, changed or deleted), so going back to an earlier version stays safe.
 - The README, docs and website say who Rewake is for ("Is it for you?"), with a troubleshooting entry for "installed, but nothing happens".
+
+### Upgrade notes
+
+- **Zed, if you typed commands:** `/schedule …` is now `/rewake …`, and `/stop` is `/rewake stop`. Zed refuses the old names as unknown commands, so nothing is sent by mistake; type the new name instead. Scheduled messages and settings are unchanged. The Rewake menu works as before.
 
 ## [0.1.1] - 2026-10-06
 

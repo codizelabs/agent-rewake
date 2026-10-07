@@ -1,5 +1,6 @@
 // Agent Rewake's mod for Claude Code. When a usage limit stops this session it asks once, then
-// continues the same session after the reset; it also sends messages scheduled with /rewake.
+// continues the same session after the reset; it also sends messages scheduled with /rewake,
+// Rewake's one command (the same in every place Rewake runs; see logic.js parseCommand).
 //
 // Everything runs inside this Claude Code process: nothing runs once it exits. A pending continue
 // is kept in $.store and offered again when the session is reopened.
@@ -21,19 +22,24 @@ import {
   blockedUntil,
   blockingKind,
   CONTINUE_TEXT,
-  exampleTime,
   expired,
   FAR_RESET_MS,
+  FEATURES,
+  featureOf,
   HOUR,
+  helpText,
   MAX_REARMS,
   MAX_REHITS,
   MINUTE,
   mustAsk,
   nativeLikely,
-  parseArgs,
+  notHere,
+  parseCommand,
+  parseWhen,
   REHIT_WINDOW_MS,
   STALE_MS,
   safeId,
+  splitWhen,
   WAITING_EXPIRES_MS,
   WAKE_HORIZON_MS,
   when,
@@ -196,14 +202,14 @@ async function refreshStatus($, id, now) {
   const sched = (await $.store.get(schedKey(id))) ?? [];
   const awake = (await updateWake($, ep, now)) ? " · keeping this Mac awake" : "";
   if (ep?.state === "armed" && ep.fireAt !== undefined) {
-    $.ui.status(`Continues at ${at(ep.fireAt, now)}${awake} · /rewake-cancel`);
+    $.ui.status(`Continues at ${at(ep.fireAt, now)}${awake} · /rewake cancel`);
   } else if (ep?.state === "offered") {
     $.ui.status(
-      `Usage limit reached · /rewake-continue to continue after the reset${ep.fireAt !== undefined ? ` ${atWhen(ep.fireAt, now)}` : ""}`,
+      `Usage limit reached · /rewake to continue after the reset${ep.fireAt !== undefined ? ` ${atWhen(ep.fireAt, now)}` : ""}`,
     );
   } else if (sched.length > 0) {
     const next = Math.min(...sched.map((s) => s.at));
-    $.ui.status(`${sched.length} scheduled · next at ${at(next, now)} · /rewake`);
+    $.ui.status(`${sched.length} scheduled · next at ${at(next, now)} · /rewake list`);
   } else {
     $.ui.status(undefined);
   }
@@ -243,7 +249,7 @@ async function ask($, id, ep, now) {
       if (answer === always) await $.store.set("prefs", { ...prefs, autoContinue: "always" });
       else if (answer !== yes) state = "declined";
     } catch {
-      // Dismissed, or nobody to ask (-p, an SDK host): leave it offered, for /rewake continue.
+      // Dismissed, or nobody to ask (-p, an SDK host): leave it offered, for /rewake.
       state = "offered";
     }
   }
@@ -468,10 +474,20 @@ async function reopen($) {
   await refreshStatus($, id, now);
 }
 
-/** `/rewake-schedule`: one question per step: when (presets with their times, or Custom…), then what. */
-async function scheduleFlow($) {
-  const id = await $.session.id();
-  const now = await $.clock.now();
+/** Add a scheduled message, kept in time order so `/rewake list` numbers them by time. */
+async function addMessage($, id, when, text) {
+  const sched = (await $.store.get(schedKey(id))) ?? [];
+  await $.store.set(
+    schedKey(id),
+    [...sched, { at: when, text }].sort((x, y) => x.at - y.at),
+  );
+}
+
+/**
+ * `/rewake` in a session that isn't waiting at a limit: one question per step, when (presets with
+ * their times, or Custom…), then what. Dismissing the first question shows what's scheduled.
+ */
+async function scheduleFlow($, id, now) {
   const presets = [
     ["In 30 minutes", 30 * MINUTE],
     ["In 1 hour", HOUR],
@@ -486,51 +502,105 @@ async function scheduleFlow($) {
     });
     when = presets.find((p) => p.label === answer)?.at;
     if (when === undefined && answer === custom) {
-      const typed = await $.ui.ask(`When? For example "in 45m" or "at ${exampleTime(clock)}".`);
-      const p = parseArgs(`${String(typed).trim()} x`, now, clock);
-      if (p.kind !== "add") return { text: p.reason ?? "Rewake couldn't read that time." };
+      const typed = await $.ui.ask(
+        `When? For example "in 45m", "${clock === "24h" ? "18:00" : "6pm"}" or "tomorrow 9:00".`,
+      );
+      const p = parseWhen(String(typed).replace(/^\s*at\s+/i, ""), now);
+      if (!p.ok) return `Rewake: ${p.error}`;
       when = p.at;
     }
   } catch {
-    return { text: "Nothing was scheduled." };
+    return `${await listText($, id, now)}\n\nType /rewake help to see what Rewake can do here.`;
   }
-  if (when === undefined) return { text: "Nothing was scheduled." };
+  if (when === undefined) return "Nothing was scheduled.";
   let text;
   try {
     text = String(
       await $.ui.ask(`What should Rewake send into this session ${atWhen(when, now)}?`),
     ).trim();
   } catch {
-    return { text: "Nothing was scheduled." };
+    return "Nothing was scheduled.";
   }
-  if (text === "") return { text: "Nothing was scheduled." };
-  if (text.startsWith("/")) return { text: 'A scheduled message cannot start with "/".' };
-  const sched = (await $.store.get(schedKey(id))) ?? [];
-  await $.store.set(schedKey(id), [...sched, { at: when, text }]);
-  await refreshStatus($, id, now);
-  return { text: `Scheduled for ${at(when, now)}.` };
+  if (text === "") return "Nothing was scheduled.";
+  if (text.startsWith("/")) return 'A scheduled message cannot start with "/".';
+  await addMessage($, id, when, text);
+  return `Scheduled for ${at(when, now)}.`;
 }
 
+/** What `/rewake list` says: the continue, then each scheduled message by number. */
+async function listText($, id, now) {
+  const ep = await $.store.get(limitKey(id));
+  const sched = (await $.store.get(schedKey(id))) ?? [];
+  const lines = [];
+  if (ep?.state === "armed" && ep.fireAt !== undefined)
+    lines.push(`Continues at ${at(ep.fireAt, now)}. To cancel: /rewake cancel`);
+  for (const [i, s] of sched.entries()) lines.push(`${i + 1}. ${at(s.at, now)}: ${s.text}`);
+  if (lines.length === 0) lines.push("Nothing scheduled in this session.");
+  const prefs = (await $.store.get("prefs")) ?? {};
+  if (prefs.autoContinue === "always")
+    lines.push(
+      "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake auto off",
+    );
+  return lines.join("\n");
+}
+
+/** Continue after the usage limit: at the reset, or at `when`. */
+async function continueAt($, id, ep, when, now) {
+  if (!ep || ep.state === "sent")
+    return "This session isn't stopped at a usage limit. To schedule a message: /rewake in 1h <message>";
+  if (ep.state === "native" && when === undefined)
+    return `Claude Code continues this session by itself${ep.resetAt !== undefined ? ` after the reset ${atWhen(ep.resetAt, now)}` : ""}.`;
+  const fireAt = when ?? ep.fireAt;
+  if (fireAt === undefined)
+    return "Rewake doesn't know when this limit resets yet. Give a time, for example /rewake 3:30pm.";
+  if (ep.state === "armed" && when === undefined)
+    return `This session already continues at ${at(fireAt, now)}. To cancel: /rewake cancel`;
+  const next = { ...ep, state: "armed", fireAt, attempts: 0 };
+  await save($, id, next);
+  await arm($, id, next);
+  return `This session continues at ${at(fireAt, now)}. To cancel: /rewake cancel`;
+}
+
+/** `/rewake <args>`: Rewake's one command (logic.js parseCommand), answered without Claude. */
 async function runCommand($, args) {
   const id = await $.session.id();
   const now = await $.clock.now();
-  const p = parseArgs(args, now, clock);
+  const c = parseCommand(args);
   const ep = await $.store.get(limitKey(id));
   const sched = (await $.store.get(schedKey(id))) ?? [];
+  const needs = featureOf(c);
   let text;
-  if (p.kind === "help") {
-    text = p.reason;
-  } else if (p.kind === "add") {
-    await $.store.set(schedKey(id), [...sched, { at: p.at, text: p.text }]);
-    text = `Scheduled for ${at(p.at, now)}.`;
-  } else if (p.kind === "cancel") {
+  if (needs && !FEATURES.has(needs)) {
+    text = notHere(needs);
+  } else if (c.kind === "help") {
+    text = helpText();
+  } else if (c.kind === "home") {
+    const waiting = ep && ep.state !== "sent" && ep.state !== "armed";
+    text = waiting ? await continueAt($, id, ep, undefined, now) : await scheduleFlow($, id, now);
+  } else if (c.kind === "continue" || c.kind === "at") {
+    const s = c.kind === "at" ? c.args : (c.when ?? "");
+    const p = s ? splitWhen(s, now) : { ok: true, text: "" };
+    if (!p.ok) {
+      text = `Rewake: ${p.error}`;
+    } else if (p.text === "" || c.kind === "continue") {
+      text = await continueAt($, id, ep, p.at, now);
+    } else if (p.text.startsWith("/")) {
+      // $.prompt.submit refuses text that starts with "/" (it would run a command).
+      text = 'A scheduled message cannot start with "/".';
+    } else {
+      await addMessage($, id, p.at, p.text);
+      text = `Scheduled for ${at(p.at, now)}.`;
+    }
+  } else if (c.kind === "list") {
+    text = await listText($, id, now);
+  } else if (c.kind === "cancel" && c.which === undefined) {
     if (ep && ep.state !== "sent" && ep.fireAt !== undefined) {
       await drop($, id);
       text = `Cancelled the automatic continue at ${at(ep.fireAt, now)}.${sched.length > 0 ? " Your scheduled messages stay." : ""}`;
     } else {
-      text = "Nothing is set to continue in this session.";
+      text = `Nothing is set to continue in this session.${sched.length > 0 ? " To delete a scheduled message: /rewake cancel N, or /rewake cancel all." : ""}`;
     }
-  } else if (p.kind === "clear") {
+  } else if (c.kind === "cancel" && c.which === "all") {
     if (sched.length === 0) {
       text = "Nothing scheduled in this session.";
     } else {
@@ -556,32 +626,35 @@ async function runCommand($, args) {
         text = one ? "Kept your scheduled message." : "Kept your scheduled messages.";
       }
     }
-  } else if (p.kind === "ask") {
+  } else if (c.kind === "cancel") {
+    const n = Number(c.which);
+    const s = Number.isInteger(n) && n >= 1 ? sched[n - 1] : undefined;
+    if (!s) {
+      text = `There's no scheduled message number ${c.which} in this session. Type /rewake list.`;
+    } else {
+      const rest = sched.filter((x) => x !== s);
+      if (rest.length > 0) await $.store.set(schedKey(id), rest);
+      else await $.store.delete(schedKey(id));
+      text = `Deleted the message scheduled for ${at(s.at, now)}.`;
+    }
+  } else if (c.kind === "auto") {
     const prefs = (await $.store.get("prefs")) ?? {};
     const { autoContinue: _, ...rest } = prefs;
-    await $.store.set("prefs", rest);
-    text = "Rewake will ask before continuing after a usage limit.";
-  } else if (p.kind === "continue") {
-    if (ep && ep.state !== "armed" && ep.state !== "sent" && ep.fireAt !== undefined) {
-      const next = { ...ep, state: "armed", attempts: 0 };
-      await save($, id, next);
-      await arm($, id, next);
-      text = `This session continues at ${at(ep.fireAt, now)}.`;
+    if (c.on === true) {
+      await $.store.set("prefs", { ...rest, autoContinue: "always" });
+      text =
+        "From now on, after a usage limit Rewake continues every session without asking when the reset is within a day. To be asked each time: /rewake auto off";
+    } else if (c.on === false) {
+      await $.store.set("prefs", rest);
+      text = "Rewake will ask before continuing after a usage limit.";
     } else {
-      text = "This session isn't stopped at a usage limit.";
+      text =
+        prefs.autoContinue === "always"
+          ? "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake auto off"
+          : "After a usage limit, Rewake asks before continuing. To continue without asking: /rewake auto on";
     }
   } else {
-    const lines = [];
-    if (ep?.state === "armed" && ep.fireAt !== undefined)
-      lines.push(`Continues at ${at(ep.fireAt, now)}.`);
-    for (const s of sched) lines.push(`${at(s.at, now)}: ${s.text}`);
-    if (lines.length === 0) lines.push("Nothing scheduled in this session.");
-    const prefs = (await $.store.get("prefs")) ?? {};
-    if (prefs.autoContinue === "always")
-      lines.push(
-        "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake-ask",
-      );
-    text = lines.join("\n");
+    text = helpText();
   }
   await refreshStatus($, id, now);
   return { text };
@@ -600,28 +673,9 @@ export function register(on) {
     for (const entry of [
       {
         name: "rewake",
-        description: "See what Rewake will send in this session (or type: in 30m <message>)",
-        argumentHint: `[in 30m <message> | at ${exampleTime(clock)} <message> | clear | ask]`,
-      },
-      {
-        name: "rewake-cancel",
-        description: "Cancel this session's continue after the usage limit",
-      },
-      {
-        name: "rewake-continue",
-        description: "Continue this session when the usage limit resets",
-      },
-      {
-        name: "rewake-clear",
-        description: "Delete this session's scheduled messages, after asking",
-      },
-      {
-        name: "rewake-schedule",
-        description: "Schedule a message for this session: choose when, then what",
-      },
-      {
-        name: "rewake-ask",
-        description: "Always ask you before continuing after a usage limit",
+        description:
+          "Agent Rewake: continue after a usage limit, and schedule messages (/rewake help)",
+        argumentHint: "[in 1h <message> | 3:30pm | list | cancel [N|all] | auto on|off | help]",
       },
     ])
       try {
@@ -664,9 +718,4 @@ export function register(on) {
   }).catch(passOn);
 
   on("command.run", { command: "rewake" }, ($, e) => runCommand($, e.args));
-  on("command.run", { command: "rewake-cancel" }, ($) => runCommand($, "cancel"));
-  on("command.run", { command: "rewake-continue" }, ($) => runCommand($, "continue"));
-  on("command.run", { command: "rewake-clear" }, ($) => runCommand($, "clear"));
-  on("command.run", { command: "rewake-ask" }, ($) => runCommand($, "ask"));
-  on("command.run", { command: "rewake-schedule" }, ($) => scheduleFlow($));
 }

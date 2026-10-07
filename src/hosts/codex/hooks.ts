@@ -1,9 +1,10 @@
 import { basename } from "node:path";
+import { continueOnly, type RewakePlace } from "../../core/command.js";
 import { decideArm, RESET_MARGIN_MS } from "../../core/resume.js";
 import { loadSettings } from "../../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../../core/threads.js";
-import { formatAt, parseWhen } from "../../core/time.js";
+import { formatAt } from "../../core/time.js";
 import { autoFor } from "../closed.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { findCodexLimit, isCodexRollout, readTail, threadIdOf } from "./rollout.js";
@@ -14,7 +15,8 @@ import { findCodexLimit, isCodexRollout, readTail, threadIdOf } from "./rollout.
  * do run (research note §3.1.4):
  *
  *   - UserPromptSubmit: the prompt "rewake" (or "rewake 3:30pm") in a thread at a limit arms the
- *     resume and is blocked, so it never reaches the model. Any other prompt cancels a pending
+ *     resume and is blocked, so it never reaches the model; "rewake cancel", "rewake list" and
+ *     "rewake help" are answered the same way. Any other prompt cancels a pending
  *     resume for the thread: the person carried on.
  *   - SessionEnd: a limit nobody answered is armed when the person chose automatic resume and the
  *     reset is within a day; otherwise one notification says how to continue.
@@ -34,7 +36,16 @@ export interface CodexHookDeps {
   codexPath: () => string | undefined;
 }
 
-const REWAKE = /^\s*rewake(?:\s+(.+?))?\s*$/i;
+/**
+ * `rewake …`: Rewake's one command (src/core/command.ts), typed without the slash, because the
+ * Codex terminal answers a slash command it doesn't know with "Unrecognized command" and never
+ * submits it (codex-rs/tui chatwidget/slash_dispatch.rs). A leading slash is accepted in case a
+ * Codex surface passes it on.
+ */
+/** `rewake` in Codex: it continues a thread after a limit, and nothing else yet. */
+export const CODEX_PLACE: RewakePlace = { name: "Codex", typed: "rewake", features: new Set() };
+
+const REWAKE = /^\s*\/?rewake(?:\s+([\s\S]*?))?\s*$/i;
 
 function threadOf(input: Record<string, unknown>): { id: string; path: string } | undefined {
   const path = input.transcript_path;
@@ -125,6 +136,25 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
           cancelPending(ctx, thread.id);
           return undefined;
         }
+        const c = continueOnly(CODEX_PLACE, m[1] ?? "", ctx.now);
+        if (c.kind === "reply") return block(c.text);
+        if (c.kind === "list") {
+          const next = pendingFor(new ScheduleStore(ctx.stateDir), thread.id)[0];
+          return block(
+            next
+              ? `Rewake will continue this thread ${formatAt(next.dueAt, ctx.now)}. To cancel: rewake cancel`
+              : 'Rewake: Nothing is set to continue this thread. At a usage limit, type "rewake" to continue after the reset.',
+          );
+        }
+        if (c.kind === "cancel") {
+          const had = pendingFor(new ScheduleStore(ctx.stateDir), thread.id).length > 0;
+          cancelPending(ctx, thread.id);
+          return block(
+            had
+              ? "Rewake: Cancelled. This thread won't be continued on its own."
+              : "Rewake: Nothing is set to continue this thread.",
+          );
+        }
         let limit: ReturnType<typeof findCodexLimit>;
         try {
           limit = findCodexLimit(readTail(thread.path), ctx.now);
@@ -139,12 +169,8 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
           return block(
             "Rewake can't continue after this limit: this limit is about credits or spending, which waiting doesn't fix.",
           );
-        let at: number | undefined;
-        if (m[1]) {
-          const when = parseWhen(m[1], ctx.now);
-          if (!when.ok) return block(`Rewake didn't understand "${m[1]}". Try "rewake 3:30pm".`);
-          at = when.at;
-        } else {
+        let at: number | undefined = c.at;
+        if (at === undefined) {
           // The session file's reset, or a later one Codex reported when Rewake last tried.
           const later = new ScheduleStore(ctx.stateDir)
             .listForSession(thread.id, "codex")

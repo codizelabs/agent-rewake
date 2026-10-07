@@ -24,6 +24,14 @@ import {
   profileFor,
 } from "./adapters/profiles.js";
 import { normalize } from "./adapters/text.js";
+import {
+  COMMAND_NAME,
+  parseRewake,
+  type RewakeCommand,
+  type RewakePlace,
+  rewakeHelp,
+  splitWhen,
+} from "./core/command.js";
 import { describeCron, nextRun, nextRuns, parseCron, runsPerDay } from "./core/cron.js";
 import { SessionLock } from "./core/lock.js";
 import {
@@ -73,18 +81,37 @@ const MENU_ACTIONS = new Set<string>([
   "settings",
 ]);
 
+/** `/rewake` in an ACP thread (Zed and other clients): everything Rewake does is here. */
+export const ACP_PLACE: RewakePlace = {
+  name: "this thread",
+  typed: `/${COMMAND_NAME}`,
+  features: new Set([
+    "messages",
+    "repeat",
+    "cancelOne",
+    "auto",
+    "stop",
+    "items",
+    "prompt",
+    "page",
+  ] as const),
+};
+
+/** What the person typed: `/rewake`, then its arguments. */
+const REWAKE_TYPED = new RegExp(`^\\/${COMMAND_NAME}(?:\\s+([\\s\\S]*))?$`, "i");
+
+// The grammar moved to the core, shared with every place Rewake runs; kept here for imports.
+export { splitWhen };
+
 /** Commands Rewake adds to every session. */
 export const REWAKE_COMMANDS = [
   {
-    name: "schedule",
-    description: "Agent Rewake: schedule messages in this thread, and resume after usage limits",
+    name: COMMAND_NAME,
+    description:
+      "Agent Rewake: continue after usage limits, and schedule messages in this thread (/rewake help)",
     input: {
-      hint: "<when> <message> | every hour|day|weekday|week|monday… [HH:MM] <message> | cron <expression> <message> | list | rm N | now N | pause N | resume N | move N <when> | edit N <text> | resume | auto on|off | prompt <text> | page",
+      hint: "<when> <message> | <when> | list | cancel [N|all] | auto on|off | stop | help",
     },
-  },
-  {
-    name: "stop",
-    description: "Agent Rewake: stop a scheduled reply that is running in this thread",
   },
 ];
 
@@ -221,7 +248,7 @@ interface SessionState {
 }
 
 /**
- * The scheduling add-on: `/schedule` and `/stop`, the schedule store, a wall-clock scheduler and
+ * The scheduling add-on: `/rewake`, the schedule store, a wall-clock scheduler and
  * out-of-turn delivery into the same session, plus resume after a usage
  * limit with the in-thread "Resume after the limit?" form.
  */
@@ -368,11 +395,9 @@ export class SchedulingAddon {
     if (!session) return FORWARD;
 
     const text = promptText(params.prompt);
-    const command = /^\/(schedule|stop)\b\s*([\s\S]*)$/.exec(text.trim());
+    const command = REWAKE_TYPED.exec(text.trim());
     if (command) {
-      setImmediate(() =>
-        this.runCommand(session, m.id as JsonRpcId, command[1] ?? "", command[2] ?? ""),
-      );
+      setImmediate(() => this.runCommand(session, m.id as JsonRpcId, command[1] ?? ""));
       return CONSUME;
     }
     if (session.delivering) {
@@ -848,7 +873,7 @@ export class SchedulingAddon {
       });
     sendCommands();
     // Zed can drop updates that arrive before it has registered the session (zed#59281), and then
-    // rejects /schedule as unknown: send them once more a moment later.
+    // rejects /rewake as unknown: send them once more a moment later.
     const again = setTimeout(() => {
       if (this.sessions.get(sessionId) === session) sendCommands();
     }, COMMANDS_RESEND_MS);
@@ -1202,7 +1227,7 @@ export class SchedulingAddon {
       // Another Rewake question is open; one form at a time, so this one is a line.
       const how = this.menuEnabled(session)
         ? 'pick "Resume after the usage limit…" in the Rewake menu under the message box.'
-        : "type /schedule resume.";
+        : "type /rewake.";
       this.status(
         session,
         `Rewake: ${capitalize(this.agentName)} hit its usage limit${
@@ -1228,8 +1253,8 @@ export class SchedulingAddon {
       this.status(
         session,
         limit.resetAt !== undefined
-          ? `Rewake: Stopped at ${this.agentName}'s usage limit. ${when} Type /schedule resume to schedule it.`
-          : `Rewake: Stopped at ${this.agentName}'s usage limit, and it didn't say when the limit resets. To resume later, type for example /schedule in 1h Resume your work.`,
+          ? `Rewake: Stopped at ${this.agentName}'s usage limit. ${when} Type /rewake to schedule it.`
+          : `Rewake: Stopped at ${this.agentName}'s usage limit, and it didn't say when the limit resets. To resume later, type a time, for example /rewake 3:30pm or /rewake in 1h.`,
       );
       return;
     }
@@ -1273,7 +1298,7 @@ export class SchedulingAddon {
       const closed = result.action === "cancel" || response.error !== undefined;
       const how = this.menuEnabled(session)
         ? 'pick "Resume after the usage limit…" in the Rewake menu.'
-        : "type /schedule resume.";
+        : "type /rewake.";
       this.status(
         session,
         closed
@@ -1389,7 +1414,7 @@ export class SchedulingAddon {
     return ` ${what} paused. To send ${rest.length === 0 ? "it" : "them"}, ${
       this.menuEnabled(session)
         ? 'pick "Change a scheduled message…" in the Rewake menu and resume the paused entry.'
-        : "type /schedule list, then /schedule resume N."
+        : "type /rewake list, then /rewake resume N."
     }`;
   }
 
@@ -1431,12 +1456,12 @@ export class SchedulingAddon {
         ? `Rewake: This thread will resume when the limit resets (${formatWhen(limit.resetAt, now, this.opts.locale)}), automatically for this thread. ${
             this.menuEnabled(session)
               ? "To cancel it, use the Rewake menu under the message box."
-              : "To cancel it, type /schedule list, then /schedule rm N."
+              : "To cancel it, type /rewake cancel."
           }`
         : `Rewake: This thread will resume when the limit resets (${formatWhen(limit.resetAt, now, this.opts.locale)}). ${
             this.menuEnabled(session)
               ? "To change or cancel it, use the Rewake menu under the message box."
-              : "To change or cancel it, type /schedule list."
+              : "To cancel it, type /rewake cancel."
           }`,
     );
     this.refreshMarker(session);
@@ -2036,19 +2061,19 @@ export class SchedulingAddon {
           type: "string",
           title: "Do this",
           oneOf: [
-            { const: "move", title: "Change the time…", description: `/schedule move ${n} <when>` },
+            { const: "move", title: "Change the time…", description: `/rewake move ${n} <when>` },
             {
               const: "edit",
               title: "Change the message…",
-              description: `/schedule edit ${n} <text>`,
+              description: `/rewake edit ${n} <text>`,
             },
-            { const: "now", title: "Send it now", description: `/schedule now ${n}` },
+            { const: "now", title: "Send it now", description: `/rewake now ${n}` },
             {
               const: "pause",
               title: paused ? "Resume it" : "Pause it",
-              description: `/schedule ${paused ? "resume" : "pause"} ${n}`,
+              description: `/rewake ${paused ? "resume" : "pause"} ${n}`,
             },
-            { const: "delete", title: "Delete it…", description: `/schedule rm ${n}` },
+            { const: "delete", title: "Delete it…", description: `/rewake cancel ${n}` },
           ],
           default: "move",
         },
@@ -2072,16 +2097,16 @@ export class SchedulingAddon {
         );
         const text = String(edited?.message ?? "").trim();
         if (!text) return;
-        this.status(session, this.cmdSchedule(session, `edit ${n} ${text}`));
+        this.status(session, this.cmdText(session, `edit ${n} ${text}`));
         return;
       }
       case "now":
-        this.status(session, this.cmdSchedule(session, `now ${n}`));
+        this.status(session, this.cmdText(session, `now ${n}`));
         return;
       case "pause":
         this.status(
           session,
-          this.cmdSchedule(session, `${s.status === "paused" ? "resume" : "pause"} ${n}`),
+          this.cmdText(session, `${s.status === "paused" ? "resume" : "pause"} ${n}`),
         );
         return;
       case "delete": {
@@ -2090,7 +2115,7 @@ export class SchedulingAddon {
           `Delete the message scheduled for ${formatWhen(s.dueAt, this.now(), this.opts.locale)}: "${preview(s.text)}"? Submit deletes it; Decline keeps it.`,
           {},
         );
-        if (sure) this.status(session, this.cmdSchedule(session, `rm ${n}`));
+        if (sure) this.status(session, this.cmdText(session, `cancel ${n}`));
         return;
       }
     }
@@ -2209,7 +2234,7 @@ export class SchedulingAddon {
       "",
       "- **Schedules…** shows this thread's scheduled messages and lets you change them.",
       "- **Schedule a message…** adds one: pick a time, or a repeat such as every weekday at 09:00.",
-      `- You can also type \`/schedule\`, or ask ${this.agentName} to schedule something; you approve it here.`,
+      `- You can also type \`/rewake\`, or ask ${this.agentName} to schedule something; you approve it here.`,
       "",
       `Open source: [Agent Rewake on GitHub](${REPO_URL}). If it saves you time, a star there helps others find it, and you can [support it on Ko-fi](${SUPPORT_URL}).`,
     ].join("\n");
@@ -2222,7 +2247,7 @@ export class SchedulingAddon {
     const lines = ["**Rewake · Scheduled messages**", ""];
     if (list.length === 0) {
       lines.push(
-        "Nothing is scheduled in this thread yet. To add one, pick **Schedule a message…** in the Rewake menu, or type `/schedule in 1h Run the tests`.",
+        "Nothing is scheduled in this thread yet. To add one, pick **Schedule a message…** in the Rewake menu, or type `/rewake in 1h Run the tests`.",
       );
     } else {
       const anyRepeat = list.some((s) => s.repeat);
@@ -2299,7 +2324,7 @@ export class SchedulingAddon {
           default: "all",
         },
         // One decision: the message is changed elsewhere (the auto-resume entry,
-        // /schedule prompt), not here.
+        // /rewake prompt), not here.
       },
       ["choice"],
       { exclusive: false },
@@ -2343,7 +2368,7 @@ export class SchedulingAddon {
   private async formAuto(session: SessionState): Promise<void> {
     const now = this.now();
     if (this.threads.get(session.sessionId)?.autoResume) {
-      this.status(session, this.cmdSchedule(session, "auto off"));
+      this.status(session, this.cmdText(session, "auto off"));
       return;
     }
     const content = await this.form(
@@ -2385,7 +2410,7 @@ export class SchedulingAddon {
     if (!this.clientSupportsForms || session.formOpen) {
       this.status(
         session,
-        `${question} ${this.menuEnabled(session) ? "Use the Rewake menu to send or reschedule it." : "Type /schedule list, then /schedule now N or /schedule move N <when>."}`,
+        `${question} ${this.menuEnabled(session) ? "Use the Rewake menu to send or reschedule it." : "Type /rewake list, then /rewake now N or /rewake move N <when>."}`,
       );
       this.refreshMarker(session);
       return;
@@ -2452,33 +2477,72 @@ export class SchedulingAddon {
   private manageHint(session: SessionState): string {
     return this.menuEnabled(session)
       ? "To change it, use the Rewake menu under the message box."
-      : "Type /schedule list to see or change it.";
+      : "Type /rewake list to see or change it.";
   }
 
   private stopHint(session: SessionState, lead = "To stop the reply"): string {
     return this.menuEnabled(session)
-      ? `${lead}, pick "Stop the scheduled reply" in the Rewake menu, or type /stop.`
-      : `${lead}, type /stop.`;
+      ? `${lead}, pick "Stop the scheduled reply" in the Rewake menu, or type /rewake stop.`
+      : `${lead}, type /rewake stop.`;
   }
 
   // ---- commands -------------------------------------------------------------------------------
 
-  private runCommand(session: SessionState, id: JsonRpcId, name: string, rest: string): void {
-    if (name === "schedule" && rest.trim() === "" && this.clientSupportsForms) {
-      // A bare /schedule opens the same form as the menu.
+  private runCommand(session: SessionState, id: JsonRpcId, args: string): void {
+    const command = parseRewake(args);
+    if (command.kind === "home" && this.clientSupportsForms) {
+      // A bare /rewake opens a form: the resume question at a usage limit, otherwise the same
+      // "Schedule a message" form as the menu.
       this.router?.respondToClient(id, { result: { stopReason: "end_turn" } });
-      void this.runMenu(session, "new");
+      void this.runMenu(session, this.limitToContinue(session) ? "resume" : "new");
+      return;
+    }
+    if (
+      command.kind === "cancel" &&
+      command.which === "all" &&
+      this.clientSupportsForms &&
+      this.pending(session).length > 0
+    ) {
+      // Deleting every message asks first, like the menu's Delete.
+      this.router?.respondToClient(id, { result: { stopReason: "end_turn" } });
+      void this.confirmCancelAll(session);
       return;
     }
     let reply: string;
     try {
-      reply = name === "stop" ? this.cmdStop(session) : this.cmdSchedule(session, rest.trim());
+      reply = this.cmdRewake(session, command, args.trim());
     } catch (err) {
       reply = `Rewake: Couldn't do that. ${(err as Error).message}`;
     }
     this.status(session, reply);
     this.router?.respondToClient(id, { result: { stopReason: "end_turn" } });
     this.refreshMarker(session);
+  }
+
+  /** `/rewake cancel all` where forms work: one question, then delete or keep. */
+  private async confirmCancelAll(session: SessionState): Promise<void> {
+    const n = this.pending(session).length;
+    const sure = await this.form(
+      session,
+      n === 1
+        ? "Delete the scheduled message in this thread? Submit deletes it; Decline keeps it."
+        : `Delete all ${n} scheduled messages in this thread? Submit deletes them; Decline keeps them.`,
+      {},
+    );
+    this.status(
+      session,
+      sure
+        ? this.cmdText(session, "cancel all")
+        : n === 1
+          ? "Rewake: Kept your scheduled message."
+          : "Rewake: Kept your scheduled messages.",
+    );
+    this.refreshMarker(session);
+  }
+
+  /** At a usage limit, with no resume scheduled yet: what a bare /rewake continues. */
+  private limitToContinue(session: SessionState): boolean {
+    return session.limit !== undefined && !this.pending(session).some((s) => s.kind !== "user");
   }
 
   private pending(session: SessionState): Schedule[] {
@@ -2493,80 +2557,60 @@ export class SchedulingAddon {
     const s = Number.isInteger(n) && n >= 1 ? list[n - 1] : undefined;
     if (!s)
       throw new Error(
-        `There's no scheduled message number ${arg ?? ""} in this thread. Type /schedule list.`,
+        `There's no scheduled message number ${arg ?? ""} in this thread. Type /rewake list.`,
       );
     return s;
   }
 
-  private cmdSchedule(session: SessionState, args: string): string {
+  private cmdRewake(session: SessionState, command: RewakeCommand, args: string): string {
     const now = this.now();
-    const [sub, ...restWords] = args.split(/\s+/);
-    switch (sub) {
-      case "":
-      case undefined:
-        return `${HELP}\n\n${this.listText(session)}`;
+    switch (command.kind) {
+      case "home":
+        return this.limitToContinue(session)
+          ? this.cmdResumeAfterLimit(session)
+          : `${helpBlock()}\n\n${this.listText(session)}`;
+      case "help":
+        return helpBlock();
       case "list":
         return this.schedulesCard(session, now);
-      case "rm":
-      case "delete": {
-        const s = this.byNumber(session, restWords[0]);
+      case "stop":
+        return this.cmdStop(session);
+      case "continue": {
+        if (!command.when) return this.cmdResumeAfterLimit(session);
+        const when = parseWhen(command.when.replace(/^at\s+/i, ""), now);
+        if (!when.ok) throw new Error(when.error);
+        return this.cmdResumeAfterLimit(session, when.at);
+      }
+      case "cancel": {
+        if (command.which === undefined) {
+          const resumes = this.pending(session).filter((s) => s.kind !== "user");
+          if (resumes.length === 0)
+            return `Rewake: Nothing is set to continue this thread after a usage limit. To delete a scheduled message, type /${COMMAND_NAME} list, then /${COMMAND_NAME} cancel N.`;
+          for (const s of resumes) this.store.remove(s.scheduleId);
+          return "Rewake: Cancelled. This thread won't be resumed after the usage limit.";
+        }
+        if (command.which === "all") {
+          const all = this.pending(session);
+          if (all.length === 0) return "Rewake: No messages are scheduled in this thread.";
+          for (const s of all) this.store.remove(s.scheduleId);
+          return all.length === 1
+            ? "Rewake: Deleted the scheduled message."
+            : `Rewake: Deleted ${all.length} scheduled messages.`;
+        }
+        const s = this.byNumber(session, command.which);
         this.store.remove(s.scheduleId);
         return `Rewake: Deleted the message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
       }
-      case "pause": {
-        const s = this.byNumber(session, restWords[0]);
-        this.store.update(s.scheduleId, (x) => ({ ...x, status: "paused" }), now);
-        return `Rewake: Paused. The message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)} won't be sent until you resume it.`;
-      }
-      case "resume": {
-        if (restWords.length === 0) return this.cmdResumeAfterLimit(session);
-        const s = this.byNumber(session, restWords[0]);
-        const late = s.dueAt <= now;
-        this.store.update(
-          s.scheduleId,
-          (x) => ({ ...x, status: "scheduled", ...(late && { dueAt: now }) }),
-          now,
-        );
-        if (late) setImmediate(() => this.deliverDue(session));
-        return late
-          ? "Rewake: Resumed. Its time has passed, so it will be sent now."
-          : `Rewake: Resumed. It will be sent at ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
-      }
-      case "now": {
-        const s = this.byNumber(session, restWords[0]);
-        this.store.update(s.scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: now }), now);
-        setImmediate(() => this.deliverDue(session));
-        return "Rewake: Sending it now.";
-      }
-      case "move": {
-        const [num, ...whenWords] = restWords;
-        const s = this.byNumber(session, num);
-        const when = parseWhen(whenWords.join(" "), now);
-        if (!when.ok) throw new Error(when.error);
-        this.store.update(
-          s.scheduleId,
-          (x) => ({ ...x, dueAt: when.at, status: "scheduled" }),
-          now,
-        );
-        return `Rewake: Moved. It will be sent at ${formatWhen(when.at, now, this.opts.locale)}.`;
-      }
-      case "edit": {
-        const [num, ...textWords] = restWords;
-        const s = this.byNumber(session, num);
-        const text = textWords.join(" ").trim();
-        if (!text) throw new Error("Give the new message text after the number.");
-        this.store.update(s.scheduleId, (x) => ({ ...x, text }), now);
-        return `Rewake: Updated the message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
-      }
+      case "item":
+        return this.cmdItem(session, command.action, command.n, command.rest);
       case "auto": {
-        const on = restWords[0] === "on" ? true : restWords[0] === "off" ? false : undefined;
-        if (on === undefined) {
+        if (command.on === undefined) {
           const t = this.threads.get(session.sessionId);
-          return `Rewake: Automatic resume after usage limits is ${t?.autoResume ? "on" : "off"} for this thread. Type /schedule auto on or /schedule auto off.`;
+          return `Rewake: Automatic resume after usage limits is ${t?.autoResume ? "on" : "off"} for this thread. Type /${COMMAND_NAME} auto on or /${COMMAND_NAME} auto off.`;
         }
-        this.threads.update(session.sessionId, session.cwd, { autoResume: on }, now);
-        return on
-          ? `Rewake: Automatic resume is on for this thread. After a usage limit, Rewake sends your resume message when the limit resets, follows the new reset time if ${this.agentName} is still limited, and never approves permission requests. Turn it off with /schedule auto off.`
+        this.threads.update(session.sessionId, session.cwd, { autoResume: command.on }, now);
+        return command.on
+          ? `Rewake: Automatic resume is on for this thread. After a usage limit, Rewake sends your resume message when the limit resets, follows the new reset time if ${this.agentName} is still limited, and never approves permission requests. Turn it off with /${COMMAND_NAME} auto off.`
           : "Rewake: Automatic resume is off for this thread. After a usage limit, Rewake will ask first.";
       }
       case "page": {
@@ -2576,23 +2620,25 @@ export class SchedulingAddon {
         });
         return `Rewake: [Open the overview of all scheduled messages](${pathToFileURL(file).href}) (a snapshot). To manage them, run the "Agent Rewake: schedules" task (\`agent-rewake setup zed\` prints it).`;
       }
-      case "every":
-      case "cron":
-        return this.cmdRepeat(session, sub, restWords);
+      case "repeat":
+        return this.cmdRepeat(session, command.sub, command.words);
       case "prompt": {
-        const text = restWords.join(" ").trim();
+        const text = command.text.trim();
         if (!text) {
-          return `Rewake: This thread's resume message is: "${this.threads.resumePrompt(session.sessionId)}". Change it with /schedule prompt <text>.`;
+          return `Rewake: This thread's resume message is: "${this.threads.resumePrompt(session.sessionId)}". Change it with /${COMMAND_NAME} prompt <text>.`;
         }
         this.threads.update(session.sessionId, session.cwd, { resumePrompt: text }, now);
         return "Rewake: Saved this thread's resume message.";
       }
-      default: {
+      case "at": {
         const { at, text } = splitWhen(args, now);
-        if (!text)
+        if (!text) {
+          // A time alone: continue after the usage limit then.
+          if (session.limit) return this.cmdResumeAfterLimit(session, at);
           throw new Error(
-            "Add the message after the time, for example: /schedule 09:00 Continue the refactor.",
+            `Add the message after the time, for example: /${COMMAND_NAME} 9:00 Continue the refactor.`,
           );
+        }
         const s = this.store.create({
           sessionId: session.sessionId,
           cwd: session.cwd,
@@ -2607,9 +2653,62 @@ export class SchedulingAddon {
     }
   }
 
+  /** Run `/rewake <args>` for a form's choice; the reply line. */
+  private cmdText(session: SessionState, args: string): string {
+    return this.cmdRewake(session, parseRewake(args), args);
+  }
+
+  /** `/rewake now|pause|resume|move|edit N …`: change one of this thread's messages. */
+  private cmdItem(
+    session: SessionState,
+    action: "now" | "pause" | "resume" | "move" | "edit",
+    n: string | undefined,
+    rest: string,
+  ): string {
+    const now = this.now();
+    const s = this.byNumber(session, n);
+    switch (action) {
+      case "pause":
+        this.store.update(s.scheduleId, (x) => ({ ...x, status: "paused" }), now);
+        return `Rewake: Paused. The message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)} won't be sent until you resume it.`;
+      case "resume": {
+        const late = s.dueAt <= now;
+        this.store.update(
+          s.scheduleId,
+          (x) => ({ ...x, status: "scheduled", ...(late && { dueAt: now }) }),
+          now,
+        );
+        if (late) setImmediate(() => this.deliverDue(session));
+        return late
+          ? "Rewake: Resumed. Its time has passed, so it will be sent now."
+          : `Rewake: Resumed. It will be sent at ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
+      }
+      case "now":
+        this.store.update(s.scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: now }), now);
+        setImmediate(() => this.deliverDue(session));
+        return "Rewake: Sending it now.";
+      case "move": {
+        const when = parseWhen(rest.replace(/^at\s+/i, ""), now);
+        if (!when.ok) throw new Error(when.error);
+        this.store.update(
+          s.scheduleId,
+          (x) => ({ ...x, dueAt: when.at, status: "scheduled" }),
+          now,
+        );
+        return `Rewake: Moved. It will be sent at ${formatWhen(when.at, now, this.opts.locale)}.`;
+      }
+      case "edit": {
+        const text = rest.trim();
+        if (!text) throw new Error("Give the new message text after the number.");
+        this.store.update(s.scheduleId, (x) => ({ ...x, text }), now);
+        return `Rewake: Updated the message scheduled for ${formatWhen(s.dueAt, now, this.opts.locale)}.`;
+      }
+    }
+  }
+
   /**
-   * `/schedule every day 09:00 <message>` and `/schedule cron 0 9 * * 1-5 <message>`. The reply
-   * says what Rewake understood and the next runs; `/schedule rm N` undoes it.
+   * `/rewake every day 09:00 <message>` and `/rewake cron 0 9 * * 1-5 <message>`. The reply
+   * says what Rewake understood and the next runs; `/rewake cancel N` undoes it.
    */
   private cmdRepeat(session: SessionState, sub: string, words: string[]): string {
     const now = this.now();
@@ -2655,7 +2754,7 @@ export class SchedulingAddon {
       else if (day !== -1) cron = `${at.m} ${at.h} * * ${day}`;
       else
         throw new Error(
-          "After /schedule every, use hour, day, weekday, week or a day name, for example: /schedule every day 09:00 Run the tests.",
+          "After /rewake every, use hour, day, weekday, week or a day name, for example: /rewake every day 09:00 Run the tests.",
         );
     }
     const text = rest.join(" ").trim();
@@ -2663,7 +2762,7 @@ export class SchedulingAddon {
     if (!parsed.ok) throw new Error(parsed.error);
     if (!text)
       throw new Error(
-        "Add the message after the schedule, for example: /schedule every day 09:00 Run the tests.",
+        "Add the message after the schedule, for example: /rewake every day 09:00 Run the tests.",
       );
     const first = nextRun(parsed.cron, now);
     if (first === undefined) throw new Error(`"${cron}" never runs.`);
@@ -2687,17 +2786,28 @@ export class SchedulingAddon {
     return `Rewake: Scheduled to repeat. Rewake understood "${parsed.cron.source}" as: ${describeCron(parsed.cron)}. Next runs: ${runs.join("; ")}. ${this.manageHint(session)}`;
   }
 
-  private cmdResumeAfterLimit(session: SessionState): string {
+  /** `/rewake` (or `/rewake continue`) at a limit: resume at the reset, or at `at` when given. */
+  private cmdResumeAfterLimit(session: SessionState, at?: number): string {
     const limit = session.limit;
     if (!limit)
-      return "Rewake: This thread hasn't hit a usage limit. To schedule a message, type /schedule <when> <message>.";
-    if (limit.resetAt === undefined) {
-      return `Rewake: ${capitalize(this.agentName)} didn't say when the limit resets. Schedule the resume yourself, for example: /schedule in 1h Resume your work.`;
+      return `Rewake: This thread isn't at a usage limit. To schedule a message, type /${COMMAND_NAME} <when> <message>, for example /${COMMAND_NAME} in 1h Run the tests.`;
+    const waiting = this.pending(session).find((s) => s.kind !== "user");
+    if (waiting && at !== undefined) {
+      this.store.update(
+        waiting.scheduleId,
+        (x) => ({ ...x, dueAt: at, status: "scheduled" }),
+        this.now(),
+      );
+      return `Rewake: Moved. This thread will resume at ${formatWhen(at, this.now(), this.opts.locale)}.`;
     }
-    if (this.pending(session).some((s) => s.kind !== "user")) {
+    if (waiting) {
       return this.menuEnabled(session)
         ? 'Rewake: A resume is already scheduled for this thread. To send more messages after it, pick "Resume after the usage limit…" in the Rewake menu.'
-        : "Rewake: A resume is already scheduled for this thread. Type /schedule list to see it.";
+        : `Rewake: A resume is already scheduled for this thread. Type /${COMMAND_NAME} list to see it.`;
+    }
+    if (at !== undefined) limit.resetAt = at - this.margin();
+    if (limit.resetAt === undefined) {
+      return `Rewake: ${capitalize(this.agentName)} didn't say when the limit resets. Give a time, for example: /${COMMAND_NAME} 3:30pm or /${COMMAND_NAME} in 1h.`;
     }
     setImmediate(() =>
       this.scheduleResume(
@@ -3062,7 +3172,7 @@ export class SchedulingAddon {
             `Rewake: Missed. A message scheduled for ${when} wasn't sent because Zed or this computer wasn't running then. ${
               this.menuEnabled(session)
                 ? "To send or delete it, use the Rewake menu under the message box."
-                : "Type /schedule list, then /schedule now N to send it or /schedule rm N to delete it."
+                : "Type /rewake list, then /rewake now N to send it or /rewake cancel N to delete it."
             }`,
           );
         }
@@ -3110,7 +3220,7 @@ export class SchedulingAddon {
       else
         this.status(
           session,
-          `Rewake: The message scheduled for ${due} was interrupted, because Zed closed during its reply. Type /schedule list, then /schedule now N to send it again.`,
+          `Rewake: The message scheduled for ${due} was interrupted, because Zed closed during its reply. Type /rewake list, then /rewake now N to send it again.`,
         );
     }
     this.refreshMarker(session);
@@ -3267,7 +3377,7 @@ export class SchedulingAddon {
         else
           this.status(
             session,
-            `Rewake: Stopped. ${capitalize(this.agentName)} is still at its usage limit and didn't give a new reset time. This thread won't continue on its own. Type /schedule list, then /schedule now N to try again.`,
+            `Rewake: Stopped. ${capitalize(this.agentName)} is still at its usage limit and didn't give a new reset time. This thread won't continue on its own. Type /rewake list, then /rewake now N to try again.`,
           );
       }
     } else if (response.error) {
@@ -3287,7 +3397,7 @@ export class SchedulingAddon {
       else
         this.status(
           session,
-          `Rewake: Couldn't send. ${said} Type /schedule list to retry with /schedule now N.`,
+          `Rewake: Couldn't send. ${said} Type /rewake list to retry with /rewake now N.`,
         );
     } else if (stopReason === "cancelled") {
       this.store.update(scheduleId, (x) => ({ ...x, status: "stopped" }), now);
@@ -3438,21 +3548,6 @@ export class SchedulingAddon {
   }
 }
 
-const HELP = `Rewake: Schedule messages in this thread.
-
-/schedule <when> <message>   e.g. /schedule 09:00 Continue the refactor · /schedule in 3h Run the tests
-/schedule every day 09:00 <message>      repeat: every hour|day|weekday|week|monday… [HH:MM]
-/schedule cron "0 9 * * 1-5" <message>   repeat with a cron expression (quotes optional)
-/schedule list               see this thread's scheduled messages
-/schedule rm N · now N · pause N · resume N · move N <when> · edit N <text>
-/schedule resume             schedule the resume message after the current usage limit
-/schedule auto on|off        resume automatically whenever this thread hits a usage limit
-/schedule page               open an overview of all scheduled messages
-/schedule prompt <text>      change this thread's resume message (/schedule prompt shows it)
-/stop                        stop a scheduled reply that is running
-
-Times: 09:00, 9pm, tomorrow 09:00, in 90m, in 3h, 2026-10-06 09:00.`;
-
 const STATUS_WORD: Record<Schedule["status"], string> = {
   scheduled: "scheduled",
   paused: "paused",
@@ -3467,24 +3562,10 @@ const STATUS_WORD: Record<Schedule["status"], string> = {
   needs_attention: "needs you",
 };
 
-/** Split "<when> <message>" by trying the longest time phrase first. */
-export function splitWhen(args: string, now: number): { at: number; text: string } {
-  const words = args.split(/\s+/).filter(Boolean);
-  if (words[0]?.toLowerCase() === "in") {
-    let i = 1;
-    while (i < words.length && /^\d+[dhm](\d+[dhm])*$/i.test(words[i] ?? "")) i++;
-    const r = parseWhen(words.slice(0, i).join(" "), now);
-    if (!r.ok) throw new Error(r.error);
-    return { at: r.at, text: words.slice(i).join(" ") };
-  }
-  let lastError = "Start with a time, for example: /schedule 09:00 Continue the refactor.";
-  for (const take of [2, 1]) {
-    if (words.length < take) continue;
-    const r = parseWhen(words.slice(0, take).join(" "), now);
-    if (r.ok) return { at: r.at, text: words.slice(take).join(" ") };
-    if (take === 1) lastError = r.error;
-  }
-  throw new Error(lastError);
+/** `/rewake help` in the thread: in a text block, so Zed keeps the columns and the <placeholders>. */
+function helpBlock(): string {
+  const [, ...rest] = rewakeHelp(ACP_PLACE).split("\n");
+  return `Rewake: ${ACP_PLACE.typed} in this thread:\n\n\`\`\`text\n${rest.join("\n").trim()}\n\`\`\``;
 }
 
 function mergeCommands(agentCommands: unknown[]): unknown[] {

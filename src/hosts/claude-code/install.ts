@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { RewakePlace } from "../../core/command.js";
 import { writeFileAtomic } from "../../core/store.js";
 import {
   claudeDesktopPrograms,
@@ -39,6 +40,16 @@ import { newerThanTested, untestedText, versionOf } from "../versions.js";
  * Rewake never edits them. The plugin loads in place, so updating Rewake updates the mod at the
  * next session start.
  */
+
+/**
+ * `/rewake` in Claude Code, answered by the mod. The mod runs without Rewake's code and keeps its
+ * own copy of this (mod/hooks/logic.js FEATURES); test/command.test.ts compares them.
+ */
+export const CLAUDE_CODE_PLACE: RewakePlace = {
+  name: "Claude Code",
+  typed: "/rewake",
+  features: new Set(["messages", "cancelOne", "auto"] as const),
+};
 
 /** Replace the mod's files with `source`'s, keeping its `rewake.json` (the state folder). */
 export function copyMod(source: string, dir: string): void {

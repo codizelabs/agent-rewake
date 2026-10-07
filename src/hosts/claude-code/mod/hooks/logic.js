@@ -139,58 +139,220 @@ export function safeId(id) {
   return typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id);
 }
 
-/** An example time for help texts, in the person's clock. */
-export function exampleTime(clock = "12h") {
-  return clock === "24h" ? "18:00" : "6pm";
+// ---- `/rewake`: Rewake's one command, the same everywhere (src/core/command.ts and time.ts).
+// A copy, because this mod runs without Rewake's code; test/command.test.ts compares the two.
+
+/** Schedules are one-off and at most 30 days ahead (src/core/time.ts). */
+const MAX_AHEAD_MS = 30 * 24 * HOUR;
+
+/** Hours and minutes from "09:00", "9:30pm", "9pm", "21:05". */
+function clockOf(text) {
+  const m = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/.exec(text);
+  if (!m) return undefined;
+  let h = Number(m[1]);
+  const min = m[2] === undefined ? 0 : Number(m[2]);
+  const suffix = m[3];
+  if (m[2] === undefined && suffix === undefined) return undefined;
+  if (min > 59) return undefined;
+  if (suffix) {
+    if (h < 1 || h > 12) return undefined;
+    if (suffix === "am" && h === 12) h = 0;
+    if (suffix === "pm" && h !== 12) h += 12;
+  } else if (h > 23) {
+    return undefined;
+  }
+  return { h, m: min };
+}
+
+function atLocal(now, dayOffset, h, m) {
+  const d = new Date(now);
+  d.setDate(d.getDate() + dayOffset);
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
 }
 
 /**
- * Parses `/rewake` arguments:
- *   ""                → { kind: 'list' }
- *   "list"            → { kind: 'list' }
- *   "cancel"          → { kind: 'cancel' }    (the pending continue only)
- *   "continue"        → { kind: 'continue' }  (continue at the reset after all)
- *   "clear"           → { kind: 'clear' }     (delete every scheduled message, after asking)
- *   "ask"             → { kind: 'ask' }       (turn "always" off: ask again at each limit)
- *   "in 90m text"     → { kind: 'add', at, text }   (m or h)
- *   "at 6pm text"     → { kind: 'add', at, text }   (6pm, 6:30pm, 18:00: the next one, local time)
- * Anything else → { kind: 'help', reason }.
+ * "in 90m", "in 1h30m", "in 2d", "9pm", "21:05", "tomorrow 9:00", "2026-10-06 09:00": the same
+ * times as Rewake's parseWhen, with the same answers. Returns { ok, at } or { ok: false, error }.
  */
-export function parseArgs(args, now, clock = "12h") {
-  const s = (args ?? "").trim();
-  if (s === "" || s === "list") return { kind: "list" };
-  if (s === "cancel") return { kind: "cancel" };
-  if (s === "continue") return { kind: "continue" };
-  if (s === "clear") return { kind: "clear" };
-  if (s === "ask") return { kind: "ask" };
-  const tryThis = `Try "/rewake in 30m <message>" or "/rewake at ${exampleTime(clock)} <message>".`;
-  let at;
-  let text;
-  const rel = /^in\s+(\d+)\s*(m|min|h|hr)\s+([\s\S]+)$/i.exec(s);
-  const abs = rel ? null : /^at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+([\s\S]+)$/i.exec(s);
-  if (rel) {
-    const n = Number(rel[1]);
-    at = now + n * (rel[2].toLowerCase().startsWith("h") ? HOUR : MINUTE);
-    text = rel[3];
-  } else if (abs) {
-    let h = Number(abs[1]);
-    const min = Number(abs[2] ?? 0);
-    const half = abs[3]?.toLowerCase();
-    if ((half && (h < 1 || h > 12)) || h > 23 || min > 59)
-      return { kind: "help", reason: `Rewake couldn't read that time. ${tryThis}` };
-    if (half === "pm" && h < 12) h += 12;
-    if (half === "am" && h === 12) h = 0;
-    const d = new Date(now);
-    d.setHours(h, min, 0, 0);
-    if (d.getTime() <= now) d.setDate(d.getDate() + 1);
-    at = d.getTime();
-    text = abs[4];
-  } else {
-    return { kind: "help", reason: tryThis };
+export function parseWhen(input, now) {
+  const text = input.trim().toLowerCase();
+  const fail = (error) => ({ ok: false, error });
+  if (text === "") return fail("Give a time, for example 09:00, tomorrow 09:00 or in 3h.");
+  let result;
+  const rel = /^in\s+((?:\d+\s*[dhm]\s*)+)$/.exec(text);
+  if (rel?.[1]) {
+    let ms = 0;
+    for (const part of rel[1].matchAll(/(\d+)\s*([dhm])/g)) {
+      const unit = part[2];
+      ms += Number(part[1]) * (unit === "d" ? 86_400_000 : unit === "h" ? HOUR : MINUTE);
+    }
+    result = ms > 0 ? now + ms : Number.NaN;
   }
-  text = text.trim();
-  // $.prompt.submit refuses text that starts with "/" (it would run a command).
-  if (text.startsWith("/"))
-    return { kind: "help", reason: 'A scheduled message cannot start with "/".' };
-  return { kind: "add", at, text };
+  if (result === undefined) {
+    const day = /^(today|tomorrow)\s+(.+)$/.exec(text);
+    if (day?.[2]) {
+      const c = clockOf(day[2]);
+      result = c ? atLocal(now, day[1] === "tomorrow" ? 1 : 0, c.h, c.m) : Number.NaN;
+    }
+  }
+  if (result === undefined) {
+    const c = clockOf(text);
+    if (c) {
+      const today = atLocal(now, 0, c.h, c.m);
+      result = today > now ? today : atLocal(now, 1, c.h, c.m);
+    }
+  }
+  if (result === undefined && /^\d{4}-\d{2}-\d{2}[t ]\d{2}:\d{2}/i.test(input.trim()))
+    result = new Date(input.trim().replace(" ", "T")).getTime();
+  if (result === undefined)
+    return fail(
+      `"${input.trim()}" isn't a time Rewake understands. Try 09:00, tomorrow 09:00 or in 3h.`,
+    );
+  if (Number.isNaN(result)) return fail(`"${input.trim()}" isn't a valid date or time.`);
+  if (result <= now) return fail("That time has already passed.");
+  if (result - now > MAX_AHEAD_MS) return fail("Schedules can be at most 30 days ahead.");
+  return { ok: true, at: result };
+}
+
+/**
+ * "<when> <message>", trying the longest time phrase first; a leading "at" is allowed. Returns
+ * { ok, at, text } (text may be empty: a time alone) or { ok: false, error }.
+ */
+export function splitWhen(args, now) {
+  let words = args.split(/\s+/).filter(Boolean);
+  if (words[0]?.toLowerCase() === "at" && words.length > 1) words = words.slice(1);
+  if (words[0]?.toLowerCase() === "in") {
+    let i = 1;
+    while (i < words.length && /^\d+[dhm](\d+[dhm])*$/i.test(words[i] ?? "")) i++;
+    const r = parseWhen(words.slice(0, i).join(" "), now);
+    return r.ok ? { ok: true, at: r.at, text: words.slice(i).join(" ") } : r;
+  }
+  let error = "Start with a time, for example: /rewake in 1h Run the tests.";
+  for (const take of [2, 1]) {
+    if (words.length < take) continue;
+    const r = parseWhen(words.slice(0, take).join(" "), now);
+    if (r.ok) return { ok: true, at: r.at, text: words.slice(take).join(" ") };
+    if (take === 1) error = r.error;
+  }
+  return { ok: false, error };
+}
+
+/** `/rewake <args>` as one of the command's forms (src/core/command.ts parseRewake). */
+export function parseCommand(args) {
+  const s = (args ?? "").trim();
+  if (s === "") return { kind: "home" };
+  const [first = "", ...words] = s.split(/\s+/);
+  const sub = first.toLowerCase();
+  const rest = words.join(" ");
+  switch (sub) {
+    case "help":
+    case "?":
+      return { kind: "help" };
+    case "list":
+      return { kind: "list" };
+    case "continue":
+      return rest ? { kind: "continue", when: rest } : { kind: "continue" };
+    case "cancel":
+    case "rm":
+    case "delete": {
+      const which = words[0]?.toLowerCase();
+      return which ? { kind: "cancel", which } : { kind: "cancel" };
+    }
+    case "clear":
+      return { kind: "cancel", which: "all" };
+    case "auto": {
+      const w = words[0]?.toLowerCase();
+      return w === "on"
+        ? { kind: "auto", on: true }
+        : w === "off"
+          ? { kind: "auto", on: false }
+          : { kind: "auto" };
+    }
+    case "ask":
+      return { kind: "auto", on: false };
+    case "stop":
+      return { kind: "stop" };
+    case "resume":
+      if (words.length === 0) return { kind: "continue" };
+      return { kind: "item", action: "resume", n: words[0] ?? "", rest: words.slice(1).join(" ") };
+    case "now":
+    case "pause":
+    case "move":
+    case "edit": {
+      const [n, ...more] = words;
+      return { kind: "item", action: sub, ...(n !== undefined && { n }), rest: more.join(" ") };
+    }
+    case "prompt":
+      return { kind: "prompt", text: rest };
+    case "page":
+      return { kind: "page" };
+    case "every":
+    case "cron":
+      return { kind: "repeat", sub, words };
+    default:
+      return { kind: "at", args: s };
+  }
+}
+
+/** What `/rewake` can do in Claude Code (src/core/command.ts CLAUDE_CODE_PLACE). */
+export const FEATURES = new Set(["messages", "cancelOne", "auto"]);
+
+/** The feature a command needs beyond continuing and listing (src/core/command.ts featureOf). */
+export function featureOf(c) {
+  switch (c.kind) {
+    case "repeat":
+      return "repeat";
+    case "cancel":
+      return c.which === undefined ? undefined : "cancelOne";
+    case "auto":
+      return "auto";
+    case "stop":
+      return "stop";
+    case "item":
+      return "items";
+    case "prompt":
+      return "prompt";
+    case "page":
+      return "page";
+    default:
+      return undefined;
+  }
+}
+
+const FEATURE_WORDS = {
+  messages: "schedule messages",
+  repeat: "repeat messages",
+  cancelOne: "delete scheduled messages",
+  auto: "turn automatic continue on or off",
+  stop: "stop a scheduled reply",
+  items: "change a scheduled message",
+  prompt: "change the resume message",
+  page: "open the overview page",
+};
+
+/** The one line for something Claude Code can't do. */
+export function notHere(feature) {
+  return `Rewake can't ${FEATURE_WORDS[feature]} in Claude Code. Type /rewake help to see what it can do.`;
+}
+
+/** The help text (src/core/command.ts rewakeHelp(CLAUDE_CODE_PLACE)). */
+export function helpText() {
+  const rows = [
+    ["/rewake", "at a usage limit: continue after the reset"],
+    ["/rewake 3:30pm", "continue after the usage limit at that time"],
+    ["/rewake in 1h Run the tests", "send a message later (9pm, tomorrow 9:00, in 90m)"],
+    ["/rewake list", "what's scheduled here"],
+    ["/rewake cancel", "cancel the continue after the usage limit"],
+    ["/rewake cancel N | all", "delete scheduled message N, or all of them"],
+    ["/rewake auto on|off", "continue after usage limits without asking, or ask each time"],
+  ];
+  const width = Math.max(...rows.map(([l]) => l.length));
+  return [
+    "Rewake in Claude Code:",
+    "",
+    ...rows.map(([l, r]) => `${l.padEnd(width)}   ${r}`),
+    "",
+    "Times: 9:00, 9pm, tomorrow 9:00, in 90m, in 3h, 2026-10-06 09:00 (your local time).",
+  ].join("\n");
 }
