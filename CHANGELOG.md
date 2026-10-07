@@ -79,6 +79,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - **JetBrains IDEs preview:** `install --only jetbrains` (or the install screen) adds "Claude Agent (with Rewake)" and "Codex (with Rewake)" to AI Assistant (`~/.jetbrains/acp.json`). They run those agents behind Rewake, as in Zed. Nothing else in the file changes; uninstall removes only Rewake's two entries.
 
+- **Devin Desktop preview (formerly Windsurf):** `install --only devin-desktop` (or the install screen) adds "Claude Agent (with Rewake)" and "Codex (with Rewake)" to Devin Desktop's agent selector, through its ACP registry file. Not yet tried in Devin Desktop itself.
+
 ### Changed
 
 - The website, README and docs are written for every place Rewake works, not only Zed: install is "run one command, pick where, restart that tool", "Is it for you?" is a table by place, "How it works" shows three diagrams (Zed's agent connection, a plugin inside Claude Code, and hooks with the system's own timer), and "When it sends", the comparison and the questions cover the previews too.
