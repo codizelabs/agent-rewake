@@ -18,7 +18,9 @@ Rewake works in **Zed's Agent Panel** (⌘? on macOS, Ctrl+? on Linux, Ctrl+Shif
 It can't reach:
 
 - **Zed's own agent** (the panel's built-in one): Zed doesn't let add-ons into it. Start the thread with Claude Agent in the same panel instead.
-- **Claude outside the Agent Panel**: the Claude desktop app, claude.ai, or Claude Code in a terminal (Zed's included). Claude Code and the desktop app each have their own setting to continue after a usage limit.
+- **Claude's own apps**: claude.ai and the Claude desktop app's chat.
+
+Outside Zed, previews for Claude Code, Codex, GitHub Copilot CLI, Grok Build, Gemini CLI and Antigravity CLI install one by one: see [Outside Zed: previews](#outside-zed-previews).
 
 ## Install
 
@@ -124,11 +126,11 @@ Rewake works the same way in front of every external agent Zed runs: Claude Agen
 
 ### Outside Zed: previews
 
-To continue a Claude Code, Codex or other agent session after a usage limit outside Zed, in a terminal or the Claude desktop app, install a preview. Previews aren't installed by default, haven't been checked with every account type yet, and may change.
+To continue a Claude Code, Codex or other agent session after a usage limit outside Zed, in a terminal, install a preview. Previews aren't installed by default, haven't been checked with every account type yet, and may change.
 
 | Agent | Install | How to use it |
 |---|---|---|
-| Claude Code (terminal, and the Claude desktop app's Code tab) | `npx @codizelabs/agent-rewake install --only claude-code` | At a usage limit, Rewake offers to continue the session after the reset. Keep Claude Code open. |
+| Claude Code (terminal; the Claude desktop app's Code tab: not supported yet) | `npx @codizelabs/agent-rewake install --only claude-code` | At a usage limit, Rewake offers to continue the session after the reset. Keep Claude Code open. |
 | Codex (terminal) | `npx @codizelabs/agent-rewake install --only codex` | Trust Rewake's hooks in Codex once ("Hooks need review"). At a usage limit, type `rewake` in the thread; Rewake continues the thread after the reset. |
 | GitHub Copilot CLI, Grok Build, Gemini CLI, Antigravity CLI | `npx @codizelabs/agent-rewake install --only copilot-cli` (or `grok`, `gemini-cli`, `antigravity`) | Once the session is closed, run `npx @codizelabs/agent-rewake continue`; run it any time before the reset, and Rewake waits until then. Run `continue --always` once, and from then on Rewake continues closed sessions by itself when the reset is within a day. |
 
@@ -224,12 +226,14 @@ Everything here is also in the Rewake menu.
 |---|---|
 | `agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]…` | Add Rewake to your Zed agents (shows the changes and asks first) |
 | `agent-rewake uninstall [--yes] [--dry-run]` | Put every agent back the way it was |
+| `agent-rewake install --only <place>`, `uninstall --only <place>` | Add or remove a preview outside Zed: `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity` (`zed` is the default) |
+| `agent-rewake continue [--always \| --ask \| --cancel]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit. `--always` does it from now on, `--ask` asks again, `--cancel` cancels all planned resumes |
 | `agent-rewake doctor [--details]` | Whether Rewake can work in your Zed, and what to do next; `--details` adds versions and folders for bug reports |
 | `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |
 | `agent-rewake schedules [--all] [--json]` | List scheduled messages |
 | `agent-rewake setup zed` | Print the Zed entries, to add by hand |
 | `agent-rewake --version`, `--help` | |
-| `agent-rewake --wrap-registry <id>`, `--wrap-command <json>`, `-- <cmd>`, `mcp` | Started by Zed or the agent, not by you |
+| `agent-rewake --wrap-registry <id>`, `--wrap-command <json>`, `-- <cmd>`, `mcp`, `hook <agent> <event>`, `fire <id>` | Started by Zed, an agent or a timer, not by you |
 
 </details>
 
@@ -270,3 +274,5 @@ Everything here is also in the Rewake menu.
 | `AGENT_REWAKE_FIRE` | Internal: set by Rewake on an agent it starts to continue a session, so that run isn't taken for you typing |
 
 </details>
+
+<sub>Agent Rewake is an independent project, not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, Google, GitHub, xAI or Zed Industries. Claude and Claude Code are trademarks of Anthropic, PBC. Zed is a trademark of Zed Industries, Inc. Other product names are trademarks of their owners.</sub>

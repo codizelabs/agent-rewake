@@ -1,11 +1,10 @@
 {
   "name": "@codizelabs/agent-rewake",
   "version": "0.1.1",
-  "description": "Resume Claude, Codex or any Zed agent automatically when its usage limit resets, and schedule messages into your agent threads. An add-on for Zed's External Agents.",
+  "description": "Resume Claude, Codex or any Zed agent automatically when its usage limit resets, and schedule messages into your agent threads. Works in Zed; previews for terminal agents.",
   "keywords": [
     "zed",
     "zed-editor",
-    "zed-extension",
     "acp",
     "agent-client-protocol",
     "claude",
