@@ -68,7 +68,7 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
           if (u.allowed !== undefined) facts.usageAllowed = u.allowed;
           if (u.allowed === false && u.resetsAt && u.resetsAt > now) facts.newResetsAt = u.resetsAt;
         } else if (u.reason === "signed-out") signedOut.add(s.scheduleId);
-        else if (u.reason !== "spawn") noAnswer = true;
+        else if (u.reason === "timeout" || u.reason === "error") noAnswer = true;
       }
       // Codex couldn't say (no answer, no figure): don't send before the reset the session file
       // recorded (research §4.4), so a time chosen before the reset waits for it.

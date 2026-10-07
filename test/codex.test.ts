@@ -395,6 +395,13 @@ describe("Codex at fire time", () => {
     expect(calls().filter((c) => c.args[0] === "queue")).toHaveLength(1);
   });
 
+  it("sends as before when this Codex has no usage check to ask", async () => {
+    const s = await armed();
+    const d = answering([{ ok: false, reason: "unsupported" }], []);
+    expect(await fire(s.scheduleId, d)).toBe("sent");
+    expect(calls().filter((c) => c.args[0] === "queue")).toHaveLength(1);
+  });
+
   it("tells the person, without sending, when the usage check never answers", async () => {
     const s = await armed();
     const notes: string[] = [];
