@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { classifyText } from "../../adapters/profiles.js";
 import {
   type ClosedDeps,
@@ -29,7 +29,8 @@ import { type SessionLimit, type SessionRecord, safeSessionId } from "../session
  *     `antigravity` for 2.0, `antigravity-ide`, `antigravity-acp` for Zed, which Rewake's Zed
  *     add-on owns).
  *   - Fire: `agy --conversation <id> -p "<message>" --output-format json` in the workspace, with
- *     the updater off. While any `agy` runs, only a notification: Antigravity has no session lock.
+ *     the updater off. While an `agy` runs in that workspace (or where the system won't say), only
+ *     a notification: Antigravity has no session lock.
  */
 
 export const ANTIGRAVITY_ID = "antigravity";
@@ -71,17 +72,57 @@ export function classifyAntigravityStop(
   return { kind: "other", billing: false, ...(resetsAt !== undefined && { resetsAt }) };
 }
 
-/** Whether any Antigravity CLI process runs (then a conversation may be open: no second writer). */
-export function agyRunning(platform: NodeJS.Platform = process.platform): boolean {
-  const r =
-    platform === "win32"
-      ? spawnSync("tasklist", ["/FI", "IMAGENAME eq agy.exe", "/NH"], {
-          encoding: "utf8",
-          timeout: 5000,
-          windowsHide: true,
-        })
-      : spawnSync("ps", ["-A", "-o", "comm="], { encoding: "utf8", timeout: 5000 });
-  return /(^|[\\/\s])agy(\.exe)?\s*$/im.test(r.stdout ?? "");
+/** A running Antigravity CLI and the folder it runs in, when the system says. */
+export interface AgyProcess {
+  pid: number;
+  cwd?: string;
+}
+
+/** `agy` as a program, or as a Node script (`node …/agy …`): its command line, from `ps`. */
+const AGY = /(^|[\\/\s])agy(\.exe)?(\s|$)/i;
+/** Remote Control's background service isn't a conversation (research X12). */
+const NOT_A_CONVERSATION = /\bagy(\.exe)?\s+remote-control\b/i;
+
+export type Run = (command: string, args: string[]) => string;
+
+const run: Run = (command, args) =>
+  spawnSync(command, args, { encoding: "utf8", timeout: 5000, windowsHide: true }).stdout ?? "";
+
+/** The Antigravity CLI processes running now, with their folders where the system tells them. */
+export function agyProcesses(
+  platform: NodeJS.Platform = process.platform,
+  exec: Run = run,
+): AgyProcess[] {
+  if (platform === "win32") {
+    // tasklist gives no folder: every agy.exe counts as open anywhere.
+    return exec("tasklist", ["/FI", "IMAGENAME eq agy.exe", "/NH", "/FO", "CSV"])
+      .split("\n")
+      .map((l) => /^"agy\.exe","(\d+)"/i.exec(l.trim())?.[1])
+      .filter((p): p is string => p !== undefined)
+      .map((p) => ({ pid: Number(p) }));
+  }
+  const out: AgyProcess[] = [];
+  for (const line of exec("ps", ["-A", "-o", "pid=,args="]).split("\n")) {
+    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!m?.[2] || !AGY.test(m[2]) || NOT_A_CONVERSATION.test(m[2])) continue;
+    const pid = Number(m[1]);
+    const cwd =
+      platform === "linux"
+        ? exec("readlink", [`/proc/${pid}/cwd`]).trim()
+        : /^n(.+)$/m.exec(exec("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]))?.[1];
+    out.push({ pid, ...(cwd && { cwd }) });
+  }
+  return out;
+}
+
+/**
+ * Whether a conversation in `folder` may be open in the Antigravity CLI (no second writer):
+ * an `agy` runs there, or runs somewhere the system won't say. An `agy` in another project, or
+ * Remote Control's service, doesn't hold a resume back. Antigravity has no session lock.
+ */
+export function agyOpenIn(folder: string, procs: AgyProcess[] = agyProcesses()): boolean {
+  const want = resolve(folder);
+  return procs.some((p) => p.cwd === undefined || !folder || resolve(p.cwd) === want);
 }
 
 export function resumeAgy(
@@ -132,13 +173,15 @@ export function resumeAgy(
   });
 }
 
-export function antigravityHost(isOpen: () => boolean = () => agyRunning()): ClosedHost {
+export function antigravityHost(
+  isOpen: (r: SessionRecord) => boolean = (r) => agyOpenIn(r.cwd),
+): ClosedHost {
   return {
     id: ANTIGRAVITY_ID,
     name: "Antigravity CLI",
     reopen: "open the conversation in Antigravity CLI",
     resume: (r, text, env) => resumeAgy(r, text, env),
-    isOpen: () => isOpen(),
+    isOpen: (r) => isOpen(r),
   };
 }
 

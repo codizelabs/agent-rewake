@@ -13,6 +13,7 @@ import {
   onSessionEnd,
   onSessionStart,
 } from "../closed.js";
+import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { resumeDeadline, type SendResult } from "../host.js";
@@ -47,8 +48,28 @@ export function isGrok(input: Record<string, unknown>, env: NodeJS.ProcessEnv): 
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
-/** The reset of the current usage period from Grok's newest billing log line, if any. */
-export function billingReset(home: string, now: number): { resetsAt?: number; full: boolean } {
+/** How old a billing line may be and still describe the limit just hit (one is logged per prompt). */
+const BILLING_FRESH_MS = 30 * 60_000;
+
+/** A log line's time: RFC 3339, or epoch seconds or milliseconds. */
+function lineTime(ts: unknown): number | undefined {
+  if (typeof ts === "number") return ts < 1e12 ? ts * 1000 : ts;
+  if (typeof ts === "string") {
+    const t = Date.parse(ts);
+    return Number.isFinite(t) ? t : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * The reset of the current usage period from Grok's newest billing log line for this session, if
+ * any. A line from another session, or older than half an hour, says nothing about this limit.
+ */
+export function billingReset(
+  home: string,
+  now: number,
+  sessionId?: string,
+): { resetsAt?: number; full: boolean; seen?: boolean } {
   const file = join(home, "logs", "unified.jsonl");
   if (!existsSync(file)) return { full: false };
   let tail: string;
@@ -57,36 +78,47 @@ export function billingReset(home: string, now: number): { resetsAt?: number; fu
   } catch {
     return { full: false };
   }
+  // The newest fresh line of this session, else the newest fresh line (the session id Grok logs
+  // may not be the one its hooks give: unverified, X-G2).
+  let fallback: { resetsAt?: number; full: boolean; seen: boolean } | undefined;
   for (const line of tail.trim().split("\n").reverse()) {
     if (!line.includes("billing: fetched credits config")) continue;
-    try {
-      const rec = JSON.parse(line) as {
-        ctx?: {
-          config?: {
-            creditUsagePercent?: number;
-            currentPeriod?: { type?: string; end?: string };
-          };
+    let rec: {
+      ts?: unknown;
+      sid?: unknown;
+      ctx?: {
+        config?: {
+          creditUsagePercent?: number;
+          currentPeriod?: { type?: string; end?: string };
         };
       };
-      const cfg = rec.ctx?.config;
-      const period = cfg?.currentPeriod;
-      const usage = /WEEKLY|MONTHLY/.test(period?.type ?? "");
-      const end = period?.end ? Date.parse(period.end) : Number.NaN;
-      return {
-        full: usage && (cfg?.creditUsagePercent ?? 0) >= 100,
-        ...(Number.isFinite(end) && end > now && { resetsAt: end }),
-      };
+    };
+    try {
+      rec = JSON.parse(line);
     } catch {
-      // A torn line: keep looking.
+      continue; // A torn line: keep looking.
     }
+    const at = lineTime(rec.ts);
+    if (at !== undefined && now - at > BILLING_FRESH_MS) break;
+    const cfg = rec.ctx?.config;
+    const period = cfg?.currentPeriod;
+    const usage = /WEEKLY|MONTHLY/.test(period?.type ?? "");
+    const end = period?.end ? Date.parse(period.end) : Number.NaN;
+    const found = {
+      seen: true,
+      full: usage && (cfg?.creditUsagePercent ?? 0) >= 100,
+      ...(Number.isFinite(end) && end > now && { resetsAt: end }),
+    };
+    if (!sessionId || typeof rec.sid !== "string" || rec.sid === sessionId) return found;
+    fallback ??= found;
   }
-  return { full: false };
+  return fallback ?? { full: false };
 }
 
 /** A usage limit in a Grok `StopFailure`, or undefined for any other failure. */
 export function classifyGrokFailure(
   input: Record<string, unknown>,
-  billing: { resetsAt?: number; full: boolean },
+  billing: { resetsAt?: number; full: boolean; seen?: boolean },
 ): Omit<SessionLimit, "seenAt"> | undefined {
   const error = str(input.error);
   const text = normalize(
@@ -110,6 +142,11 @@ export function classifyGrokFailure(
   const cap = /spending (?:cap|limit)|credit limit|out of credits/i.test(text);
   if (!cap && billing.full && (/weekly limit/i.test(text) || /\b402\b/.test(text)))
     return { kind: "weekly", billing: false, ...weekly };
+  // Grok says "weekly limit" and its log has no recent billing line to say otherwise: still a
+  // limit that resets, so the person is asked for a time rather than told nothing. (A recent line
+  // whose pool isn't used up means the 402 was about money.)
+  if (!cap && !billing.seen && /weekly limit/i.test(text))
+    return { kind: "weekly", billing: false };
   return { kind: "billing", billing: true };
 }
 
@@ -127,6 +164,20 @@ export function grokSessionOpen(home: string, sessionId: string): boolean {
   }
 }
 
+/** The session id in `grok --output-format json`'s result, when it gives one. */
+export function resultSession(out: string): string | undefined {
+  for (const line of out.trim().split("\n").reverse()) {
+    try {
+      const j = JSON.parse(line) as { sessionId?: unknown; session_id?: unknown };
+      const id = j.sessionId ?? j.session_id;
+      if (typeof id === "string") return id;
+    } catch {
+      // Not JSON: progress text.
+    }
+  }
+  return undefined;
+}
+
 /** Continue the closed session headless. */
 export function resumeGrok(
   r: SessionRecord,
@@ -135,12 +186,14 @@ export function resumeGrok(
 ): Promise<SendResult> {
   if (!r.program)
     return Promise.resolve({ ok: false, reason: "unsupported", detail: "no Grok found" });
-  const program = r.program;
+  // npm's .cmd shim on Windows can't be spawned without a shell: run its script with Node.
+  const program = nodeAware(r.program, process.execPath);
   return new Promise((resolve) => {
     let out = "";
     const child = spawn(
-      program,
+      program.command,
       [
+        ...program.args,
         "-p",
         text,
         "-r",
@@ -167,9 +220,15 @@ export function resumeGrok(
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
     child.on("exit", (code) => {
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
-      if (code === 0) return resolve({ ok: true });
-      // Exit 1 at the limit again (INFERENCE until X-G1): the text says so.
-      if (/rate limit|weekly limit|\b429\b|\b402\b/i.test(out))
+      if (code === 0) {
+        // The JSON result names the session it ran in: anything else isn't this session.
+        const ran = resultSession(out);
+        if (ran !== undefined && ran !== r.sessionId)
+          return resolve({ ok: false, reason: "failed", detail: "other-session" });
+        return resolve({ ok: true });
+      }
+      // Exit 1 at the limit again (INFERENCE until X-G1): the text says so, on either stream.
+      if (/rate limit|weekly limit|\b429\b|\b402\b/i.test(`${out}\n${err}`))
         return resolve({ ok: false, reason: "limited" });
       if (SESSION_GONE.test(`${out}\n${err}`))
         return resolve({ ok: false, reason: "closed", detail: "deleted" });
@@ -215,7 +274,10 @@ export function grokHooks(deps: GrokHookDeps): HookHandler {
           onPrompt(host, id, cwd, d);
           break;
         case "StopFailure": {
-          const limit = classifyGrokFailure(ctx.input, billingReset(grokHome(ctx.env), ctx.now));
+          const limit = classifyGrokFailure(
+            ctx.input,
+            billingReset(grokHome(ctx.env), ctx.now, id),
+          );
           if (limit) onLimit(host, id, cwd, limit, d);
           break;
         }

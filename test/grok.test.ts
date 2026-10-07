@@ -10,6 +10,7 @@ import {
   grokHooks,
   grokSessionOpen,
   isGrok,
+  resultSession,
 } from "../src/hosts/grok/host.js";
 import { grokHooksFile, grokHooksJson, runGrokInstall } from "../src/hosts/grok/install.js";
 import { runHook } from "../src/hosts/hook.js";
@@ -41,7 +42,38 @@ const billing = (percent: number, type = "USAGE_PERIOD_TYPE_WEEKLY") =>
 describe("Grok's limits", () => {
   it("reads the weekly reset from Grok's billing log line", () => {
     billing(100);
-    expect(billingReset(grok, NOW)).toEqual({ full: true, resetsAt: Date.parse(END) });
+    expect(billingReset(grok, NOW)).toEqual({ seen: true, full: true, resetsAt: Date.parse(END) });
+  });
+
+  it("uses only a recent billing line, preferring this session's", () => {
+    const line = (ts: unknown, sid: string, percent: number) =>
+      JSON.stringify({
+        ts,
+        sid,
+        msg: "billing: fetched credits config",
+        ctx: {
+          config: {
+            creditUsagePercent: percent,
+            currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: END },
+          },
+        },
+      });
+    const log = join(grok, "logs", "unified.jsonl");
+    // Hours old: says nothing about the limit just hit.
+    writeFileSync(log, `${line(new Date(NOW - 3 * 3_600_000).toISOString(), "s1", 100)}\n`);
+    expect(billingReset(grok, NOW, "s1")).toEqual({ full: false });
+    // Another session's newer line is a fallback only.
+    writeFileSync(
+      log,
+      `${line(new Date(NOW - 60_000).toISOString(), "s1", 100)}\n${line(new Date(NOW - 1000).toISOString(), "s2", 40)}\n`,
+    );
+    expect(billingReset(grok, NOW, "s1")).toMatchObject({ full: true });
+    expect(billingReset(grok, NOW, "s3")).toMatchObject({ full: false, seen: true });
+  });
+
+  it("reads the session a resume ran in from Grok's JSON result", () => {
+    expect(resultSession('progress\n{"type":"result","sessionId":"abc"}\n')).toBe("abc");
+    expect(resultSession("not json")).toBeUndefined();
   });
 
   it("counts a 402 as the weekly limit only when the text says so and the period is used up", () => {
@@ -62,9 +94,15 @@ describe("Grok's limits", () => {
         { full: false },
       ),
     ).toEqual({ kind: "billing", billing: true });
-    expect(classifyGrokFailure(weekly, { full: false })).toEqual({
+    expect(classifyGrokFailure(weekly, { full: false, seen: true })).toEqual({
       kind: "billing",
       billing: true,
+    });
+    // No recent billing line to go on: a weekly limit with no known reset (the person picks a
+    // time), not billing that's dropped without a word.
+    expect(classifyGrokFailure(weekly, { full: false })).toEqual({
+      kind: "weekly",
+      billing: false,
     });
     // A rate limit with nothing else to go on is short-term (HTTP 429, 503, 529): Grok retries.
     expect(classifyGrokFailure({ error: "rate_limit" }, { full: false })).toBeUndefined();
