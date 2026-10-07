@@ -16,7 +16,7 @@ interface Logic {
     w: { kind: string; percentUsed: number; resetsAt?: string }[],
     now: number,
   ) => number | undefined;
-  mustAsk: (o: { autoContinue?: string; fireAt: number; now: number }) => boolean;
+  mustAsk: (o: { autoContinue?: string; fireAt: number; now: number; surface?: string }) => boolean;
   when: (ms: number, now: number, clock?: string) => string;
 }
 
@@ -84,5 +84,8 @@ describe("Claude Code mod: rules shared with Rewake's core", () => {
     expect(logic.mustAsk({ autoContinue: "always", fireAt: NOW + H, now: NOW })).toBe(false);
     expect(logic.mustAsk({ autoContinue: "always", fireAt: NOW + 25 * H, now: NOW })).toBe(true);
     expect(logic.mustAsk({ fireAt: NOW + H, now: NOW })).toBe(true);
+    expect(
+      logic.mustAsk({ autoContinue: "always", fireAt: NOW + H, now: NOW, surface: "desktop" }),
+    ).toBe(true);
   });
 });

@@ -22,7 +22,12 @@ export const MAX_REARMS = 4;
 export const REHIT_WINDOW_MS = 15 * MINUTE;
 /** Re-hits in a row before Rewake stops continuing this session (Claude Code's own cap is 2). */
 export const MAX_REHITS = 2;
-export const CONTINUE_TEXT = "Your usage limit has reset. Continue from where you left off.";
+/**
+ * Sent as the person's message, so it says who sent it (Rewake's AUTO_LABEL, src/addon.ts):
+ * automation never speaks as the person (zed-launch A-5).
+ */
+export const CONTINUE_TEXT =
+  "[Sent automatically by Agent Rewake after the usage limit reset] Continue from where you left off.";
 
 /**
  * Spending caps are billing, never waited for, except a cap that resets within a day: a gateway's
@@ -78,9 +83,26 @@ export function nativeLikely({ isInteractive, surface, setting, resetAt, now }) 
   );
 }
 
-/** Whether to ask before arming: always, unless the person chose "always" and it's within a day. */
-export function mustAsk({ autoContinue, fireAt, now }) {
-  return autoContinue !== "always" || fireAt - now > FAR_RESET_MS;
+/**
+ * Whether to ask before arming: always, unless the person chose "always" and it's within a day.
+ * The Desktop app always asks: its own "Auto-continue when limits reset" checkbox can't be read,
+ * and both continuing would send twice.
+ */
+export function mustAsk({ autoContinue, fireAt, now, surface }) {
+  return autoContinue !== "always" || fireAt - now > FAR_RESET_MS || surface === "desktop";
+}
+
+/**
+ * Whether a limit record has outlived its use and should be forgotten, so it no longer holds up
+ * scheduled messages or later limits: a limit that never got a reset time, Claude Code's own wait
+ * whose time is long past, or an offer left unanswered for a day after its reset.
+ */
+export function expired(ep, now) {
+  if (!ep) return false;
+  if (ep.state === "waiting") return now - ep.createdAt > WAITING_EXPIRES_MS;
+  if (ep.state === "native") return ep.fireAt === undefined || now - ep.fireAt > STALE_MS;
+  if (ep.state === "offered") return ep.fireAt === undefined || now - ep.fireAt > FAR_RESET_MS;
+  return false;
 }
 
 /** "3:05 PM" or "15:05", in the person's clock ("12h" by default, as in Rewake's settings). */
