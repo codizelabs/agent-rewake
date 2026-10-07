@@ -4,6 +4,12 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
 import { claudePrograms, compareVersions, type Program } from "../../install/detect.js";
+import {
+  unknownVersionText,
+  type VersionProbe,
+  versionProbe,
+  withVersion,
+} from "../../install/probe.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 
@@ -120,6 +126,8 @@ export interface ClaudeInstallOptions {
   ask: (question: string) => Promise<boolean>;
   /** Overridable for tests. */
   programs?: Program[];
+  /** Reads a version detection missed (tests: none). */
+  probe?: VersionProbe;
   runner?: (path: string) => Run;
 }
 
@@ -130,7 +138,9 @@ export function pickClaude(programs: Program[]): Program | undefined {
 export async function runClaudeInstall(o: ClaudeInstallOptions): Promise<number> {
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? claudePrograms({ env: o.env, home, platform: process.platform });
-  const claude = pickClaude(programs);
+  const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
+  const picked = pickClaude(programs);
+  const claude = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   if (!claude) {
     o.out(
       "Claude Code wasn't found in a terminal on this computer, so there's nothing to set up for it.\n",
@@ -178,6 +188,8 @@ export async function runClaudeInstall(o: ClaudeInstallOptions): Promise<number>
       ].join("\n"),
     );
   }
+  if (!o.uninstall && claude && !claude.version)
+    o.out(unknownVersionText("Claude Code", MIN_CLAUDE_CODE, "claude update", "claude-code"));
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;

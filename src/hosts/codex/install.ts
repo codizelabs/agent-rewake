@@ -1,5 +1,11 @@
 import { homedir } from "node:os";
 import { codexPrograms, compareVersions, type Program as Found } from "../../install/detect.js";
+import {
+  unknownVersionText,
+  type VersionProbe,
+  versionProbe,
+  withVersion,
+} from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { codexProgram } from "./cli.js";
 import {
@@ -36,6 +42,8 @@ export interface CodexInstallOptions {
   ask: (question: string) => Promise<boolean>;
   /** Overridable for tests. */
   programs?: Found[];
+  /** Reads a version detection missed (tests: none). */
+  probe?: VersionProbe;
   install?: typeof installPlugin;
   uninstall_?: typeof uninstallPlugin;
 }
@@ -50,7 +58,9 @@ export function pickCodex(programs: Found[]): Found | undefined {
 export async function runCodexInstall(o: CodexInstallOptions): Promise<number> {
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? codexPrograms({ env: o.env, home, platform: process.platform });
-  const codex = pickCodex(programs);
+  const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
+  const picked = pickCodex(programs);
+  const codex = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   if (!codex) {
     o.out("Codex wasn't found on this computer, so there's nothing to set up for it.\n");
     return 1;
@@ -86,6 +96,8 @@ export async function runCodexInstall(o: CodexInstallOptions): Promise<number> {
       ].join("\n"),
     );
   }
+  if (!o.uninstall && codex && !codex.version)
+    o.out(unknownVersionText("Codex", MIN_CODEX, "npm install -g @openai/codex@latest", "codex"));
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;

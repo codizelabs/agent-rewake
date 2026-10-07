@@ -5,6 +5,12 @@ import { join } from "node:path";
 import { parse } from "jsonc-parser";
 import { writeFileAtomic } from "../../core/store.js";
 import { compareVersions, geminiPrograms, type Program } from "../../install/detect.js";
+import {
+  unknownVersionText,
+  type VersionProbe,
+  versionProbe,
+  withVersion,
+} from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { VERSION } from "../../version.js";
@@ -94,6 +100,8 @@ export interface GeminiInstallOptions {
   out: (text: string) => void;
   ask: (question: string) => Promise<boolean>;
   programs?: Program[];
+  /** Reads a version detection missed (tests: none). */
+  probe?: VersionProbe;
   /** Run gemini with the terminal attached; returns its exit status. */
   run?: (program: string, args: string[]) => number | null;
   installed?: () => boolean;
@@ -102,9 +110,11 @@ export interface GeminiInstallOptions {
 export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number> {
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? geminiPrograms({ env: o.env, home, platform: process.platform });
-  const gemini = [...programs].sort((a, b) =>
+  const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
+  const picked = [...programs].sort((a, b) =>
     compareVersions(b.version ?? "0", a.version ?? "0"),
   )[0];
+  const gemini = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   const run =
     o.run ??
     ((program: string, args: string[]) => {
@@ -152,6 +162,15 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
       ].join("\n"),
     );
   }
+  if (!o.uninstall && gemini && !gemini.version)
+    o.out(
+      unknownVersionText(
+        "Gemini CLI",
+        MIN_GEMINI,
+        "npm install -g @google/gemini-cli@latest",
+        "gemini-cli",
+      ),
+    );
   if (o.dryRun) {
     o.out("Dry run: nothing was changed.\n");
     return 0;
