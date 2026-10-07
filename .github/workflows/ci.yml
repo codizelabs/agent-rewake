@@ -85,13 +85,15 @@ jobs:
         shell: bash
         run: node scripts/tarball-smoke.mjs "$RUNNER_TEMP/rewake-smoke"
 
-  # The whole loop in Zed's Agent Panel against the real Claude adapter and Claude Code, offline:
-  # a local mock of Anthropic's API, and macOS's sandbox denying every other connection
-  # (test/claude-loop.test.ts; plan §10.2 L3, §10A.3 e2e-hosts).
+  # Every agent's whole loop, offline (plan §10.2 L3, §10A.3 e2e-hosts): the real agent programs
+  # (pinned in test/agents) against a local mock of their model APIs, with macOS's sandbox denying
+  # every other connection. Install Rewake, hit a usage limit, Rewake plans the resume, and at the
+  # reset the same session continues, once: Zed's Agent Panel with Claude, Claude Code in a
+  # terminal, Codex, Gemini CLI and Grok Build.
   e2e-hosts:
     name: e2e-hosts (macos-latest)
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -106,13 +108,22 @@ jobs:
           node-version: "24"
           cache: npm
 
-      - name: Install
-        run: npm ci --no-audit --no-fund
+      - name: Install and build
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
 
-      - name: Limit, resume, same session, once
+      - name: Install the pinned agent programs
+        working-directory: test/agents
+        run: HOME="$RUNNER_TEMP/grokhome" npm ci --no-audit --no-fund
+
+      - name: Limit, resume, same session, once (every agent)
         env:
           REWAKE_E2E: "1"
-        run: npx vitest run test/claude-loop.test.ts
+          REWAKE_GROK_BIN: ${{ runner.temp }}/grokhome/.grok/bin/grok
+        run: >-
+          npx vitest run test/claude-loop.test.ts test/claude-code-loop.test.ts
+          test/codex-loop.test.ts test/gemini-loop.test.ts test/grok-loop.test.ts
 
   # The single status check to require in branch rulesets: it fails if any matrix job failed or
   # was cancelled, and passes only when all of them passed.

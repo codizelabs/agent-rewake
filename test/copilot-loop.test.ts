@@ -10,7 +10,7 @@ import { runCopilotInstall } from "../src/hosts/copilot/install.js";
 import "../src/hosts/index.js"; // registers the hosts
 import { SessionRecords } from "../src/hosts/sessions.js";
 import { fire } from "../src/timers/fire.js";
-import { type OpenAiMock, startOpenAiMock } from "./e2e/mock-openai.mjs";
+import { type Mock, startMock } from "./e2e/mock-llm.mjs";
 
 /**
  * GitHub Copilot CLI, the whole loop offline (plan §10.2 L3; research testing-harness §2.4): the real
@@ -34,9 +34,9 @@ describe.runIf(bin)("Copilot CLI, offline: limit → resume", () => {
       cwd: root,
       stdio: "ignore",
     });
-    let mock: OpenAiMock | undefined;
+    let mock: Mock | undefined;
     try {
-      mock = await startOpenAiMock();
+      mock = await startMock();
       const env: NodeJS.ProcessEnv = {
         // Rewake finds the agent on the session's PATH, as it would on a real computer.
         PATH: `${dirname(bin as string)}${delimiter}${process.env.PATH ?? ""}`,
@@ -66,7 +66,7 @@ describe.runIf(bin)("Copilot CLI, offline: limit → resume", () => {
         }),
       ).toBe(0);
       // A weekly limit: Copilot retries, fires errorOccurred each time, then ends the session.
-      mock.set({ mode: "limit" });
+      mock.set({ mode: "limit", until: Date.now() + 3_600_000, profile: "copilot" });
       // Async: the mock answers from this process, so a blocking spawn would starve it.
       const stdout = await new Promise<string>((resolve) => {
         let out = "";

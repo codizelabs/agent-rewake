@@ -185,6 +185,16 @@ describe("Grok's own wording", () => {
       resetsAt: 9,
     });
   });
+  it("counts the free usage limit as the StopFailure hook gives it, the API's own error", () => {
+    // Grok 1.0.46's hook input: the API error with xAI's code, not the sentence Grok prints.
+    const raw = "API error (status 429 Too Many Requests): subscription:free-usage-exhausted: …";
+    expect(
+      classifyGrokFailure(
+        { error: "rate_limit", errorDetails: raw, lastAssistantMessage: `Turn failed: ${raw}` },
+        { full: false },
+      ),
+    ).toEqual({ kind: "other", billing: false });
+  });
   it("counts a 402 with a full weekly pool as the weekly limit, unless it names a cap", () => {
     const paid = { error: "invalid_request", errorDetails: "402 Payment Required" };
     expect(classifyGrokFailure(paid, { full: true, resetsAt: 9 })).toEqual({

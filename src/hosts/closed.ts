@@ -143,7 +143,11 @@ export function onSessionStart(
   d: ClosedDeps,
   program?: string,
 ): void {
-  const agent = d.env[FIRE_ENV] ? undefined : d.agent?.();
+  // Rewake's own resume run isn't the person opening the session. Marked open, the session would
+  // stay so when the run ends without a session-end hook (Gemini CLI skips it when a headless run
+  // stops at an API error), and every later resume would be held back as "open".
+  if (d.env[FIRE_ENV]) return;
+  const agent = d.agent?.();
   const running = d.running ?? ((p: AgentProcess) => stillRunning(p));
   new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (r) => {
     const { agentPid: _p, agentName: _n, agents: _a, ...rest } = r;
