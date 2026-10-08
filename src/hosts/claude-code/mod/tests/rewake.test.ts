@@ -182,6 +182,35 @@ test("stands down when Claude Code will continue by itself, and clears on quota_
   expect(seen.submitted.length).toBe(0);
 });
 
+test("Claude Code's own setting turned on mid-session still counts as off: Rewake asks", async ($, on) => {
+  const opts = { windows: () => fiveHour("2026-10-06T11:00:00Z"), setting: false, answer: "FIRST" };
+  const { clock, seen } = harness(on, opts);
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  // The person turns it on in the settings file; the running Claude Code keeps "off".
+  opts.setting = true;
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.asked).toBe(1);
+  await clock.advance(62 * MIN);
+  expect(seen.submitted).toEqual([CONTINUE]);
+});
+
+test("Claude Code was expected to continue by itself but didn't: Rewake asks after the reset", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("native");
+  // No quota_auto_resume_fired from Claude Code by two minutes after the 11:00 reset.
+  await clock.advance(63 * MIN);
+  expect(seen.submitted).toEqual([CONTINUE]);
+  await clock.advance(30 * MIN);
+  expect(seen.submitted).toHaveLength(1);
+});
+
 test("the weekly limit is past the native 24-hour horizon, so Rewake asks", async ($, on) => {
   const { clock, seen } = harness(on, {
     windows: () => [{ kind: "seven_day", percentUsed: 100, resetsAt: "2026-10-09T09:00:00Z" }],
