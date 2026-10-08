@@ -718,7 +718,7 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
   for (const b of backups) out(`  Backup: ${b}\n`);
   out(
     opts.uninstall
-      ? "Rewake is out of your agents. Your threads are untouched, and your scheduled messages are kept; `agent-rewake doctor` shows where.\n"
+      ? "Rewake is out of Zed. Your threads are untouched, and your scheduled messages are kept; `agent-rewake doctor` shows where.\n"
       : nextSteps(note !== undefined),
   );
   return 0;

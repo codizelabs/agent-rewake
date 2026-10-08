@@ -47,6 +47,7 @@ import { choosePlaces, type Place, placesFrom } from "./install/select.js";
 import {
   keyChord,
   launchCommand,
+  planUninstall,
   runInstall,
   selfCommand,
   stableNode,
@@ -129,7 +130,10 @@ Usage:
                                    antigravity, jetbrains, devin-desktop. Without a terminal or
                                    with --yes: Zed only
   agent-rewake uninstall [--yes] [--dry-run]
-                                   Take Rewake out of your agents and remove its Zed entries
+                                   Take Rewake out of every place it's set up in (shows the
+                                   changes and asks once)
+  agent-rewake uninstall --only <place>[,<place>...] | --skip <place>[,<place>...]
+                                   Take Rewake out of only the places you name, or all but some
   agent-rewake setup zed           Print the Zed settings, task and keybinding (to add by hand)
   agent-rewake continue [--always | --ask | --cancel]
                                    Continue a closed agent session after its usage limit resets.
@@ -240,7 +244,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     // Chosen on the screen or with --all: changes are shown together and asked about once.
     let picked = false;
     if (places.length > 0) chosen = [...new Set(places)];
-    else if (argv.includes("--all")) {
+    else if (argv.includes("--all") || first === "uninstall") {
+      // Uninstall with no place named: every place Rewake is set up in, asked about once.
       chosen = pickablePlaces(env, first === "uninstall");
       picked = true;
     } else if (
@@ -357,9 +362,17 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       }
       if (!uninstall && loginWouldAdd(env, order))
         print(`\n${loginItemPlanText(process.platform)}`);
-      if (!(await ask(`\nApply these changes to ${order.length} places? [y/N] `))) {
-        print("Nothing was changed.\n");
-        return 1;
+      if (!yes) {
+        if (!interactive) {
+          print(
+            "\nNot a terminal, so nothing was changed. Run again with --yes to apply the changes above.\n",
+          );
+          return 1;
+        }
+        if (!(await ask(`\nApply these changes to ${order.length} places? [y/N] `))) {
+          print("Nothing was changed.\n");
+          return 1;
+        }
       }
       const results: [string, number, string][] = [];
       for (const id of order) {
@@ -374,7 +387,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         results.push([id, c, text]);
         code = Math.max(code, c);
       }
-      print(summaryText(results));
+      print(summaryText(results, uninstall ? "uninstall" : "install"));
+      if (uninstall && code === 0)
+        print(
+          "\nRewake's entries and hooks are gone from every place above. Its own folder, with your scheduled messages, is still on disk: agent-rewake doctor --details shows where; delete it to finish.\n",
+        );
     } else {
       // Said before the place's own question, with its other changes.
       if (!uninstall && loginWouldAdd(env, order)) print(loginItemPlanText(process.platform));
@@ -739,14 +756,18 @@ function placeName(id: string): string {
  * One line per place after applying several: done and the one next step, or why not. The next
  * step is what the place's own install said after "Done."; a failure, its last line.
  */
-export function summaryText(results: [string, number, string][]): string {
+export function summaryText(
+  results: [string, number, string][],
+  verb: "install" | "uninstall" = "install",
+): string {
   const width = Math.max(...results.map(([id]) => placeName(id).length));
   const lines = results.map(([id, c, text]) => {
     const said = text
       .trim()
       .split("\n")
       .map((l) => l.trim())
-      .filter(Boolean);
+      // The plan above said each file is backed up next to itself: the summary keeps to the next step.
+      .filter((l) => l && !l.startsWith("Backup:"));
     const done = said.findIndex((l) => l.startsWith("Done"));
     const next =
       c === 0
@@ -759,7 +780,7 @@ export function summaryText(results: [string, number, string][]): string {
         : (said.at(-1) ?? "");
     const state = c === 0 ? "done" : "not changed";
     // A place that didn't change: its reason, then how to try it on its own.
-    const retry = c === 0 ? "" : ` Try it on its own: agent-rewake install --only ${id}`;
+    const retry = c === 0 ? "" : ` Try it on its own: agent-rewake ${verb} --only ${id}`;
     return `  ${placeName(id).padEnd(width)}  ${state}${next ? `: ${next}` : ""}${retry}`;
   });
   return `\nResult:\n${lines.join("\n")}\n`;
@@ -767,10 +788,15 @@ export function summaryText(results: [string, number, string][]): string {
 
 /** `--all`: every place found that Rewake can install into, or (uninstall) every one it's in. */
 function pickablePlaces(env: NodeJS.ProcessEnv, uninstall: boolean): string[] {
+  if (uninstall) {
+    // Where Rewake is set up, found from its own entries (an agent removed since still counts).
+    const zed = planUninstall(zedConfigDir(env)).changes.length > 0 ? ["zed"] : [];
+    const ids = [...zed, ...installedPreviews(env, homedir(), stateDir(env))];
+    // Set up nowhere: Zed's own uninstall says there's nothing to remove.
+    return ids.length > 0 ? ids : ["zed"];
+  }
   const { places } = placesHere(env);
-  return places
-    .filter((p) => (uninstall ? p.state === "installed" || p.id === "zed" : p.state !== "too-old"))
-    .map((p) => p.id);
+  return places.filter((p) => p.state !== "too-old").map((p) => p.id);
 }
 
 /** The selection screen, in this terminal; undefined when the person quits. */
