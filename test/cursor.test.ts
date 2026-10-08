@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runContinue } from "../src/continue.js";
+import { classifyCursorError } from "../src/core/limits/agents.js";
 import { recogniseForHost } from "../src/core/limits/recognise.js";
 import { ScheduleStore } from "../src/core/store.js";
 import { armClosed, type ClosedDeps, onLimit, onSessionEnd } from "../src/hosts/closed.js";
@@ -231,6 +232,27 @@ describe("Cursor's hooks: a limit, the person's choice, the continue", () => {
       .map((f) => readFileSync(join(state, "hosts", CURSOR_ID, "sessions", f), "utf8"))
       .join("");
     expect(text).not.toContain("person@example.com");
+  });
+
+  it.each([
+    [
+      "the Pro plan's remedy",
+      "You've hit your usage limit\nSwitch to Auto for more usage or set a Spend Limit to continue with Sonnet.",
+    ],
+    [
+      "a free plan's monthly allowance",
+      "You've hit your free requests limit. Your usage limits will reset when your monthly cycle ends on 10/2/2026.",
+    ],
+    ["a free plan's upgrade offer", FREE],
+  ])("never offers to wait for %s", (_name, text) => {
+    expect(classifyCursorError(text)).toEqual({ kind: "billing", billing: true });
+  });
+
+  it("still waits for a plain rate limit that says nothing of a plan", () => {
+    expect(classifyCursorError("You've hit your rate limit. Please try again later.")).toEqual({
+      kind: "other",
+      billing: false,
+    });
   });
 
   it("ignores events from other agents", async () => {

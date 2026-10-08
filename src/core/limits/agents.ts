@@ -212,14 +212,19 @@ export function classifyGrokFailure(
  * limit resets, so the person picks a time. That one, payment and spend messages are billing:
  * waiting hours won't lift them.
  */
+/**
+ * Cursor messages that waiting hours won't lift: payment, a spend limit, a free plan's allowance
+ * ("… Get Cursor Pro for more Agent usage …"), and a plan's monthly allowance ("Switch to Auto for
+ * more usage or set a Spend Limit", "Your usage limits will reset when your monthly cycle ends on
+ * <date>": real texts from Cursor 3.x, as captured in unsnooze's tests, 2026-10-08).
+ */
+export const CURSOR_WAITING_WONT_HELP =
+  /add a payment method|spend(ing)? limit|out of credits|on-demand usage|get cursor pro|switch to auto|monthly cycle/i;
+
 export function classifyCursorError(text: unknown): SessionLimit | undefined {
   if (typeof text !== "string" || text === "") return undefined;
   const t = text.slice(0, 4096);
-  // A free plan's allowance ("… Get Cursor Pro for more Agent usage …") doesn't lift in hours either.
-  if (
-    /add a payment method|spend(ing)? limit|out of credits|on-demand usage|get cursor pro/i.test(t)
-  )
-    return { kind: "billing", billing: true };
+  if (CURSOR_WAITING_WONT_HELP.test(t)) return { kind: "billing", billing: true };
   if (/hit your (usage|rate) limit|usage limit|rate limit|upgrade your plan to continue/i.test(t))
     return { kind: "other", billing: false };
   return undefined;
