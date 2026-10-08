@@ -256,8 +256,7 @@ export function onPrompt(host: ClosedHost, sessionId: string, cwd: string, d: Cl
   // The person carried on: a pending resume of this session is no longer wanted.
   const store = new ScheduleStore(d.stateDir);
   for (const s of pendingFor(d.stateDir, host.id, sessionId)) {
-    store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
-    d.disarm(s.scheduleId);
+    if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
   }
 }
 
@@ -332,8 +331,7 @@ function followLaterReset(host: ClosedHost, r: SessionRecord, d: ClosedDeps): vo
   for (const s of pendingFor(d.stateDir, host.id, r.sessionId)) {
     if (s.status !== "scheduled" || l.seenAt <= s.createdAt || at <= s.dueAt) continue;
     if (l.resetsAt - d.now > FAR_RESET_MS) {
-      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
-      d.disarm(s.scheduleId);
+      if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
       continue;
     }
     store.update(s.scheduleId, (x) => ({ ...x, dueAt: at }), d.now);

@@ -77,10 +77,18 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
       return 0;
     }
     for (const s of pending) {
-      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), now);
-      o.deps.disarm(s.scheduleId);
       const host = o.hosts.find((h) => h.id === s.host);
-      o.out(`Cancelled: ${host ? placeOf(host, s.cwd) : "a session"} ${formatAt(s.dueAt, now)}.\n`);
+      const place = host ? placeOf(host, s.cwd) : "a session";
+      // A continue already under way can't be taken back: say so rather than "Cancelled".
+      if (!store.cancel(s.scheduleId, now)) {
+        const reopen = host?.reopen ?? `open the session in ${host?.name ?? "its agent"}`;
+        o.out(
+          `Not cancelled: Rewake is already continuing ${place}. It finishes on its own; ${reopen} afterwards to see what it did.\n`,
+        );
+        continue;
+      }
+      o.deps.disarm(s.scheduleId);
+      o.out(`Cancelled: ${place} ${formatAt(s.dueAt, now)}.\n`);
     }
     return 0;
   }

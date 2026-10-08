@@ -835,7 +835,7 @@ function cancelResumesOf(places: string[], env: NodeJS.ProcessEnv): void {
     let n = 0;
     for (const s of store.list()) {
       if (s.host !== place || TERMINAL_STATUSES.has(s.status)) continue;
-      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), Date.now());
+      if (!store.cancel(s.scheduleId, Date.now())) continue;
       cancelTimer(s.scheduleId, timers);
       n++;
     }

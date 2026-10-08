@@ -108,15 +108,14 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
     };
     store.put(resume);
     if (deps.arm(resume.scheduleId, at) !== false) return true;
-    store.update(resume.scheduleId, (x) => ({ ...x, status: "cancelled" }), ctx.now);
+    store.cancel(resume.scheduleId, ctx.now);
     return false;
   };
 
   const cancelPending = (ctx: HookContext, threadId: string) => {
     const store = new ScheduleStore(ctx.stateDir);
     for (const s of pendingFor(store, threadId)) {
-      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), ctx.now);
-      deps.disarm(s.scheduleId);
+      if (store.cancel(s.scheduleId, ctx.now)) deps.disarm(s.scheduleId);
     }
   };
 

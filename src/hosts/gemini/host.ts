@@ -232,8 +232,7 @@ export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDe
   if (c.kind === "cancel") {
     const pending = pendingFor(d.stateDir, GEMINI_ID, id);
     for (const s of pending) {
-      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
-      d.disarm(s.scheduleId);
+      if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
     }
     return pending.length > 0
       ? "Rewake: Cancelled. This conversation won't be continued on its own."
@@ -254,8 +253,7 @@ export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDe
     at = l.resetsAt + RESET_MARGIN_MS;
   }
   for (const s of pendingFor(d.stateDir, GEMINI_ID, id)) {
-    store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
-    d.disarm(s.scheduleId);
+    if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
   }
   armClosed(geminiHost, r, at, d);
   return `Rewake will continue this conversation ${formatAt(at, d.now)}, if Gemini CLI is closed by then and this computer is awake. To cancel: /rewake cancel`;
