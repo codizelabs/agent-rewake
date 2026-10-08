@@ -51,12 +51,13 @@ Install once with `npx @codizelabs/agent-rewake install`: it finds what's on you
 | | Antigravity CLI | The same | Preview, not tried yet |
 | **VS Code, Cursor** | Claude Code's panel | The same as in a terminal: the same plugin loads there | Preview, tried on a Mac |
 | | Codex's extension | Rewake's hooks show up there, waiting to be trusted; the rest isn't tried yet | Not tried yet |
+| | Cursor's own agent | At a usage limit, continues the chat at the time you choose, while its window stays open | Preview, limit not tried yet |
 | **Zed** | Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and every other external agent | Resumes the thread at the reset; a **Rewake** menu, scheduled and repeating messages, a schedules page | In daily use |
 | **JetBrains IDEs, Devin Desktop** | Claude Agent, Codex (picked in AI Assistant or the agent selector) | Resumes after a limit while the IDE stays open, through the same add-on as in Zed | Preview, not tried yet |
 
-Not supported yet: the built-in agents of Cursor and of GitHub Copilot in VS Code, and the Claude desktop app's Code tab (not tried yet). Out of reach: claude.ai, the Claude desktop app's chat and Zed's own built-in agent, which let no add-on in.
+Not supported yet: GitHub Copilot's own chat in VS Code, and the Claude desktop app's Code tab (not tried yet). Out of reach: claude.ai, the Claude desktop app's chat and Zed's own built-in agent, which let no add-on in.
 
-Guides for each: [Claude Code](https://codizelabs.github.io/agent-rewake/docs/#claude-code) · [Codex](https://codizelabs.github.io/agent-rewake/docs/#codex) · [Copilot CLI](https://codizelabs.github.io/agent-rewake/docs/#github-copilot-cli) · [Gemini CLI](https://codizelabs.github.io/agent-rewake/docs/#gemini-cli) · [Grok Build](https://codizelabs.github.io/agent-rewake/docs/#grok-build) · [Antigravity CLI](https://codizelabs.github.io/agent-rewake/docs/#antigravity-cli) · [Zed](https://codizelabs.github.io/agent-rewake/docs/#zed)
+Guides for each: [Claude Code](https://codizelabs.github.io/agent-rewake/docs/#claude-code) · [Codex](https://codizelabs.github.io/agent-rewake/docs/#codex) · [Copilot CLI](https://codizelabs.github.io/agent-rewake/docs/#github-copilot-cli) · [Gemini CLI](https://codizelabs.github.io/agent-rewake/docs/#gemini-cli) · [Grok Build](https://codizelabs.github.io/agent-rewake/docs/#grok-build) · [Antigravity CLI](https://codizelabs.github.io/agent-rewake/docs/#antigravity-cli) · [Cursor](https://codizelabs.github.io/agent-rewake/docs/#cursor) · [Zed](https://codizelabs.github.io/agent-rewake/docs/#zed)
 
 ## Quick start
 

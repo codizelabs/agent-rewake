@@ -26,6 +26,8 @@ export const WHAT: Record<PlaceId, string> = {
   zed: "Resumes and schedules messages in Zed's agent threads.",
   jetbrains: "Adds Claude Agent and Codex with Rewake to AI Assistant in your JetBrains IDEs.",
   "devin-desktop": "Adds Claude Agent and Codex with Rewake to Devin Desktop's agent selector.",
+  cursor:
+    "At a usage limit in Cursor's own agent, continues the chat at the time you choose (within 4 hours), while its window stays open.",
   "claude-code": "Asks at a usage limit, then continues the same session when the limit resets.",
   codex: 'Type "rewake" in a thread at a usage limit; it continues when the limit resets.',
   "copilot-cli": "Continues a closed session when its usage limit resets.",
