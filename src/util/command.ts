@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 
 /**
  * How the person runs Rewake, for every command Rewake tells them to run. Installing with
@@ -22,7 +22,7 @@ export function rewakeOnPath(
       ? ["agent-rewake.cmd", "agent-rewake.exe", "agent-rewake.ps1"]
       : ["agent-rewake"];
   return path
-    .split(platform === "win32" ? ";" : delimiter)
+    .split(platform === "win32" ? ";" : ":")
     .filter(Boolean)
     .some((dir) => names.some((n) => existsSync(join(dir, n))));
 }
