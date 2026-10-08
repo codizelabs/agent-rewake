@@ -11,6 +11,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Fixed
 
+- **Claude Code's `/rewake` questions in VS Code and Cursor:** "What should Rewake send…" offers "Continue from where you left off." and "Check where things stand and report back.", or type your own; before, the panels showed Yes/No, and "Yes" would have been sent as the message. The custom-time question offers examples with their times, and a time typed in the first question is used.
+- **Times without brackets inside brackets:** "12:07 AM tomorrow, Thursday" instead of "12:07 AM tomorrow (Thursday)", so labels read "In 1 hour (12:07 AM tomorrow, Thursday)". A change an agent proposes in Zed lists its parts with semicolons.
+- **Gemini CLI shows "[Agent Rewake]"** after Rewake's message, not an internal hook name.
+- The website's schedules-page demo shows Rewake's real version again.
 - **Claude Code: a session is never left waiting with nobody to continue it.** Rewake now uses Claude Code's own "Continue automatically at usage limit" setting as the session started with it (the running Claude Code keeps that value), so turning it on or off mid-session no longer leaves the limit to neither. And if Claude Code was expected to continue by itself but hasn't by two minutes after the reset, Rewake asks, or continues if you chose "from now on".
 - **Planned resumes survive a restart** (macOS and Linux; Codex, Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI). A restart could lose a resume's system timer, so it waited until you next opened an agent. Installing one of these previews now adds a login item that sets planned resumes again when you log in (on Linux a systemd user service, or an autostart entry without systemd), and uninstalling the last of these removes it. Windows didn't need this: its scheduled tasks survive a restart.
 - **`agent-rewake continue` no longer lists a session Rewake already continued.** It lists it again only after a new usage limit, or when the continue failed.

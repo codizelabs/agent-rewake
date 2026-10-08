@@ -14,16 +14,16 @@ import Caption from "./Caption.astro";
     </div>
     <div class="zed-form" data-at={2} data-until={3}>
       <header>Input Requested by Claude Agent</header>
-      <div class="q">Rewake understood "0 9 * * 1-5" as: Every weekday (Monday to Friday) at 9:00 AM. Next runs: 9:00 AM tomorrow (Tuesday); Wednesday at 9:00 AM; Thursday at 9:00 AM.</div>
+      <div class="q">Rewake understood "0 9 * * 1-5" as: Every weekday (Monday to Friday) at 9:00 AM. Next runs: 9:00 AM tomorrow, Tuesday; Wednesday at 9:00 AM; Thursday at 9:00 AM.</div>
       <div class="f">
         <span>How often</span>
         <div class="radio on">Every time it matches</div>
-        <div class="radio">Only once (9:00 AM tomorrow (Tuesday))</div>
+        <div class="radio">Only once (9:00 AM tomorrow, Tuesday)</div>
       </div>
       <div class="actions"><span class="zed-btn ok"><i>✓</i> Submit</span><span class="zed-btn no"><i>✕</i> Decline</span><span class="zed-btn">Cancel</span></div>
     </div>
     <div class="zed-user" data-until={1}>Every weekday morning, summarise yesterday's merged PRs for the changelog.</div>
-    <div class="zed-status" data-at={3}>Rewake: Scheduled for 9:00 AM tomorrow (Tuesday). Repeats: Every weekday (Monday to Friday) at 9:00 AM. To change it, use the Rewake menu under the message box.</div>
+    <div class="zed-status" data-at={3}>Rewake: Scheduled for 9:00 AM tomorrow, Tuesday. Repeats: Every weekday (Monday to Friday) at 9:00 AM. To change it, use the Rewake menu under the message box.</div>
   </ZedWindow>
   <Caption>Repeat hourly, daily, on weekdays, or on any cron schedule. Rewake reads it back in plain words, with the next three runs, before anything is saved.</Caption>
 </figure>

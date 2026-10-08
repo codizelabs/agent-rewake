@@ -144,7 +144,7 @@ const startOfDay = (ms) => {
 };
 
 /**
- * "3:05 PM today", "9:00 AM tomorrow (Thursday)", "Friday at 9:00 AM", "Monday 12 October at
+ * "3:05 PM today", "9:00 AM tomorrow, Thursday", "Friday at 9:00 AM", "Monday 12 October at
  * 9:00 AM": Rewake's own wording for times (src/core/time.ts formatWhen), in the host's time zone.
  */
 export function when(ms, now, clock = "12h") {
@@ -152,7 +152,7 @@ export function when(ms, now, clock = "12h") {
   const dayDiff = Math.round((startOfDay(ms) - startOfDay(now)) / 86_400_000);
   const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(ms);
   if (dayDiff === 0) return `${time} today`;
-  if (dayDiff === 1) return `${time} tomorrow (${weekday})`;
+  if (dayDiff === 1) return `${time} tomorrow, ${weekday}`;
   if (dayDiff > 1 && dayDiff < 7) return `${weekday} at ${time}`;
   const date = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "long" }).format(ms);
   return `${weekday} ${date} at ${time}`;

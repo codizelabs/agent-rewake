@@ -506,6 +506,12 @@ async function addMessage($, id, when, text) {
  * `/rewake` in a session that isn't waiting at a limit: one question per step, when (presets with
  * their times, or Custom…), then what. Dismissing the first question shows what's scheduled.
  */
+/** Messages to pick in `/rewake`'s second question; "Other" types any message. */
+const MESSAGE_PRESETS = [
+  "Continue from where you left off.",
+  "Check where things stand and report back.",
+];
+
 async function scheduleFlow($, id, now) {
   const presets = [
     ["In 30 minutes", 30 * MINUTE],
@@ -520,11 +526,27 @@ async function scheduleFlow($, id, now) {
       header: "Rewake",
     });
     when = presets.find((p) => p.label === answer)?.at;
+    // A time typed in the question's own free-text choice ("Other", "Type something").
+    if (when === undefined && answer !== custom && String(answer).trim() !== "") {
+      const p = parseWhen(String(answer).replace(/^\s*at\s+/i, ""), now);
+      if (!p.ok) return `Rewake: ${p.error}`;
+      when = p.at;
+    }
     if (when === undefined && answer === custom) {
-      const typed = await $.ui.ask(
-        `When? For example "in 45m", "${clock === "24h" ? "18:00" : "6pm"}" or "tomorrow 9:00".`,
+      // Real choices, not a bare question: Claude Code's VS Code and Cursor panels answer a
+      // question without options with Yes/No. "Other" (the panels' own) types any time.
+      const examples = ["in 45m", clock === "24h" ? "18:00" : "6pm", "tomorrow 9:00"]
+        .map((t) => ({ t, p: parseWhen(t, now) }))
+        .filter((e) => e.p.ok)
+        .map((e) => ({ label: `${e.t} (${at(e.p.at, now)})`, t: e.t }));
+      const typed = String(
+        await $.ui.ask("When? Pick one, or type a time.", {
+          options: examples.map((e) => e.label),
+          header: "Rewake",
+        }),
       );
-      const p = parseWhen(String(typed).replace(/^\s*at\s+/i, ""), now);
+      const picked = examples.find((e) => e.label === typed)?.t ?? typed;
+      const p = parseWhen(picked.replace(/^\s*at\s+/i, ""), now);
       if (!p.ok) return `Rewake: ${p.error}`;
       when = p.at;
     }
@@ -535,7 +557,10 @@ async function scheduleFlow($, id, now) {
   let text;
   try {
     text = String(
-      await $.ui.ask(`What should Rewake send into this session ${atWhen(when, now)}?`),
+      await $.ui.ask(
+        `What should Rewake send into this session ${atWhen(when, now)}? Pick one, or type your own.`,
+        { options: MESSAGE_PRESETS, header: "Rewake" },
+      ),
     ).trim();
   } catch {
     return "Nothing was scheduled.";
