@@ -503,9 +503,13 @@ describe("agent-rewake continue", () => {
       });
       return output;
     };
-    expect(await mode("always")).toMatch(
-      /^From now on, when a session stops at a usage limit that resets within a day/,
+    const always = await mode("always");
+    expect(always).toMatch(
+      /^From now on, when an agent stops at a usage limit that resets within a day/,
     );
+    // The scope is said: it's one setting for every agent, not only closed sessions.
+    expect(always).toContain("new Zed threads, in Claude Code, and in closed Copilot CLI");
+    expect(always).toContain("To be asked again, everywhere:");
     await h.event("errorOccurred", { error: { message: WEEKLY_IN } });
     await h.event("sessionEnd", { reason: "error" });
     expect(h.armed).toHaveLength(1);
