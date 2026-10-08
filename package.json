@@ -1,6 +1,6 @@
 {
   "name": "@codizelabs/agent-rewake",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Auto-resume Claude Code, Codex, Gemini CLI, GitHub Copilot, Grok or any Zed agent when its usage limit resets, in the same session, and schedule messages into your agent threads.",
   "keywords": [
     "zed",
