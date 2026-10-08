@@ -59,6 +59,7 @@ import { runProxy } from "./proxy.js";
 import { agentName } from "./setup.js";
 import { fire } from "./timers/fire.js";
 import { ensureLauncher, launcherPath, refreshLauncher } from "./timers/launcher.js";
+import { loginItem, loginItemPlanText, loginItemText, syncLoginItem } from "./timers/login.js";
 import { osNotifier } from "./timers/notify.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
 import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
@@ -133,6 +134,7 @@ Usage:
                                    --ask: go back to asking each time.
                                    --cancel: cancel every planned resume.
   agent-rewake fire <id>           Run by Rewake's timers at a resume's time (safe to run any time)
+  agent-rewake sweep               Run at login by Rewake's login item: sets planned resumes again
   agent-rewake hook <agent> <event>
                                    Run by an agent's hooks outside Zed, not by you
   agent-rewake --version
@@ -349,6 +351,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           out: (t) => print(t.replace(/^Dry run: nothing was (changed|written)\.\n/gm, "")),
         });
       }
+      if (!uninstall && loginWouldAdd(env, order))
+        print(`\n${loginItemPlanText(process.platform)}`);
       if (!(await ask(`\nApply these changes to ${order.length} places? [y/N] `))) {
         print("Nothing was changed.\n");
         return 1;
@@ -367,11 +371,18 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         code = Math.max(code, c);
       }
       print(summaryText(results));
-    } else
+    } else {
+      // Said before the place's own question, with its other changes.
+      if (!uninstall && loginWouldAdd(env, order)) print(loginItemPlanText(process.platform));
       for (const id of order)
         code = Math.max(code, await runPlace(id, { yes, dryRun, out: print }));
+    }
     if (uninstall && !dryRun) cancelResumesOf(chosen, env);
-    if (!dryRun) sweepQuietly(env);
+    if (!dryRun) {
+      const change = syncLogin(env);
+      if (change !== "unchanged") print(loginItemText(change, process.platform));
+      sweepQuietly(env);
+    }
     return code;
   }
   if (first === "continue") {
@@ -391,6 +402,13 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       return 2;
     }
     return runContinueCommand(env, mode);
+  }
+  if (first === "sweep") {
+    // Run at login by Rewake's login item (src/timers/login.ts): set lost timers again.
+    const at = argv.indexOf("--state-dir");
+    const dir = at !== -1 ? argv[at + 1] : undefined;
+    sweepQuietly(dir ? { ...env, AGENT_REWAKE_STATE_DIR: dir } : env);
+    return 0;
   }
   if (first === "fire") {
     // Timers name the state folder: they run without Rewake's environment (src/timers/timers.ts).
@@ -805,6 +823,48 @@ function cancelResumesOf(places: string[], env: NodeJS.ProcessEnv): void {
 }
 
 /** Re-arm lost timers and start due resumes (plan §5); never fails the command running it. */
+/** The previews whose sessions a system timer continues: these need timers back after a restart. */
+const TIMER_PLACES = new Set(["codex", "copilot-cli", "gemini-cli", "grok", "antigravity"]);
+
+/** Whether installing these places would add the login item (it isn't there yet). */
+function loginWouldAdd(env: NodeJS.ProcessEnv, places: readonly string[]): boolean {
+  if (!places.some((p) => TIMER_PLACES.has(p))) return false;
+  const { state, node } = timerDeps(env);
+  const item = loginItem({
+    platform: process.platform,
+    home: env.HOME || env.USERPROFILE || homedir(),
+    node,
+    cli: rewakeCli(state),
+    stateDir: state,
+    run: () => ({ status: 0 }),
+    exists: existsSync,
+  });
+  return item !== undefined && !existsSync(item.path);
+}
+
+/** Keep the login item while a preview that uses timers is set up, and remove it after. */
+function syncLogin(env: NodeJS.ProcessEnv): "added" | "removed" | "unchanged" {
+  try {
+    const { state, node, timers } = timerDeps(env);
+    const home = env.HOME || env.USERPROFILE || homedir();
+    const wanted = installedPreviews(env, home, state).some((p) => TIMER_PLACES.has(p));
+    return syncLoginItem(
+      {
+        platform: process.platform,
+        home,
+        node,
+        cli: rewakeCli(state),
+        stateDir: state,
+        run: (cmd, args) => timers.run(cmd, args),
+        exists: existsSync,
+      },
+      wanted,
+    );
+  } catch {
+    return "unchanged";
+  }
+}
+
 function sweepQuietly(env: NodeJS.ProcessEnv): void {
   try {
     const { sweepDeps } = timerDeps(env);
