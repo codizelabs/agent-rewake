@@ -89,15 +89,34 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     o.out("Nothing to continue: no closed session is stopped at a usage limit.\n");
     return 0;
   }
-  const line = (c: Candidate) =>
-    `${placeOf(c.host, c.record.cwd)}: stopped ${formatAt(c.record.limit?.seenAt ?? now, now)}${
+  const failedTry = (c: Candidate) =>
+    new ScheduleStore(o.deps.stateDir)
+      .listForSession(c.record.sessionId, c.host.id)
+      .filter((s) => s.status === "failed" && s.updatedAt >= (c.record.limit?.seenAt ?? 0))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const line = (c: Candidate) => {
+    const f = failedTry(c);
+    return `${placeOf(c.host, c.record.cwd)}: stopped ${formatAt(c.record.limit?.seenAt ?? now, now)}${
       c.resetsAt && c.resetsAt + RESET_MARGIN_MS > now
         ? `; Rewake can continue it ${formatAt(c.resetsAt + RESET_MARGIN_MS, now)}`
         : ""
+    }${
+      f
+        ? `; Rewake tried ${formatAt(f.lastRun?.at ?? f.updatedAt, now)}${
+            f.failureMessage
+              ? ` and ${c.host.name} ended with: "${f.failureMessage}"`
+              : ", without success"
+          }`
+        : ""
     }`;
+  };
   if (!o.interactive) {
     o.out(
-      `${list.map((c) => `  ${line(c)}`).join("\n")}\nRun "agent-rewake continue" in a terminal to choose.\n`,
+      `${list.map((c) => `  ${line(c)}`).join("\n")}\nRun "agent-rewake continue" in a terminal to choose.${
+        list.some((c) => failedTry(c))
+          ? " If a try failed, open that session in its agent to continue it yourself."
+          : ""
+      }\n`,
     );
     return 1;
   }

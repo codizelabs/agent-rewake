@@ -98,11 +98,18 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
       level: "info",
       text: `${n(missed.length, "resume")} ${missed.length === 1 ? "was" : "were"} missed in the last 7 days (the computer was off or asleep at the time).`,
     });
+  const lastFailed = [...failed].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   if (failed.length > 0)
     add({
       level: "info",
-      text: `${n(failed.length, "resume")} failed in the last 7 days.`,
-      fix: "See why with: agent-rewake ui",
+      text: `${n(failed.length, "resume")} failed in the last 7 days.${
+        lastFailed?.failureMessage
+          ? ` The last one, in ${name(lastFailed.host)}, ended with: "${lastFailed.failureMessage}"`
+          : ""
+      }`,
+      fix: lastFailed?.failureMessage
+        ? "See all of them with: agent-rewake ui"
+        : "See why with: agent-rewake ui",
     });
   if (out.length === 0)
     add({

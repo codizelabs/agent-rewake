@@ -18,7 +18,7 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult } from "../host.js";
+import { resumeDeadline, type SendResult, withMessage } from "../host.js";
 import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -203,7 +203,12 @@ export function resumeGrok(
       }
       if (SESSION_GONE.test(`${out}\n${err}`))
         return resolve({ ok: false, reason: "closed", detail: "deleted" });
-      resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
+      resolve({
+        ok: false,
+        reason: "failed",
+        detail: `exit ${code ?? "signal"}`,
+        ...withMessage(err || out),
+      });
     });
   });
 }
