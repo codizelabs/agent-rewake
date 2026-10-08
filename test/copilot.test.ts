@@ -423,6 +423,30 @@ describe("agent-rewake continue", () => {
     expect(new ScheduleStore(state).list()[0]?.status).toBe("cancelled");
   });
 
+  it("--cancel leaves a continue that is already being sent, and says so", async () => {
+    const h = harness();
+    await limited(h);
+    await run(h, []);
+    const store = new ScheduleStore(state);
+    const id = store.list()[0]?.scheduleId ?? "";
+    store.update(id, (x) => ({ ...x, status: "sending" }), NOW);
+    let output = "";
+    await runContinue({
+      mode: "cancel",
+      hosts: [copilotHost],
+      deps: h.deps(),
+      interactive: true,
+      out: (t) => {
+        output += t;
+      },
+      ask: async () => "",
+    });
+    expect(output).toBe(
+      'Not cancelled: Rewake is already continuing GitHub Copilot CLI in the "shop" folder. It finishes on its own; resume the session with "copilot --resume" afterwards to see what it did.\n',
+    );
+    expect(store.get(id)?.status).toBe("sending");
+  });
+
   it("--always turns automatic resume on, and --ask turns it off", async () => {
     const h = harness();
     const mode = async (m: "always" | "ask") => {

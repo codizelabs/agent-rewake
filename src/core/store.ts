@@ -12,6 +12,10 @@ import { join } from "node:path";
 import { fsyncDir, renameWithRetry } from "../util/fs.js";
 import { ensurePrivateDir } from "../util/paths.js";
 import { parseCron } from "./cron.js";
+import { SessionLock } from "./lock.js";
+
+/** For short synchronous pauses (Atomics.wait). */
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 
 /** Lifecycle states of a scheduled message. */
 export type ScheduleStatus =
@@ -205,7 +209,7 @@ export function writeFileAtomic(dir: string, name: string, data: string): void {
 export class ScheduleStore {
   readonly dir: string;
 
-  constructor(stateDir: string) {
+  constructor(private readonly stateDir: string) {
     this.dir = join(stateDir, "schedules");
   }
 
@@ -297,13 +301,53 @@ export class ScheduleStore {
     return true;
   }
 
-  /** Update a schedule if it still exists. Returns the updated copy. */
-  update(scheduleId: string, change: (s: Schedule) => Schedule, now: number): Schedule | undefined {
-    const current = this.get(scheduleId);
-    if (!current) return undefined;
-    const next = { ...change(current), updatedAt: now };
-    if (!validateSchedule(next)) throw new Error("Invalid scheduled message after update.");
-    this.put(next);
-    return next;
+  /**
+   * Update a schedule if it still exists. Returns the updated copy, or the current one when
+   * `change` returns undefined (nothing to change). The read and the write hold a short lock, so a
+   * change made by another process at the same moment (a cancel while `fire` decides) isn't lost.
+   */
+  update(
+    scheduleId: string,
+    change: (s: Schedule) => Schedule | undefined,
+    now: number,
+  ): Schedule | undefined {
+    const lock = new SessionLock(this.stateDir);
+    const key = `write:${scheduleId}`;
+    // Held only for a read and a write; after about two seconds, a stuck holder is ignored.
+    let held = lock.acquire(key);
+    for (let i = 0; !held && i < 200; i++) {
+      Atomics.wait(PAUSE, 0, 0, 10);
+      held = lock.acquire(key);
+    }
+    try {
+      const current = this.get(scheduleId);
+      if (!current) return undefined;
+      const changed = change(current);
+      if (!changed) return current;
+      const next = { ...changed, updatedAt: now };
+      if (!validateSchedule(next)) throw new Error("Invalid scheduled message after update.");
+      this.put(next);
+      return next;
+    } finally {
+      if (held) lock.release(key);
+    }
+  }
+
+  /**
+   * Cancel a planned message. One already being sent, or finished, is left as it is: returns
+   * whether it was cancelled.
+   */
+  cancel(scheduleId: string, now: number): boolean {
+    let done = false;
+    this.update(
+      scheduleId,
+      (x) => {
+        if (x.status === "sending" || TERMINAL_STATUSES.has(x.status)) return undefined;
+        done = true;
+        return { ...x, status: "cancelled" };
+      },
+      now,
+    );
+    return done;
   }
 }

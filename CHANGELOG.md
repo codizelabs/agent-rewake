@@ -6,6 +6,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Fixed
 
+- **Cancelling now always wins over a continue that hasn't started sending:** before, a cancel (or typing in the session) just as Rewake was about to send could be missed, and the message was sent anyway. A continue that is already sending can't be taken back, so `agent-rewake continue --cancel` now says "Not cancelled: Rewake is already continuing …" and how to see what it did, instead of "Cancelled".
 - **Claims on the website that weren't true.** The comparison said community scripts poll a usage endpoint "until it rate-limits them in turn" (the tool that did this fixed it and closed both issues), that several of the most-starred are "stale or archived" (none of the six most-starred is archived; they are stale), and that one "presses Enter on whatever prompt is on screen" (that is an option you turn on, not what it does by default). Each is now what can be checked today.
 - **"Does it spend usage credits?" said "No."** The resume is a message, and it uses your plan like any message you type. It still doesn't change your plan, limits or credits.
 - **"Rewake has no background service"** is now "no always-on service", and says that on Linux without systemd or `at` (WSL, containers) Rewake runs its own process while a resume is waiting.

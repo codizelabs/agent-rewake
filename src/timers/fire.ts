@@ -9,7 +9,7 @@ import {
   RESET_MARGIN_MS,
 } from "../core/resume.js";
 import { loadSettings } from "../core/settings.js";
-import { type Schedule, ScheduleStore } from "../core/store.js";
+import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { formatAt, formatWhen } from "../core/time.js";
 import type { HostAdapter, HostFacts } from "../hosts/host.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
@@ -263,18 +263,34 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
     });
     switch (decision.action) {
       case "send": {
-        store.update(
+        // Checked again as it's claimed: the person may have cancelled, or typed in the session,
+        // while the host was being checked. Their change wins and nothing is sent.
+        const claimed = store.update(
           id,
-          (x) => ({
-            ...x,
-            status: "sending",
-            attempts: [
-              ...x.attempts,
-              { n: x.attempts.length + 1, idempotencyKey: key, startedAt: now, outcome: "sending" },
-            ],
-          }),
+          (x) =>
+            x.status !== s.status || x.dueAt !== s.dueAt
+              ? undefined
+              : {
+                  ...x,
+                  status: "sending",
+                  attempts: [
+                    ...x.attempts,
+                    {
+                      n: x.attempts.length + 1,
+                      idempotencyKey: key,
+                      startedAt: now,
+                      outcome: "sending",
+                    },
+                  ],
+                },
           now,
         );
+        if (claimed?.status !== "sending") {
+          log("fire.changed", { status: claimed?.status ?? "gone" });
+          if (!claimed || TERMINAL_STATUSES.has(claimed.status) || claimed.status === "cancelled")
+            removeTimer();
+          return "gone";
+        }
         let result: Awaited<ReturnType<HostAdapter["send"]>>;
         // Most hosts run the whole resumed turn here: don't let the computer idle to sleep in it.
         const wake = deps.wake ?? new Wakefulness();
