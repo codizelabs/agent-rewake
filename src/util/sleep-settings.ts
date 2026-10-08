@@ -4,8 +4,7 @@ import { homedir, platform as osPlatform } from "node:os";
 import { join } from "node:path";
 
 /** Where the docs explain the best sleep settings for each system. */
-export const SLEEP_DOCS_URL =
-  "https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake";
+export const SLEEP_DOCS_URL = "https://rewake.js.org/docs/#keep-your-computer-awake";
 
 /**
  * This computer's own sleep settings, as far as they can be read without admin rights. Anything

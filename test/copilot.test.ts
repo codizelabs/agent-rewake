@@ -350,7 +350,7 @@ describe("agent-rewake continue", () => {
     await limited(h);
     const r = await run(h, [], true, { os: "windows", pluggedInSleepMin: 15 });
     expect(r.output).toContain(
-      "This computer may sleep before then: it's set to sleep after 15 minutes when plugged in. To keep it awake: https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake",
+      "This computer may sleep before then: it's set to sleep after 15 minutes when plugged in. To keep it awake: https://rewake.js.org/docs/#keep-your-computer-awake",
     );
     const fine = harness();
     await limited(fine);

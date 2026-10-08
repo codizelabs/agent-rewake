@@ -16,4 +16,4 @@ User-agent: Google-Extended
 User-agent: Bingbot
 Allow: /
 
-Sitemap: https://codizelabs.github.io/agent-rewake/sitemap-index.xml
+Sitemap: https://rewake.js.org/sitemap-index.xml
