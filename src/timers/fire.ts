@@ -11,7 +11,8 @@ import {
 import { loadSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { formatAt, formatWhen } from "../core/time.js";
-import type { HostAdapter, HostFacts } from "../hosts/host.js";
+import { type HostAdapter, type HostFacts, onResumeRun, RESUME_TIMEOUT_MS } from "../hosts/host.js";
+import { rewake } from "../util/command.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
 import type { Notifier } from "./notify.js";
@@ -30,10 +31,23 @@ const EARLY_MS = 30_000;
 const MIN_ARM_MS = 60_000;
 /**
  * A send still marked "sending" after this long was cut off (a crash, a reboot): longer than any
- * host's resume run (RESUME_TIMEOUT_MS, 30 minutes). Rewake can't tell whether the message got
- * through, so it never sends again; it tells the person instead.
+ * host's resume run (RESUME_TIMEOUT_MS). Rewake can't tell whether the message got through, so it
+ * never sends again; it tells the person instead.
  */
-export const SENDING_STALE_MS = 40 * 60_000;
+export const SENDING_STALE_MS = RESUME_TIMEOUT_MS + 10 * 60_000;
+
+/** How often a running continue looks for the person's stop. */
+const STOP_POLL_MS = 3_000;
+
+/** Said when a headless continue starts: what's happening, and how to stop it. */
+export function runningText(at: string, noun = "session"): string {
+  return `${at}: Rewake is continuing the ${noun} now. You'll get a notification when it's done. To stop it: "${rewake("continue --cancel")}".`;
+}
+
+/** Said when a headless continue has finished. */
+export function doneText(at: string, noun = "session", now: number = Date.now()): string {
+  return `${at}: Rewake's run ended normally ${formatAt(now, now)}. Open the ${noun} to see what it did.`;
+}
 
 export type FireOutcome =
   | "early"
@@ -61,6 +75,8 @@ export interface FireDeps {
   wake?: Wake;
   /** Which of the resume's timers started this run (`<id>-r<n>`: n), so a re-arm takes a new name. */
   timerGen?: number;
+  /** Tests: how often a running continue looks for a stop. */
+  stopPollMs?: number;
 }
 
 const LIVE = new Set<Schedule["status"]>(["scheduled", "waiting_for_limit", "cancelled"]);
@@ -128,7 +144,7 @@ export function notice(
       return `${agent}: Rewake started continuing the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but was interrupted (the computer may have restarted), so it can't tell whether its message was sent. It won't send it again. ${cap(reopen)} to check, and continue if needed.`;
     case "failed":
       if (f.cause === "timeout")
-        return `${agent}: Rewake continued the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but the agent was still working half an hour later (it may have been waiting for your approval), so Rewake stopped the run. ${cap(reopen)} to see where it got to and continue.`;
+        return `${agent}: Rewake continued the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but the agent was still working three hours later, so Rewake stopped the run. ${cap(reopen)} to see where it got to and continue.`;
       if (f.cause === "signed-out")
         return `${agent}: Rewake couldn't continue the ${n} because you're signed out of ${f.agentName}. Sign in, then ${reopen} to continue.`;
       if (f.cause === "archived")
@@ -295,12 +311,44 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         // Most hosts run the whole resumed turn here: don't let the computer idle to sleep in it.
         const wake = deps.wake ?? new Wakefulness();
         wake.set(true, settings.keepAwake);
+        // A headless run is said when it starts, with how to stop it. `continue --cancel` marks the
+        // attempt stopped; this process, which started the agent, then ends its own child.
+        let watch: ReturnType<typeof setInterval> | undefined;
+        onResumeRun((pid) => {
+          store.update(
+            id,
+            (x) => ({
+              ...x,
+              attempts: x.attempts.map((a) => (a.idempotencyKey === key ? { ...a, pid } : a)),
+            }),
+            now,
+          );
+          deps.notify("Agent Rewake", runningText(at, host.noun));
+          watch = setInterval(() => {
+            if (!store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped) return;
+            clearInterval(watch);
+            try {
+              process.kill(pid);
+            } catch {
+              // Already ended.
+            }
+          }, deps.stopPollMs ?? STOP_POLL_MS);
+        });
         try {
           result = await host.send(s, key);
         } catch (err) {
           result = { ok: false, reason: "failed", detail: (err as Error).message };
         } finally {
+          onResumeRun(undefined);
+          if (watch) clearInterval(watch);
           wake.release();
+        }
+        // The person stopped the run (`continue --cancel`): nothing to report back to them.
+        if (store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped) {
+          settle("stopped", "you");
+          removeTimer();
+          log("fire.stopped", {});
+          return "skipped";
         }
         const outcome = result.ok ? "sent" : result.reason;
         store.update(
@@ -314,6 +362,9 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         if (result.ok) {
           settle("sent");
           removeTimer();
+          // A headless run worked until now: say it's done (an app-delivered send has nothing more).
+          if (store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.pid !== undefined)
+            deps.notify("Agent Rewake", doneText(at, host.noun, deps.now()));
           return "sent";
         }
         // Limited again or busy: try later, within the same bound as decideFire. A reset the run's

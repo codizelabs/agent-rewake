@@ -448,6 +448,45 @@ describe("agent-rewake continue", () => {
     expect(store.get(id)?.status).toBe("sending");
   });
 
+  it("--cancel can stop a continue that is running, when the person says so", async () => {
+    const h = harness();
+    await limited(h);
+    await run(h, []);
+    const store = new ScheduleStore(state);
+    const id = store.list()[0]?.scheduleId ?? "";
+    store.update(
+      id,
+      (x) => ({
+        ...x,
+        status: "sending",
+        attempts: [{ n: 1, idempotencyKey: "k", startedAt: NOW, outcome: "sending", pid: 4242 }],
+      }),
+      NOW,
+    );
+    let output = "";
+    const asked: string[] = [];
+    await runContinue({
+      mode: "cancel",
+      hosts: [copilotHost],
+      deps: h.deps(),
+      interactive: true,
+      out: (t) => {
+        output += t;
+      },
+      ask: async (q) => {
+        asked.push(q);
+        return "y";
+      },
+    });
+    expect(asked[0]).toBe(
+      'Rewake is continuing GitHub Copilot CLI in the "shop" folder now. Stop it? What it has done so far stays. [y/N] ',
+    );
+    expect(output).toMatch(
+      /^Stopping: GitHub Copilot CLI in the "shop" folder\. It ends within a few seconds, with no further notification; /,
+    );
+    expect(store.get(id)?.attempts[0]?.stopped).toBe(true);
+  });
+
   it("--always turns automatic resume on, and --ask turns it off", async () => {
     const h = harness();
     const mode = async (m: "always" | "ask") => {

@@ -292,11 +292,11 @@ describe("fire", () => {
     ]);
   });
 
-  it("reports a resume run stopped after 30 minutes in plain words", () => {
+  it("reports a resume run stopped after three hours in plain words", () => {
     expect(
       notice("failed", "Copilot", NOW, { noun: "session", agentName: "Copilot", cause: "timeout" }),
     ).toBe(
-      "Copilot: Rewake continued the session, but the agent was still working half an hour later (it may have been waiting for your approval), so Rewake stopped the run. Open the session to see where it got to and continue.",
+      "Copilot: Rewake continued the session, but the agent was still working three hours later, so Rewake stopped the run. Open the session to see where it got to and continue.",
     );
   });
 
@@ -380,6 +380,57 @@ describe("fire keeps the computer awake while the resumed turn runs", () => {
       await fire(r.scheduleId, { ...deps, wake });
       expect(events).toEqual(["hold true plugged-in", "send", "release"]);
     }
+  });
+});
+
+describe("a headless continue, while it runs", () => {
+  /** A host whose send runs a real child, the way the CLI hosts do, until it ends. */
+  const running = (deps: FireDeps, ms: number) => {
+    const host = deps.hosts.get("test") as HostAdapter;
+    (deps.hosts as Map<string, HostAdapter>).set("test", {
+      ...host,
+      send: () =>
+        new Promise<SendResult>((resolve) => {
+          const child = spawn(process.execPath, ["-e", `setTimeout(() => {}, ${ms})`]);
+          resumeDeadline(child);
+          child.once("exit", (code) =>
+            resolve(code === 0 ? { ok: true } : { ok: false, reason: "failed" }),
+          );
+        }),
+    });
+  };
+
+  it("says it started, with how to stop it, and says when it's done", async () => {
+    const r = resume();
+    const { deps, notes } = setup();
+    running(deps, 50);
+    expect(await fire(r.scheduleId, deps)).toBe("sent");
+    expect(notes[0]).toMatch(
+      /^Codex in the "shop" folder: Rewake is continuing the thread now\. You'll get a notification when it's done\. To stop it: "agent-rewake continue --cancel"\.$/,
+    );
+    expect(notes[1]).toMatch(/^Codex in the "shop" folder: Rewake's run ended normally /);
+    expect(store.get(r.scheduleId)?.attempts[0]?.pid).toBeGreaterThan(0);
+  });
+
+  it("stops when the person asks, and says nothing more", async () => {
+    const r = resume();
+    const { deps, notes } = setup();
+    deps.stopPollMs = 20;
+    running(deps, 60_000);
+    const started = Date.now();
+    const outcome = fire(r.scheduleId, deps);
+    // `continue --cancel`, answered "y": the attempt is marked stopped.
+    while (store.get(r.scheduleId)?.attempts[0]?.pid === undefined)
+      await new Promise((ok) => setTimeout(ok, 10));
+    store.update(
+      r.scheduleId,
+      (x) => ({ ...x, attempts: x.attempts.map((a) => ({ ...a, stopped: true })) }),
+      NOW,
+    );
+    expect(await outcome).toBe("skipped");
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(store.get(r.scheduleId)?.status).toBe("stopped");
+    expect(notes).toHaveLength(1);
   });
 });
 

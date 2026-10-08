@@ -80,9 +80,35 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     for (const s of pending) {
       const host = o.hosts.find((h) => h.id === s.host);
       const place = host ? placeOf(host, s.cwd) : "a session";
-      // A continue already under way can't be taken back: say so rather than "Cancelled".
+      // A continue already under way: its message was sent, but its run can be stopped.
       if (!store.cancel(s.scheduleId, now)) {
         const reopen = host?.reopen ?? `open the session in ${host?.name ?? "its agent"}`;
+        const run = store.get(s.scheduleId)?.attempts.at(-1);
+        if (s.status === "sending" && run?.pid !== undefined && !run.stopped && o.interactive) {
+          const stop = /^y(es)?$/i.test(
+            (
+              await o.ask(
+                `Rewake is continuing ${place} now. Stop it? What it has done so far stays. [y/N] `,
+              )
+            ).trim(),
+          );
+          if (stop) {
+            store.update(
+              s.scheduleId,
+              (x) => ({
+                ...x,
+                attempts: x.attempts.map((a, i) =>
+                  i === x.attempts.length - 1 ? { ...a, stopped: true } : a,
+                ),
+              }),
+              now,
+            );
+            o.out(
+              `Stopping: ${place}. It ends within a few seconds, with no further notification; ${reopen} to see where it got to.\n`,
+            );
+            continue;
+          }
+        }
         o.out(
           `Not cancelled: Rewake is already continuing ${place}. It finishes on its own; ${reopen} afterwards to see what it did.\n`,
         );
