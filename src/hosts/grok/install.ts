@@ -10,6 +10,7 @@ import {
   withVersion,
 } from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
+import { rewake } from "../../util/command.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { hooksTurnedOff } from "../policy.js";
 import { newerThanTested, untestedText, versionOf } from "../versions.js";
@@ -93,7 +94,7 @@ export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
     }
     if (grok.version && compareVersions(grok.version, MIN_GROK) < 0) {
       o.out(
-        `Grok Build ${grok.version} is too old for Rewake (it needs ${MIN_GROK} or newer). Update it with "grok update", then run "agent-rewake install --only grok" again.\n`,
+        `Grok Build ${grok.version} is too old for Rewake (it needs ${MIN_GROK} or newer). Update it with "grok update", then run "${rewake("install --only grok")}" again.\n`,
       );
       return 1;
     }

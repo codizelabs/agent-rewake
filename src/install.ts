@@ -14,6 +14,7 @@ import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
 import { detectAgents, type Found, otherAgentsNote } from "./install/detect.js";
+import { rewake } from "./util/command.js";
 import { readText, renameWithRetry, writeTempExclusive } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
 import { findOnWindows, npmScript } from "./util/spawn.js";
@@ -718,7 +719,7 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
   for (const b of backups) out(`  Backup: ${b}\n`);
   out(
     opts.uninstall
-      ? "Rewake is out of Zed. Your threads are untouched, and your scheduled messages are kept; `agent-rewake doctor` shows where.\n"
+      ? `Rewake is out of Zed. Your threads are untouched, and your scheduled messages are kept; \`${rewake("doctor")}\` shows where.\n`
       : nextSteps(note !== undefined),
   );
   return 0;
@@ -745,7 +746,7 @@ function nextSteps(reachShown = false): string {
     `Now ${quitZed()} and open it again.`,
     `Then open Zed's Agent Panel (${agentPanelKey()}) and open or start a thread with one of these agents.`,
     "Zed starts Rewake when you open a thread with the agent, not when Zed itself starts.",
-    "`agent-rewake doctor` shows whether it has started.",
+    `\`${rewake("doctor")}\` shows whether it has started.`,
     "",
     'In the thread, the "Rewake" menu under the message box (next to the model picker) schedules messages.',
     "When the agent hits a usage limit, Rewake asks you in the thread with Yes/No buttons.",
