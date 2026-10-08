@@ -375,6 +375,32 @@ describe("agent-rewake continue", () => {
     expect(waiting({ hosts: [copilotHost], deps: h.deps() })).toEqual([]);
   });
 
+  it("doesn't list a session once its resume was sent; a failed one, or a later limit, comes back", async () => {
+    const h = harness();
+    await limited(h);
+    await run(h, []);
+    const store = new ScheduleStore(state);
+    const id = store.list()[0]?.scheduleId as string;
+    const listed = () => waiting({ hosts: [copilotHost], deps: h.deps(undefined, NOW + H) });
+    store.update(id, (x) => ({ ...x, status: "sent" }), NOW + H / 12);
+    expect(listed()).toEqual([]);
+    store.update(
+      id,
+      (x) => ({ ...x, status: "failed", failureMessage: "No session matched." }),
+      NOW + H / 12,
+    );
+    expect(listed()).toHaveLength(1);
+    expect((await run(h, [], false)).output).toContain(
+      `and GitHub Copilot CLI ended with: "No session matched."`,
+    );
+    store.update(id, (x) => ({ ...x, status: "sent" }), NOW + H / 12);
+    // A new limit after the resume is a new one to continue.
+    await h.event("sessionStart", { source: "resume" }, {}, NOW + H / 6);
+    await h.event("errorOccurred", { error: { message: WEEKLY_IN } }, {}, NOW + H / 6);
+    await h.event("sessionEnd", { reason: "error" }, {}, NOW + H / 6);
+    expect(listed()).toHaveLength(1);
+  });
+
   it("says when there's nothing to continue, and --cancel cancels a pending resume", async () => {
     const h = harness();
     expect((await run(h, [])).output).toBe(

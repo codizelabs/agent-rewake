@@ -89,13 +89,24 @@ export function pendingFor(stateDir: string, host: string, sessionId: string): S
 
 const REPORTED = new Set<Schedule["status"]>(["missed", "needs_attention"]);
 
-/** A limit the person hasn't answered: not billing, not followed by a prompt, nothing armed. */
+/**
+ * A limit the person hasn't answered: not billing, not followed by a prompt, nothing armed, and
+ * not already resumed (a resume sent after the limit answers it; a later limit is a new one).
+ */
 export function unanswered(stateDir: string, r: SessionRecord): SessionLimit | undefined {
   const l = r.limit;
   if (!l || l.billing) return undefined;
   if ((r.lastPromptAt ?? 0) > l.seenAt) return undefined;
   if (pendingFor(stateDir, r.host, r.sessionId).length > 0) return undefined;
+  if (resumedAfter(stateDir, r, l.seenAt)) return undefined;
   return l;
+}
+
+/** Whether Rewake sent a resume into this session after `since`. */
+function resumedAfter(stateDir: string, r: SessionRecord, since: number): boolean {
+  return new ScheduleStore(stateDir)
+    .listForSession(r.sessionId, r.host)
+    .some((s) => s.status === "sent" && s.kind !== "user" && s.updatedAt >= since);
 }
 
 /**
