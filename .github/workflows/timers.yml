@@ -1,5 +1,6 @@
 # Real one-shot OS timers (launchd, systemd or at, Task Scheduler): each arms a timer for the next
-# minute and checks that it runs once and is removed. Slow, so it runs when timer code changes,
+# minute and checks that it runs once and is removed. Linux without either runs Rewake's own waiter,
+# tested in a container that has neither. Slow, so it runs when timer code changes,
 # weekly, and on demand, not on every pull request.
 name: timers
 
@@ -8,6 +9,7 @@ on:
     paths:
       - "src/timers/**"
       - "test/timers-os.test.ts"
+      - "test/waiter-os.test.ts"
       - ".github/workflows/timers.yml"
   schedule:
     - cron: "17 2 * * *" # nightly, with ci.yml (plan §10.5)
@@ -49,3 +51,25 @@ jobs:
         env:
           REWAKE_OS_TIMERS: "1"
         run: npx vitest run test/timers-os.test.ts
+
+  waiter:
+    name: os-timer (Linux without systemd or at)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    container: node:24-bookworm-slim
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install and build
+        run: npm ci --no-audit --no-fund && npm run build
+
+      - name: Arm two resumes and wait for the waiter to fire them
+        env:
+          REWAKE_OS_TIMERS: "1"
+          REWAKE_EXPECT_WAITER: "1"
+        run: npx vitest run test/waiter-os.test.ts

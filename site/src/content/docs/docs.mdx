@@ -108,6 +108,8 @@ For Copilot CLI, Gemini CLI and Grok Build: Rewake continues a closed session fr
 
 On macOS and Linux, installing Codex, Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI also adds a login item, so planned resumes are set again after a restart (macOS may show "Background Items Added"; it's listed as "node", which runs Agent Rewake, under Login Items, Allow in the Background). It's removed when you uninstall the last of them. To turn it off on its own: on macOS switch off "node" in **System Settings → General → Login Items**; on Linux run `systemctl --user disable agent-rewake-sweep.service` (or delete `~/.config/autostart/agent-rewake-sweep.desktop`). Planned resumes then wait until you next open an agent after a restart.
 
+The system timer is launchd on macOS, Task Scheduler on Windows, and on Linux a systemd user timer or the `at` service. Linux without either (WSL without systemd, or a container) uses Rewake's own background process instead: it runs planned resumes at their times while the computer stays on, stops when you log out or restart, and starts again the next time you use an agent. A resume missed by more than half an hour isn't sent. `agent-rewake install` and `doctor` say when it's used. So resumes don't wait for you after a restart: in WSL, turn on systemd (add `[boot]` and `systemd=true` to `/etc/wsl.conf`, then run `wsl.exe --shutdown` in Windows and open WSL again; [Microsoft's guide](https://learn.microsoft.com/windows/wsl/systemd)); elsewhere, install and start the `at` service (Debian, Ubuntu: `sudo apt install at`, then `sudo service atd start`).
+
 For every preview, keep the computer on and awake until the time Rewake gives. On macOS the Claude Code preview keeps it from idling to sleep while a continue is due within six hours, and every preview does while the agent works on the resumed session (the **Keep this computer awake** setting decides). `install` and `doctor` list the previews you set up.
 
 ### Claude Code
@@ -468,7 +470,7 @@ Everything here is also in the Rewake menu.
 | `agent-rewake schedules [--all] [--json]` | List scheduled messages |
 | `agent-rewake setup zed` | Print the Zed entries, to add by hand |
 | `agent-rewake --version`, `--help` | |
-| `agent-rewake --wrap-registry <id>`, `--wrap-command <json>`, `-- <cmd>`, `mcp`, `hook <agent> <event>`, `fire <id>` | Started by Zed, an agent or a timer, not by you |
+| `agent-rewake --wrap-registry <id>`, `--wrap-command <json>`, `-- <cmd>`, `mcp`, `hook <agent> <event>`, `fire <id>`, `wait`, `sweep` | Started by Zed, an agent, a timer or the login item, not by you |
 
 </details>
 

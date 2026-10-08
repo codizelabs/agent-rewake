@@ -64,6 +64,7 @@ import { loginItem, loginItemPlanText, loginItemText, syncLoginItem } from "./ti
 import { osNotifier } from "./timers/notify.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
 import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
+import { isWsl, runWaiter, waiterNote } from "./timers/waiter.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { Wakefulness } from "./util/keep-awake.js";
@@ -384,6 +385,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     if (!dryRun) {
       const change = syncLogin(env);
       if (change !== "unchanged") print(loginItemText(change, process.platform));
+      if (!uninstall && order.some((p) => TIMER_PLACES.has(p)) && usesWaiter(env))
+        print(((n) => `${n.text} ${n.fix}\n`)(waiterNote(isWsl())));
       sweepQuietly(env);
     }
     return code;
@@ -412,6 +415,19 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const dir = at !== -1 ? argv[at + 1] : undefined;
     sweepQuietly(dir ? { ...env, AGENT_REWAKE_STATE_DIR: dir } : env);
     return 0;
+  }
+  if (first === "wait") {
+    // Rewake's own timer where Linux has no other (src/timers/waiter.ts); started by armTimer.
+    const at = argv.indexOf("--state-dir");
+    const dir = at !== -1 ? argv[at + 1] : undefined;
+    const { state, node, timers } = timerDeps(dir ? { ...env, AGENT_REWAKE_STATE_DIR: dir } : env);
+    return runWaiter({
+      timers,
+      pid: process.pid,
+      now: Date.now,
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      fire: (name) => timers.detached(node, [timers.cli, "fire", name, "--state-dir", state]),
+    });
   }
   if (first === "fire") {
     // Timers name the state folder: they run without Rewake's environment (src/timers/timers.ts).
@@ -535,7 +551,10 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
         name: PREVIEW_NAMES[id] ?? id,
       })),
       hosts: hostAdapters(env, node, state),
-      hasTimer: timerKind(timers) !== undefined,
+      ...((kind) => ({ hasTimer: kind !== undefined, ...(kind && { timerKind: kind }) }))(
+        timerKind(timers),
+      ),
+      wsl: process.platform === "linux" && isWsl(),
       agents: terminalAgents({ env, home: homedir(), platform: process.platform }),
       when: doctorWhen,
     }),
@@ -840,6 +859,14 @@ const TIMER_PLACES = new Set([
 ]);
 
 /** Whether installing these places would add the login item (it isn't there yet). */
+function usesWaiter(env: NodeJS.ProcessEnv): boolean {
+  try {
+    return timerKind(timerDeps(env).timers) === "waiter";
+  } catch {
+    return false;
+  }
+}
+
 function loginWouldAdd(env: NodeJS.ProcessEnv, places: readonly string[]): boolean {
   if (!places.some((p) => TIMER_PLACES.has(p))) return false;
   const { state, node } = timerDeps(env);

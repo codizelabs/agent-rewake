@@ -47,6 +47,21 @@ describe("doctor: outside Zed", () => {
     expect(out[1]?.fix).toContain("install and start the at service");
   });
 
+  it("says when Rewake's own waiter is the timer, and the one fix (WSL: systemd)", () => {
+    const out = diagnoseOutside(
+      facts({ hasTimer: true, timerKind: "waiter", platform: "linux", wsl: true }),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.text).toMatch(
+      /^Planned resumes run at their times while this computer stays on\./,
+    );
+    expect(out[0]?.fix).toContain("systemd=true to /etc/wsl.conf, then run wsl.exe --shutdown");
+    const linux = diagnoseOutside(
+      facts({ hasTimer: true, timerKind: "waiter", platform: "linux" }),
+    );
+    expect(linux[0]?.fix).toContain("sudo apt install at, then sudo service atd start");
+  });
+
   it("names an agent too old for Rewake, set up or not, and one newer than tested", () => {
     const agents = [
       { id: "copilot-cli" as const, version: "1.0.80" },
