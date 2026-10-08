@@ -4,6 +4,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-08
+
 ### Fixed
 
 - **Cancelling now always wins over a continue that hasn't started sending:** before, a cancel (or typing in the session) just as Rewake was about to send could be missed, and the message was sent anyway. A continue that is already sending can't be taken back, so `agent-rewake continue --cancel` now says "Not cancelled: Rewake is already continuing …" and how to see what it did, instead of "Cancelled".
