@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -214,7 +214,7 @@ describe("Linux: systemd, then at", () => {
     const { h } = fakeHost("linux", (c) => (c.command === "pgrep" ? { status: 1 } : {}), {
       systemd: false,
     });
-    expect(timerKind(h)).toBeUndefined();
+    expect(timerKind(h)).toBe("waiter");
   });
 
   it("falls back to at when there's no user manager, quoting the paths for its shell", () => {
@@ -235,12 +235,29 @@ describe("Linux: systemd, then at", () => {
     expect(calls.at(-1)).toEqual({ command: "atrm", args: ["17"] });
   });
 
-  it("has no timer without systemd or at", () => {
-    const { h } = fakeHost("linux", (c) => (c.command === "atq" ? { status: 1 } : {}), {
+  it("without systemd or at, uses Rewake's own waiter: one process for every resume", () => {
+    const { h, detached } = fakeHost("linux", (c) => (c.command === "atq" ? { status: 1 } : {}), {
       systemd: false,
     });
-    expect(timerKind(h)).toBeUndefined();
-    expect(armTimer(ID, AT, h)).toEqual({ ok: false, reason: "no-scheduler" });
+    let running: number | undefined;
+    h.waiterRunning = (pid) => pid === running;
+    expect(timerKind(h)).toBe("waiter");
+    expect(armTimer(ID, AT, h)).toEqual({ ok: true, via: "waiter" });
+    expect(readFileSync(join(dir, "timers", `${ID}.wait`), "utf8")).toBe(String(AT));
+    expect(detached).toEqual([{ command: h.node, args: [h.cli, "wait", "--state-dir", dir] }]);
+    // Not running yet (no process id on file): not armed, so the sweep starts it again.
+    expect(timerArmed(ID, h)).toBe(false);
+    running = 4242;
+    writeFileSync(join(dir, "timers", "waiter.pid"), "4242");
+    expect(timerArmed(ID, h)).toBe(true);
+    // A second resume while it runs: no second waiter.
+    const other = "1a2b3c4d-0000-4000-8000-000000000000";
+    armTimer(other, AT + 60_000, h);
+    expect(detached).toHaveLength(1);
+    cancelTimer(ID, h);
+    expect(existsSync(join(dir, "timers", `${ID}.wait`))).toBe(false);
+    expect(timerArmed(ID, h)).toBe(false);
+    expect(timerArmed(other, h)).toBe(true);
   });
 
   it("checks whether a timer is live", () => {

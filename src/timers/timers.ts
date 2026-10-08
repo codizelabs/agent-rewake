@@ -20,7 +20,8 @@ import { ensurePrivateDir } from "../util/paths.js";
  *   - Linux (systemd 255): `systemd-run --user --on-calendar=<UTC time>` fires on the second and
  *     removes both transient units afterwards; a duplicate unit name is refused; a time in the past
  *     never fires, so such a resume is fired directly. Without a user manager ("No medium found",
- *     WSL without systemd, containers): `at` if atd runs, else no timer.
+ *     WSL without systemd, containers): `at` if atd runs, else Rewake's own waiter (waiter.ts): one
+ *     background process that runs `fire` at each time and ends when nothing is left to wait for.
  *   - A timer can't safely replace itself (launchd kills a job booted out from inside it; systemd
  *     refuses a unit name whose service is still running), so a resume re-armed from inside its own
  *     `fire` gets a new name, `<id>-r<n>`, and the older names are removed. Each armed name leaves a
@@ -34,7 +35,7 @@ import { ensurePrivateDir } from "../util/paths.js";
 /** Schedule ids (UUIDs) and test ids: the only text ever placed in a timer's name or command. */
 const ID = /^[a-z0-9-]{1,64}$/;
 
-export type TimerKind = "launchd" | "systemd" | "at" | "schtasks";
+export type TimerKind = "launchd" | "systemd" | "at" | "schtasks" | "waiter";
 
 export type ArmResult =
   | { ok: true; via: TimerKind }
@@ -59,6 +60,8 @@ export interface TimerHost {
   detached: (command: string, args: string[]) => void;
   exists: (path: string) => boolean;
   uid: () => number | undefined;
+  /** Whether Rewake's waiter (waiter.ts) runs, under process id `pid`. */
+  waiterRunning?: (pid: number) => boolean;
 }
 
 export function defaultTimerHost(stateDir: string, node: string, cli: string): TimerHost {
@@ -85,6 +88,7 @@ export function defaultTimerHost(stateDir: string, node: string, cli: string): T
     },
     exists: existsSync,
     uid: () => process.getuid?.(),
+    waiterRunning: (pid) => isWaiter(pid, cli),
   };
 }
 
@@ -131,7 +135,7 @@ export function timerNames(id: string, h: TimerHost): string[] {
   for (const f of files) {
     const name = f
       .replace(/^codizelabs\.agent-rewake\./, "")
-      .replace(/\.(plist|systemd|task|at|at-time)$/, "");
+      .replace(/\.(plist|systemd|task|at|at-time|wait)$/, "");
     if (name !== f && ID.test(name) && parseTimerName(name).id === id) names.add(name);
   }
   return [...names];
@@ -272,6 +276,42 @@ function atCancel(id: string, h: TimerHost): void {
   rmSync(join(h.stateDir, "timers", `${id}.at-time`), { force: true });
 }
 
+// ---- Linux without systemd or at: Rewake's waiter -------------------------------------------------
+
+/** Each resume the waiter runs leaves `<name>.wait` holding its time; the waiter, `waiter.pid`. */
+const waiterPid = (h: TimerHost) => join(h.stateDir, "timers", "waiter.pid");
+
+/** The waiter's process id, when it's running. */
+export function waiterAlive(h: TimerHost): number | undefined {
+  try {
+    const pid = Number(readFileSync(waiterPid(h), "utf8").trim());
+    return Number.isInteger(pid) && pid > 0 && (h.waiterRunning?.(pid) ?? false) ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether `pid` is Rewake's waiter: a check of its command line, so a reused id doesn't count. */
+function isWaiter(pid: number, cli: string): boolean {
+  try {
+    const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+    return args.includes(cli) && args.includes("wait");
+  } catch {
+    return false;
+  }
+}
+
+function waiterArm(id: string, at: number, h: TimerHost): ArmResult {
+  writeFileSync(join(timersDir(h), `${id}.wait`), String(at), { mode: 0o600 });
+  // One waiter for every resume: started when none runs; a running one reads the new file.
+  if (waiterAlive(h) === undefined) h.detached(h.node, [h.cli, "wait", "--state-dir", h.stateDir]);
+  return { ok: true, via: "waiter" };
+}
+
+function waiterHas(name: string, h: TimerHost): boolean {
+  return existsSync(join(h.stateDir, "timers", `${name}.wait`)) && waiterAlive(h) !== undefined;
+}
+
 // ---- Windows: Task Scheduler (documented, untested) ---------------------------------------------
 
 /** An ISO time with the local offset, which Task Scheduler reads regardless of locale. */
@@ -336,6 +376,7 @@ export function timerKind(h: TimerHost): TimerKind | undefined {
   if (h.platform === "linux") {
     if (systemdAvailable(h)) return "systemd";
     if (atAvailable(h)) return "at";
+    return "waiter";
   }
   return undefined;
 }
@@ -356,6 +397,7 @@ export function armTimer(id: string, at: number, h: TimerHost, gen = 0): ArmResu
   if (kind === "launchd") return launchdArm(name, at, h);
   if (kind === "systemd") return systemdArm(name, at, h);
   if (kind === "at") return atArm(name, at, h);
+  if (kind === "waiter") return waiterArm(name, at, h);
   return schtasksArm(name, at, h);
 }
 
@@ -380,6 +422,7 @@ function nameArmed(name: string, kind: TimerKind, h: TimerHost): boolean {
     const n = atJob(name, h);
     return n !== undefined && new RegExp(`^${n}\\s`, "m").test(h.run("atq", []).stdout);
   }
+  if (kind === "waiter") return waiterHas(name, h);
   return h.run("schtasks", ["/Query", "/TN", taskName(name)]).status === 0;
 }
 
@@ -448,6 +491,7 @@ export function cancelTimer(
       h.run("systemctl", ["--user", "stop", `${unit(name)}.timer`]);
       rmSync(join(dir, `${name}.systemd`), { force: true });
     } else if (kind === "at") atCancel(name, h);
+    else if (kind === "waiter") rmSync(join(dir, `${name}.wait`), { force: true });
     else if (kind === "schtasks") {
       h.run("schtasks", ["/Delete", "/TN", taskName(name), "/F"]);
       rmSync(join(dir, `${name}.task`), { force: true });

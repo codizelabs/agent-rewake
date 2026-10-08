@@ -7,6 +7,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 ### Added
 
 - **Cursor's own agent (preview):** `agent-rewake install --only cursor` adds two hooks to `~/.cursor/hooks.json` (yours stay). When a chat stops at its usage limit, Rewake tells you to run `agent-rewake continue` and choose when (Cursor doesn't say when its limit resets); at that time (within 4 hours of the limit) it sends "Resume the work from where you were interrupted." (marked as from Agent Rewake) into the same chat, while that Cursor window stays open; typing in the chat meanwhile cancels it. If the window was closed or reloaded, a notification says to continue it yourself. A limit that waiting won't lift (a free plan's allowance, or one that needs payment) gets a notification instead. Continuing the same chat was tried in Cursor 3.23; a real Cursor usage limit wasn't yet.
+- **Linux without systemd or `at` (WSL, containers) can continue sessions too:** before, planned resumes there waited until you next opened an agent. Rewake now uses its own background process, one for all planned resumes, which ends when none is left. It stops when you log out or restart, and starts again the next time you use an agent. `agent-rewake install` and `doctor` say when it's used, with the fix: systemd in WSL, or the `at` service elsewhere.
 
 ### Changed
 
