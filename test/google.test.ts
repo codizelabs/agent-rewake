@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runContinue } from "../src/continue.js";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { ScheduleStore } from "../src/core/store.js";
+import { DEFAULT_RESUME_PROMPT } from "../src/core/threads.js";
 import { nextMidnight } from "../src/core/time.js";
 import {
   agyOpenIn,
@@ -255,19 +256,34 @@ describe("Gemini CLI", () => {
       notify: () => true,
     });
     expect(outcome).toBe("sent");
-    const call = JSON.parse(readFileSync(log, "utf8").trim()) as { args: string[]; cwd: string };
+    const call = JSON.parse(readFileSync(log, "utf8").trim()) as {
+      args: string[];
+      cwd: string;
+      stdin: string;
+    };
     expect(call.cwd).toBe(work);
-    expect(call.args).toEqual([
-      "--resume",
-      SID,
-      "-p",
-      expect.any(String),
-      "--approval-mode",
-      "default",
-      "-o",
-      "json",
-    ]);
+    expect(call.args).toEqual(["--resume", SID, "--approval-mode", "default", "-o", "json"]);
     expect(call.args.join(" ")).not.toMatch(/--yolo|--skip-trust/);
+    // The message arrived on stdin, and no part of it is in the argv `ps` shows every process.
+    expect(call.stdin).toBe(DEFAULT_RESUME_PROMPT);
+    expect(call.args).not.toContain("-p");
+    for (const arg of call.args) expect(DEFAULT_RESUME_PROMPT).not.toContain(arg);
+  });
+
+  it("gives a resume's message to Gemini CLI on stdin, never on the command line", async () => {
+    const log = join(dir, "stdin.log");
+    const r = new SessionRecords(state, "gemini-cli").update(SID, dir, NOW, (x) => ({
+      ...x,
+      program: FAKE,
+    }));
+    if (!r) throw new Error("no session record");
+    const secret = "Continue: the passphrase is correct-horse-battery-staple.";
+    expect(await resumeGemini(r, secret, { ...process.env, FAKE_RESUME_LOG: log })).toEqual({
+      ok: true,
+    });
+    const call = JSON.parse(readFileSync(log, "utf8").trim()) as { args: string[]; stdin: string };
+    expect(call.stdin).toBe(secret);
+    expect(call.args.join("\u0000")).not.toContain("correct-horse");
   });
 
   it("passes on the reset a limited run gives, as Antigravity does", async () => {

@@ -1,4 +1,16 @@
-import { closeSync, fsyncSync, openSync, readFileSync, renameSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import {
+  closeSync,
+  fsyncSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 
 /**
  * File operations that behave the same on every OS.
@@ -64,3 +76,77 @@ export const readText = (file: string): string => stripBom(readFileSync(file, "u
 
 /** JSON.parse a file, tolerating a byte-order mark (JSON.parse rejects one). */
 export const readJsonFile = (file: string): unknown => JSON.parse(readText(file));
+
+/**
+ * A new file next to `target`, created exclusively with `mode`, holding `data` and synced to disk.
+ * Returns its path, for the caller to rename over `target`.
+ *
+ * The name carries random bytes and the file is opened with "wx", so it is always this process
+ * that creates it. A predictable temp name opened with "w" can be pre-empted: another user (or
+ * any program running as this one) plants a symlink there first, and the write lands wherever
+ * that symlink points, with contents Rewake chose. Renaming the finished file over `target`
+ * replaces `target` itself and never writes through a symlink standing in its place.
+ */
+export function writeTempExclusive(target: string, data: string, mode: number): string {
+  const tmp = join(
+    dirname(target),
+    `.${basename(target)}.agent-rewake.${process.pid}.${randomBytes(8).toString("hex")}.tmp`,
+  );
+  const fd = openSync(tmp, "wx", mode);
+  try {
+    writeSync(fd, data);
+    fsyncSync(fd);
+  } catch (err) {
+    closeSync(fd);
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+  closeSync(fd);
+  return tmp;
+}
+
+/**
+ * Replace `target` with `data`, atomically and without following a symlink at the temp path
+ * (`writeTempExclusive`). The file keeps `mode`; a crash leaves the old file or the new one.
+ */
+export function replaceFileExclusive(target: string, data: string, mode: number): void {
+  const tmp = writeTempExclusive(target, data, mode);
+  try {
+    renameWithRetry(tmp, target);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+/**
+ * A file holding text no other user may read: 0600, inside a directory of its own made with a
+ * random name and owner-only permissions. Used for a scheduled message an agent's CLI can only
+ * take as a file path — a path is visible in `ps`, its contents are not. `remove()` deletes the
+ * directory and the file with it, and never throws.
+ */
+export function privateTempFile(prefix: string, name: string, data: string): PrivateTempFile {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const path = join(dir, name);
+  const fd = openSync(path, "wx", 0o600);
+  try {
+    writeSync(fd, data);
+  } finally {
+    closeSync(fd);
+  }
+  return {
+    path,
+    remove: () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // The run is over; a temp file left behind is not worth failing for.
+      }
+    },
+  };
+}
+
+export interface PrivateTempFile {
+  path: string;
+  remove: () => void;
+}

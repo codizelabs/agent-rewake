@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { replaceFileExclusive } from "../util/fs.js";
 
 /**
  * A login item that sets lost timers again after a restart. A resume's timer can be lost when the
@@ -93,7 +94,10 @@ export function syncLoginItem(h: LoginHost, wanted: boolean): "added" | "removed
     const same = had && readFileSync(item.path, "utf8") === item.text;
     if (same) return "unchanged";
     mkdirSync(dirname(item.path), { recursive: true });
-    writeFileSync(item.path, item.text, { mode: 0o644 });
+    // Atomically, through a temp file only this process can have created. The login item is code
+    // the system runs at sign-in, so a write that could be redirected (a symlink planted at a
+    // guessable temp path) or read half-written is worth ruling out.
+    replaceFileExclusive(item.path, item.text, 0o644);
     if (item.kind === "systemd") {
       h.run("systemctl", ["--user", "daemon-reload"]);
       h.run("systemctl", ["--user", "enable", UNIT]);

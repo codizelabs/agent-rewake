@@ -1,15 +1,30 @@
 #!/usr/bin/env node
-// A stand-in for the `copilot` CLI in tests. `--resume=<id> -p <text> … --output-format json`
-// prints JSONL events like Copilot CLI 1.0.92 (research note §B.3.3) and records its arguments,
-// working folder and Rewake's marker in $FAKE_COPILOT_LOG.
+// A stand-in for the `copilot` CLI in tests. `--resume=<id> … --output-format json` with the
+// prompt on stdin prints JSONL events like Copilot CLI 1.0.92 (research note §B.3.3) and records
+// its arguments, working folder, stdin and Rewake's marker in $FAKE_COPILOT_LOG.
 //   FAKE_COPILOT = ok | limited | fail | gone; FAKE_COPILOT_ERROR: the limit's message
 import { appendFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
+
+/** Everything on stdin, or "" when it is closed. */
+async function readStdin() {
+  if (process.stdin.isTTY) return "";
+  let text = "";
+  try {
+    process.stdin.setEncoding("utf8");
+    for await (const chunk of process.stdin) text += chunk;
+  } catch {
+    return text;
+  }
+  return text;
+}
+
+const stdin = await readStdin();
 if (process.env.FAKE_COPILOT_LOG)
   appendFileSync(
     process.env.FAKE_COPILOT_LOG,
-    `${JSON.stringify({ args, cwd: process.cwd(), fire: process.env.AGENT_REWAKE_FIRE ?? null })}\n`,
+    `${JSON.stringify({ args, cwd: process.cwd(), stdin, fire: process.env.AGENT_REWAKE_FIRE ?? null })}\n`,
   );
 const outcome = process.env.FAKE_COPILOT ?? "ok";
 process.stdout.write(`${JSON.stringify({ type: "session.start", data: {} })}\n`);
