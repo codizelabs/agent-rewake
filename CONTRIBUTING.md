@@ -22,7 +22,7 @@ npm run check:pack   # what the npm package would contain
 
 `npm run build` writes the single-file bundle to `dist/agent-rewake.js`. To try your build in Zed, run `node dist/agent-rewake.js install`, quit Zed completely and reopen it. `node dist/agent-rewake.js uninstall` restores your agents.
 
-The docs site lives in `site/` (Astro Starlight): `cd site && npm ci && npm run dev`, then open <http://localhost:4321/agent-rewake/>.
+The docs site lives in `site/` (Astro Starlight): `cd site && npm ci && npm run dev`, then open <http://localhost:4321/>.
 
 ### Layout
 

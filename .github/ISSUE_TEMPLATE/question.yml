@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Check the [README](https://github.com/codizelabs/agent-rewake/blob/main/README.md) and the [docs](https://codizelabs.github.io/agent-rewake/docs/) first. Questions about Zed, the Claude adapter or Claude Code themselves belong in those projects.
+        Check the [README](https://github.com/codizelabs/agent-rewake/blob/main/README.md) and the [docs](https://rewake.js.org/docs/) first. Questions about Zed, the Claude adapter or Claude Code themselves belong in those projects.
   - type: textarea
     id: question
     attributes:
