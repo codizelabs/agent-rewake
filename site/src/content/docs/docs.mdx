@@ -171,7 +171,7 @@ Preview. Rewake continues a session once it's closed.
 
 2. Work in Copilot CLI as usual. When a session stops at its usage limit, close it.
 3. Run `npx @codizelabs/agent-rewake continue`. Run it any time before the reset, and Rewake waits until then, then continues the closed session. Copilot's weekly limit doesn't say when it resets, so `continue` asks you when (in 1, 3 or 5 hours, or another time).
-4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. This setting also applies to Claude Code, unless you typed `/rewake auto off` there. Reopening the session and typing in it before the reset also cancels its resume.
+4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. This is one setting for every agent: it also turns on automatic resume in new Zed threads and in Claude Code (unless you typed `/rewake auto off` there), and `continue --ask` turns it off in all of them. Reopening the session and typing in it before the reset also cancels its resume.
 5. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
 6. To remove it: `npx @codizelabs/agent-rewake uninstall --only copilot-cli`. That also cancels its planned resumes.
 

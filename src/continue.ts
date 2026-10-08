@@ -62,8 +62,8 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     saveSettings(o.deps.stateDir, { ...settings, newThreads: o.mode === "always" ? "on" : "ask" });
     o.out(
       o.mode === "always"
-        ? `From now on, when a session stops at a usage limit that resets within a day, Rewake continues it by itself once the session is closed. To be asked again: ${rewake("continue --ask")}\n`
-        : `Rewake will ask again: after a usage limit, run "${rewake("continue")}" to continue a session.\n`,
+        ? `From now on, when an agent stops at a usage limit that resets within a day, Rewake continues it by itself, without asking: in new Zed threads, in Claude Code, and in closed Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions. To be asked again, everywhere: ${rewake("continue --ask")}\n`
+        : `Rewake will ask again, in every agent: after a usage limit, run "${rewake("continue")}" to continue a closed session.\n`,
     );
     return 0;
   }
@@ -243,7 +243,7 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     );
   if (settings.newThreads !== "on" && latest === undefined)
     o.out(
-      `To let Rewake do this by itself next time (when the reset is within a day): ${rewake("continue --always")}\n`,
+      `To let Rewake do this by itself next time, in every agent (Zed, Claude Code and closed sessions) when the reset is within a day: ${rewake("continue --always")}\n`,
     );
   return 0;
 }
