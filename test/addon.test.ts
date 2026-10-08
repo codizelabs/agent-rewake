@@ -2589,6 +2589,7 @@ describe("limits that agents report in their own way", () => {
       "Rewake: Not resuming automatically this time: the limit was read from the agent's message, and this thread skips permission prompts, so a person should confirm it.",
     );
     g.addon.stop();
+  });
 
   it("Cursor: a monthly allowance at the end of a turn is not offered a resume", async () => {
     const h = await harness(dir, {
