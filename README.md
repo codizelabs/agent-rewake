@@ -109,7 +109,7 @@ In Zed, the **Rewake** menu under the message box does everything; elsewhere, ty
 | To… | In Zed | Elsewhere |
 |---|---|---|
 | Resume after a limit | **Rewake → Resume after the usage limit…** (offered automatically) | Answer Rewake's question, or type `/rewake` (or `/rewake 3:30pm`); for a closed session, `agent-rewake continue` |
-| Resume automatically | **Rewake → Turn on auto-resume after limits…** | Choose "from now on" in Rewake's question, `/rewake auto on`, or `agent-rewake continue --always` |
+| Resume automatically | **Rewake → Turn on auto-resume after limits…** | Choose "from now on" in Rewake's question, `/rewake auto on` (Claude Code only), or `agent-rewake continue --always` (every agent outside Zed, Claude Code included) |
 | Schedule a message | **Rewake → Schedule a message…** | `/rewake in 3h Run the tests` (Claude Code) |
 | Repeat a message | **Custom time…** in the schedule form, or `/rewake every weekday 09:00 Check the build` | Not yet |
 | See or change messages | **Rewake → Schedules**, **Change a scheduled message…** | `/rewake list`, `/rewake cancel N` (Claude Code, Gemini CLI; in Codex without the slash) |

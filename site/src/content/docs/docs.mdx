@@ -121,7 +121,7 @@ Preview, for Claude Code in a terminal, and in Claude Code's panel in VS Code or
 
    It adds Rewake's plugin with Claude Code's own plugin commands.
 2. Start a new Claude Code session, and work as usual.
-3. At a usage limit, Rewake asks once whether to continue the session after the reset: at that time, or at that time and from then on in every session when the reset is within a day. In a terminal, when Claude Code's own "Continue automatically at usage limit" will most likely continue the session (its setting on, a reset within a day), Rewake leaves it to Claude Code and doesn't ask. In VS Code and Cursor, Claude Code's own setting doesn't apply, so Rewake handles every limit there. Keep Claude Code open: Rewake runs inside it. A continue that came due while it was closed is offered when you reopen the session, not sent.
+3. At a usage limit, Rewake asks once whether to continue the session after the reset: at that time, or at that time and from then on in every session when the reset is within a day. If automatic resume is on for every agent (`agent-rewake continue --always`, or Zed's Settings), it doesn't ask. `/rewake auto on` or `off` sets it for Claude Code only. In a terminal, when Claude Code's own "Continue automatically at usage limit" will most likely continue the session (its setting on, a reset within a day), Rewake leaves it to Claude Code and doesn't ask. In VS Code and Cursor, Claude Code's own setting doesn't apply, so Rewake handles every limit there. Keep Claude Code open: Rewake runs inside it. A continue that came due while it was closed is offered when you reopen the session, not sent.
 4. If you didn't answer the question, type `/rewake` to continue after the reset (or `/rewake 3:30pm` for another time). To cancel a planned continue, type `/rewake cancel`. To be asked each time again, `/rewake auto off`.
 5. To send a message later, type `/rewake` alone and choose when, then what, or type it in one go: `/rewake in 1h Run the tests`. `/rewake list` shows what's scheduled, `/rewake cancel N` deletes one, and `/rewake help` lists the rest.
 6. Check the setup: `npx @codizelabs/agent-rewake doctor`.
@@ -164,7 +164,7 @@ Preview. Rewake continues a session once it's closed.
 
 2. Work in Copilot CLI as usual. When a session stops at its usage limit, close it.
 3. Run `npx @codizelabs/agent-rewake continue`. Run it any time before the reset, and Rewake waits until then, then continues the closed session. Copilot's weekly limit doesn't say when it resets, so `continue` asks you when (in 1, 3 or 5 hours, or another time).
-4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. Reopening the session and typing in it before the reset also cancels its resume.
+4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. This setting also applies to Claude Code, unless you typed `/rewake auto off` there. Reopening the session and typing in it before the reset also cancels its resume.
 5. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
 6. To remove it: `npx @codizelabs/agent-rewake uninstall --only copilot-cli`. That also cancels its planned resumes.
 
@@ -187,7 +187,7 @@ Preview. Rewake continues a session once it's closed.
 
    Gemini CLI shows Rewake's answer as "Agent execution blocked … This request failed". That's expected: Rewake answers `/rewake` itself, without using the model.
 3. If you didn't type `/rewake`: once the session is closed, run `npx @codizelabs/agent-rewake continue`. Run it any time before the reset, and Rewake waits until then, then continues the closed session.
-4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. Reopening the session and typing in it before the reset also cancels its resume.
+4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. This setting also applies to Claude Code, unless you typed `/rewake auto off` there. Reopening the session and typing in it before the reset also cancels its resume.
 5. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
 6. To remove it: `npx @codizelabs/agent-rewake uninstall --only gemini-cli`. That also cancels its planned resumes.
 
@@ -207,7 +207,7 @@ Preview. Rewake continues a session once it's closed.
 
 2. Work in Grok Build as usual. When a session stops at its usage limit, close it.
 3. Run `npx @codizelabs/agent-rewake continue`. Run it any time before the reset, and Rewake waits until then, then continues the closed session. Grok's free usage limit doesn't say when it resets, so `continue` asks you when (in 1, 3 or 5 hours, or another time).
-4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. Reopening the session and typing in it before the reset also cancels its resume.
+4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. This setting also applies to Claude Code, unless you typed `/rewake auto off` there. Reopening the session and typing in it before the reset also cancels its resume.
 5. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
 6. To remove it: `npx @codizelabs/agent-rewake uninstall --only grok`. That also cancels its planned resumes.
 
@@ -227,7 +227,7 @@ Preview. Rewake continues a conversation once it's closed.
 
 2. Work in Antigravity CLI as usual. When a conversation stops at its usage limit, close it.
 3. Run `npx @codizelabs/agent-rewake continue`. Run it any time before the reset, and Rewake waits until then, then continues the closed conversation.
-4. To have Rewake continue closed conversations by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume.
+4. To have Rewake continue closed conversations by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. This setting also applies to Claude Code, unless you typed `/rewake auto off` there.
 5. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
 6. To remove it: `npx @codizelabs/agent-rewake uninstall --only antigravity`. That also cancels its planned resumes.
 

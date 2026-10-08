@@ -6,6 +6,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Changed
 
+- **Claude Code's continues show up in `agent-rewake doctor`:** its planned continues count with the other agents' ("keep Claude Code open"), and a session waiting for your answer is named, with its folder. Rewake's plugin now records each session's folder with its limit (never message text).
+- **Claude Code follows Rewake's setting for every agent:** after `agent-rewake continue --always` (or turning it on in Zed's Settings), Claude Code continues without asking too, and `/rewake auto` says why. `/rewake auto off` in Claude Code keeps asking there, whatever the shared setting.
 - **The README, docs and website start from where you work**: a terminal, Claude Code's panel in VS Code or Cursor, Zed, JetBrains IDEs and Devin Desktop, each with what Rewake does there and its status. Zed's menu, forms and settings have their own section, and the website's "How it works" and agent tiles put the terminal agents first. The status badge says v0.2.
 - **The README, docs and website say what's been tried for each preview, and what hasn't:** Claude Code in a terminal, VS Code and Cursor, Copilot CLI, Gemini CLI and Grok Build were tried by hand on a Mac with a test usage limit (none has met a real one yet); Codex only in automated tests; Antigravity CLI not yet. The docs also explain that a closed session is continued without your shell profile's settings, that Copilot's and Grok's limits don't say when they reset (so `continue` asks you when), and how Gemini CLI shows Rewake's answer to `/rewake`.
 

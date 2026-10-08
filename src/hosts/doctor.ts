@@ -1,6 +1,7 @@
 import { ScheduleStore } from "../core/store.js";
 import type { Finding } from "../doctor.js";
 import type { PlaceId } from "../install/detect.js";
+import { claudeCodeRecords } from "./claude-code/records.js";
 import type { HostAdapter } from "./host.js";
 import { hooksTurnedOff } from "./policy.js";
 import { AGENT_VERSIONS, newerThanTested, tooOld, untestedText } from "./versions.js";
@@ -71,10 +72,17 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
     });
 
   const resumes = new ScheduleStore(f.stateDir).list().filter((s) => s.host !== undefined);
-  const name = (host: string | undefined) => (host && f.hosts.get(host)?.name) || host || "";
-  const upcoming = resumes
-    .filter((s) => s.status === "scheduled" || s.status === "sending")
-    .sort((a, b) => a.dueAt - b.dueAt);
+  const name = (host: string | undefined) =>
+    (host && f.hosts.get(host)?.name) || (host === "claude-code" ? "Claude Code" : host) || "";
+  // Claude Code's continues live in its own plugin; its copies say what's planned there.
+  const cc = setUp.has("claude-code") ? claudeCodeRecords(f.stateDir, f.now) : [];
+  const upcoming = [
+    ...resumes.filter((s) => s.status === "scheduled" || s.status === "sending"),
+    ...cc
+      .filter((r) => r.state === "armed" && r.fireAt !== undefined && r.fireAt > f.now - 5 * 60_000)
+      .map((r) => ({ host: "claude-code", dueAt: r.fireAt as number })),
+  ].sort((a, b) => a.dueAt - b.dueAt);
+  const asking = cc.filter((r) => r.state === "offered" || r.state === "waiting");
   const needsYou = resumes.filter((s) => s.status === "needs_attention");
   const recent = (s: { dueAt: number }) => s.dueAt > f.now - 7 * DAY;
   const missed = resumes.filter((s) => s.status === "missed" && recent(s));
@@ -85,8 +93,22 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
   if (next)
     add({
       level: "ok",
-      text: `${n(upcoming.length, "planned resume")}; the next one continues ${name(next.host)} ${f.when(next.dueAt, f.now)}. Keep this computer on and awake then.`,
+      text: `${n(upcoming.length, "planned resume")}; the next one continues ${name(next.host)} ${
+        next.dueAt <= f.now ? "now" : f.when(next.dueAt, f.now)
+      }. Keep this computer on and awake${next.host === "claude-code" ? ", and Claude Code open," : ""} then.`,
     });
+  if (asking.length > 0) {
+    const where = (r: { cwd?: string }) =>
+      r.cwd ? ` (in the "${r.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? r.cwd}" folder)` : "";
+    add({
+      level: "todo",
+      text:
+        asking.length === 1
+          ? `1 Claude Code session${where(asking[0] as { cwd?: string })} is waiting for your answer: continue it after the reset?`
+          : `${asking.length} Claude Code sessions are waiting for your answer: continue them after the reset?`,
+      fix: "Answer Rewake's question there, or type /rewake.",
+    });
+  }
   if (needsYou.length > 0)
     add({
       level: "todo",
