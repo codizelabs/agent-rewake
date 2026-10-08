@@ -56,6 +56,13 @@ const QUESTION =
 
 let isInteractive = false;
 let surface = null;
+/**
+ * Claude Code's own "Continue automatically at usage limit" as this session started with it: the
+ * running Claude Code keeps that value, so a change in the settings file mid-session doesn't count.
+ */
+let nativeSetting;
+/** How long after the reset Claude Code's own continue may take before Rewake steps in. */
+const NATIVE_GRACE_MS = 2 * 60_000;
 /** How Claude Code was started (`CLAUDE_CODE_ENTRYPOINT`): "cli", "claude-vscode", "sdk-ts"… */
 let entrypoint;
 /** Sessions whose limit is being handled right now (a burst of StopFailures is one limit). */
@@ -221,7 +228,10 @@ async function refreshStatus($, id, now) {
 
 /** A limit whose reset time is known: leave it to Claude Code, or ask. */
 async function classify($, id, ep, now) {
-  const { autoContinueAtUsageLimit } = await $.settings.read();
+  const autoContinueAtUsageLimit =
+    nativeSetting === undefined
+      ? (await $.settings.read()).autoContinueAtUsageLimit
+      : nativeSetting.value;
   if (
     nativeLikely({
       isInteractive,
@@ -438,6 +448,10 @@ async function tick($) {
     await refreshStatus($, id, now);
   }
   if (ep?.state === "armed" && ep.fireAt !== undefined && now >= ep.fireAt) return fire($, id);
+  // Claude Code was expected to continue by itself, but hasn't said so since the reset: Rewake
+  // asks (or, with "always", continues), so a session never waits with nobody to continue it.
+  if (ep?.state === "native" && ep.resetAt !== undefined && now >= ep.resetAt + NATIVE_GRACE_MS)
+    return ask($, id, { ...ep, fireAt: now }, now);
   await updateWake($, ep, now);
   // Scheduled messages wait while a limit is pending; one per tick.
   if (busy || (ep && ep.state !== "sent")) return;
@@ -673,6 +687,11 @@ export function register(on) {
     isInteractive = e.isInteractive;
     entrypoint = await $.env.get("CLAUDE_CODE_ENTRYPOINT").catch(() => undefined);
     surface = surfaceOf({ surface: e.surface, entrypoint });
+    try {
+      nativeSetting = { value: (await $.settings.read()).autoContinueAtUsageLimit };
+    } catch {
+      nativeSetting = undefined;
+    }
     await loadConfig($);
     $.clock.every(TICK_MS, () => void tick($));
     void reopen($);
