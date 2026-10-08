@@ -11,6 +11,9 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Fixed
 
+- **`agent-rewake continue` no longer lists a session Rewake already continued.** It lists it again only after a new usage limit, or when the continue failed.
+- **A failed continue says why.** When the agent's run fails (for example "No session … matched"), Rewake keeps its last error line, with your home folder shown as `~` and anything like a key, token or email address removed, and `agent-rewake continue` and `agent-rewake doctor` show it, with when Rewake tried.
+
 - **Claude Code in VS Code, Cursor and the Claude desktop app:** a usage limit in Claude Code's panel is now handled like one in the terminal: Rewake asks, then continues the same session when the limit resets. Before, Rewake ignored limits there, because the panels run Claude Code the way Zed does (through the Agent SDK); only Zed's own sessions are left to the Zed add-on now. Scheduled messages already worked in the panels.
 
 ## [0.2.0] - 2026-10-07

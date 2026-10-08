@@ -61,6 +61,8 @@ export interface Schedule {
   createdAt: number;
   updatedAt: number;
   failureReason?: string;
+  /** A failed run's last error line from the agent, cleaned of paths and keys. */
+  failureMessage?: string;
   /** A repeating message's previous run: when it was due and how it ended. */
   lastRun?: { at: number; outcome: ScheduleStatus | "skipped" };
   /**

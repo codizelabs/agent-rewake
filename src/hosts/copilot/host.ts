@@ -14,7 +14,7 @@ import {
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult } from "../host.js";
+import { resumeDeadline, type SendResult, withMessage } from "../host.js";
 import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -98,7 +98,13 @@ export function resumeCopilot(
       if (limited) resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       else if (code === 0) resolve({ ok: true });
       else if (SESSION_GONE.test(err)) resolve({ ok: false, reason: "closed", detail: "deleted" });
-      else resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
+      else
+        resolve({
+          ok: false,
+          reason: "failed",
+          detail: `exit ${code ?? "signal"}`,
+          ...withMessage(err),
+        });
     });
   });
 }
