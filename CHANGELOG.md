@@ -4,6 +4,20 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-08
+
+### Fixed
+
+- **Cancelling now always wins over a continue that hasn't started sending:** before, a cancel (or typing in the session) just as Rewake was about to send could be missed, and the message was sent anyway. A continue that is already sending can't be taken back, so `agent-rewake continue --cancel` now says "Not cancelled: Rewake is already continuing …" and how to see what it did, instead of "Cancelled".
+- **`agent-rewake uninstall` takes Rewake out of every place it's set up in:** before, it removed only Zed's entries but said Rewake was gone everywhere. Now it shows every change first, asks once, and says what's left (Rewake's own folder). To keep some places, use `--only` or `--skip`.
+- **Commands Rewake tells you to run now work when you installed with npx:** notifications, `continue`, `doctor`, install messages and the schedules page said "Run agent-rewake continue", which isn't a command unless Rewake is installed globally. When `agent-rewake` isn't on your PATH, they now say `npx @codizelabs/agent-rewake continue`, and the same for every other command.
+- **Claims on the website that weren't true.** The comparison said community scripts poll a usage endpoint "until it rate-limits them in turn" (the tool that did this fixed it and closed both issues), that several of the most-starred are "stale or archived" (none of the six most-starred is archived; they are stale), and that one "presses Enter on whatever prompt is on screen" (that is an option you turn on, not what it does by default). Each is now what can be checked today.
+- **"Does it spend usage credits?" said "No."** The resume is a message, and it uses your plan like any message you type. It still doesn't change your plan, limits or credits.
+- **"Rewake has no background service"** is now "no always-on service", and says that on Linux without systemd or `at` (WSL, containers) Rewake runs its own process while a resume is waiting.
+- **The website said "Early release (0.2)" while npm served 0.3.0.** The landing page now takes the version from `package.json`, and a test fails when the README or the docs fall behind.
+- **A scheduled message is no longer readable by every other process on your computer.** When Rewake continued a closed session, it passed your message to the agent as a command-line argument, and a command line is public: any other program (or another user) on the machine could read it from the process list for as long as the run lasted. Rewake now hands the message to **Copilot CLI** and **Gemini CLI** on their standard input, and to **Grok Build** (whose CLI reads no prompt from standard input) in a file only you can read, deleted the moment the run ends. The **Antigravity CLI** preview still passes it as an argument: its CLI documents no other way to take a prompt, and Rewake won't guess a flag; it's noted in the docs and will be fixed once `agy` can be checked. Nothing left your computer either way.
+- **Rewake's own writes into your files can't be redirected.** `install` wrote its temporary file at a predictable name without demanding to create it, and the login item was written in place. Something that could plant a symlink at that name first (anything running as you, or another user where the folder allows it) could have turned an install into a write of Rewake's choosing somewhere else — including the macOS login item, which runs at sign-in. Both now create their temporary file exclusively, under a random name, and replace the file itself rather than following a link standing there. Backups and file permissions are unchanged.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added

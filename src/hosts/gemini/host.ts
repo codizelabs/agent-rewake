@@ -21,7 +21,7 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult, withMessage } from "../host.js";
+import { resumeDeadline, type SendResult, sendPromptOnStdin, withMessage } from "../host.js";
 import {
   type SessionLimit,
   type SessionRecord,
@@ -37,9 +37,10 @@ import {
  *     hook reads the newest `{type: "error"}` record at the end of the session file).
  *   - The reset time comes from the error text ("reset after 1h2m3s", "Resets in …", an ISO time);
  *     Gemini CLI never stores a structured one. Otherwise the person picks a time.
- *   - Fire: `gemini --resume <uuid> -p "<message>" --approval-mode default -o json` in the
- *     session's folder, only when it's closed (Gemini has no session lock). `--approval-mode
- *     default` never widens the person's mode; `--skip-trust` is never passed.
+ *   - Fire: `gemini --resume <uuid> --approval-mode default -o json` in the session's folder,
+ *     with the message on stdin and never as an argument (sendPromptOnStdin), only when it's
+ *     closed (Gemini has no session lock). `--approval-mode default` never widens the person's
+ *     mode; `--skip-trust` is never passed.
  *   - Gemini's hook env has GEMINI_SESSION_ID (and CLAUDE_PROJECT_DIR "for compatibility", which is
  *     why the guard doesn't look at that).
  */
@@ -125,21 +126,19 @@ export function resumeGemini(
     // With `-o json`, Gemini CLI writes an API error (a usage limit too) to stderr, as
     // `{"session_id", "error": {"message", "code": 429}}`, and exits with 429 & 255 (v0.62.0).
     let err = "";
+    // The message goes in on stdin, never as `-p <text>`: an argument is readable from `ps` by
+    // anything else on the machine. With no `-p`, Gemini CLI still runs headless when stdin is
+    // not a terminal and takes what it reads there as the prompt ("Appended to input on stdin
+    // (if any)", `gemini --help`, 0.62.0; checked against the pinned CLI).
+    // One case Rewake can't close: if the person turns Gemini's sandbox on (settings, `-s`, or
+    // GEMINI_SANDBOX), the CLI re-launches itself inside the sandbox and passes what it read on
+    // stdin to that child as `--prompt <text>`. Rewake never asks for the sandbox.
     const child = spawn(
       program.command,
-      [
-        ...program.args,
-        "--resume",
-        r.sessionId,
-        "-p",
-        text,
-        "--approval-mode",
-        "default",
-        "-o",
-        "json",
-      ],
-      { cwd: r.cwd || undefined, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
+      [...program.args, "--resume", r.sessionId, "--approval-mode", "default", "-o", "json"],
+      { cwd: r.cwd || undefined, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
     );
+    sendPromptOnStdin(child, text);
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < 1 << 20) out += d.toString("utf8");
     });
@@ -233,8 +232,7 @@ export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDe
   if (c.kind === "cancel") {
     const pending = pendingFor(d.stateDir, GEMINI_ID, id);
     for (const s of pending) {
-      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
-      d.disarm(s.scheduleId);
+      if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
     }
     return pending.length > 0
       ? "Rewake: Cancelled. This conversation won't be continued on its own."
@@ -255,8 +253,7 @@ export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDe
     at = l.resetsAt + RESET_MARGIN_MS;
   }
   for (const s of pendingFor(d.stateDir, GEMINI_ID, id)) {
-    store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
-    d.disarm(s.scheduleId);
+    if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
   }
   armClosed(geminiHost, r, at, d);
   return `Rewake will continue this conversation ${formatAt(at, d.now)}, if Gemini CLI is closed by then and this computer is awake. To cancel: /rewake cancel`;

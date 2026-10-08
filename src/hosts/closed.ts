@@ -4,6 +4,7 @@ import { loadSettings, type Settings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../core/threads.js";
 import { formatAt } from "../core/time.js";
+import { rewake } from "../util/command.js";
 import { type AgentProcess, stillRunning } from "../util/proc.js";
 import type { HostAdapter, HostFacts, SendResult } from "./host.js";
 import { type SessionLimit, type SessionRecord, SessionRecords } from "./sessions.js";
@@ -161,7 +162,7 @@ export function armedText(host: ClosedHost, cwd: string, at: number, now: number
   const typing = host.keepOpen
     ? `Typing in the ${host.noun ?? "session"} before then cancels this continue.`
     : `Reopening that ${host.noun ?? "session"} and typing in it before then cancels this resume.`;
-  return `Rewake will continue ${placeOf(host, cwd)} ${formatAt(at, now)}. Keep this computer on and awake until then.${keep} ${typing} To cancel all planned resumes: agent-rewake continue --cancel`;
+  return `Rewake will continue ${placeOf(host, cwd)} ${formatAt(at, now)}. Keep this computer on and awake until then.${keep} ${typing} To cancel all planned resumes: ${rewake("continue --cancel")}`;
 }
 
 /** Arm a resume of a closed session at `at`. */
@@ -256,8 +257,7 @@ export function onPrompt(host: ClosedHost, sessionId: string, cwd: string, d: Cl
   // The person carried on: a pending resume of this session is no longer wanted.
   const store = new ScheduleStore(d.stateDir);
   for (const s of pendingFor(d.stateDir, host.id, sessionId)) {
-    store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
-    d.disarm(s.scheduleId);
+    if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
   }
 }
 
@@ -315,7 +315,7 @@ export function onSessionEnd(
     : "and choose when to continue it";
   d.notify(
     "Agent Rewake",
-    `${placeOf(host, r.cwd)} hit its usage limit. Run "agent-rewake continue" ${how}.`,
+    `${placeOf(host, r.cwd)} hit its usage limit. Run "${rewake("continue")}" ${how}.`,
   );
 }
 
@@ -332,8 +332,7 @@ function followLaterReset(host: ClosedHost, r: SessionRecord, d: ClosedDeps): vo
   for (const s of pendingFor(d.stateDir, host.id, r.sessionId)) {
     if (s.status !== "scheduled" || l.seenAt <= s.createdAt || at <= s.dueAt) continue;
     if (l.resetsAt - d.now > FAR_RESET_MS) {
-      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), d.now);
-      d.disarm(s.scheduleId);
+      if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
       continue;
     }
     store.update(s.scheduleId, (x) => ({ ...x, dueAt: at }), d.now);

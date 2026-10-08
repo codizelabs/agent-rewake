@@ -83,3 +83,23 @@ export function resumeDeadline(child: ChildProcess, ms = RESUME_TIMEOUT_MS): () 
   child.once("error", () => clearTimeout(timer));
   return () => stopped;
 }
+
+/**
+ * Hand the scheduled message to a headless run on its stdin, and close it.
+ *
+ * A command line is readable by every process on the machine (`ps`, `/proc/<pid>/cmdline`, the
+ * Windows process list), so a message passed as an argument is public for as long as the agent
+ * runs. Rewake's own log holds metadata only (util/log.ts, SECURITY.md) and nothing it schedules
+ * is meant to leave the computer: stdin is private to the two processes, so the message goes
+ * that way wherever the agent's CLI reads one.
+ *
+ * A write error is ignored: an agent that exits before reading stdin (signed out, no such
+ * session) would otherwise raise EPIPE, and its exit code and output already say what went wrong.
+ */
+export function sendPromptOnStdin(child: ChildProcess, text: string): void {
+  if (!child.stdin) return;
+  child.stdin.on("error", () => {
+    // The agent exited before reading it; the exit code says why.
+  });
+  child.stdin.end(text);
+}

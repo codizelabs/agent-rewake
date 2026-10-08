@@ -19,6 +19,7 @@ import {
   unwrappedEntry,
 } from "./install.js";
 import { agentName, detectSetup } from "./setup.js";
+import { rewake } from "./util/command.js";
 import { readText } from "./util/fs.js";
 import { stateDir, zedConfigDir, zedDataDir } from "./util/paths.js";
 import { SLEEP_DOCS_URL, type SleepSettings, sleepRisks } from "./util/sleep-settings.js";
@@ -471,7 +472,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
         area: "Sign-in",
         level: "todo",
         text: "Zed's settings give Claude Agent an Anthropic API key, but Zed clears that key when Claude Agent runs through Rewake, so Claude uses your Claude sign-in instead.",
-        fix: "To keep using your Claude sign-in, remove the key from Claude Agent in Zed's settings. To use the API key instead, Rewake can't pass it on yet: run agent-rewake uninstall for Claude Agent's setup without Rewake.",
+        fix: `To keep using your Claude sign-in, remove the key from Claude Agent in Zed's settings. To use the API key instead, Rewake can't pass it on yet: run "${rewake("uninstall")}" for Claude Agent's setup without Rewake.`,
       });
   }
   if (env.AGENT_REWAKE_ALLOW_AUTO === "0")
@@ -599,7 +600,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       area: "Scheduled messages",
       level: "todo",
       text: `${count(needsYou.length, "message")} need${needsYou.length === 1 ? "s" : ""} you (for example the reply was cut off, or the next reset is more than a day away).`,
-      fix: "Open the thread and use the Rewake menu, or run: agent-rewake ui",
+      fix: `Open the thread and use the Rewake menu, or run: ${rewake("ui")}`,
     });
   if (failed.length > 0)
     add({
@@ -665,7 +666,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       level: fixed ? "info" : "problem",
       text: `${who} couldn't start ${count(v.n, "time")}, last ${when(v.last, now)}${fixed ? "; it has started since" : ""}.`,
       ...(!fixed && {
-        fix: `Reopen the thread. If it keeps failing, run the install command again (${install}), or check that ${who} starts without Rewake (agent-rewake uninstall).`,
+        fix: `Reopen the thread. If it keeps failing, run the install command again (${install}), or check that ${who} starts without Rewake (${rewake("uninstall")}).`,
       }),
     });
   }
@@ -809,7 +810,7 @@ export function render(
     ].filter(Boolean);
     lines.push(`${parts.join(" and ")}.${first?.fix ? ` Start here: ${first.fix}` : ""}`);
   }
-  if (!opts.details) lines.push("More detail for a bug report: agent-rewake doctor --details");
+  if (!opts.details) lines.push(`More detail for a bug report: ${rewake("doctor --details")}`);
   return `${lines.join("\n")}\n`;
 }
 

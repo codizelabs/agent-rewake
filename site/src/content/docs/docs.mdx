@@ -4,7 +4,7 @@ description: "Resume Claude Code, Codex, Gemini CLI or any Zed agent automatical
 tableOfContents:
   maxHeadingLevel: 2
 banner:
-  content: 'Early release (v0.2): <code>npx @codizelabs/agent-rewake install</code> · <a href="#status">Status</a>'
+  content: 'Early release: <code>npx @codizelabs/agent-rewake install</code> · <a href="#status">Status</a>'
 ---
 
 import ResumeScene from "../../components/scenes/ResumeScene.astro";
@@ -274,7 +274,7 @@ Rewake works the same way in front of every external agent Zed runs: Claude Agen
 4. To resume without being asked: **Rewake → Turn on auto-resume after limits…** for this thread, or answer *every new thread* when a new thread asks ([Make it automatic](#make-it-automatic)).
 5. To send a message later: **Rewake → Schedule a message…** ([Schedule a message](#schedule-a-message)).
 6. Check the setup: `npx @codizelabs/agent-rewake doctor` says "Working: Zed last started it …" once a thread has started Rewake.
-7. To remove it: `npx @codizelabs/agent-rewake uninstall`.
+7. To remove it from Zed: `npx @codizelabs/agent-rewake uninstall --only zed`.
 
 **Needs:** Zed 1.22 or newer with its AI features on, an external agent in the Agent Panel, and Node.js 22 or newer.
 
@@ -373,6 +373,7 @@ Rewake's own **Keep this computer awake** setting (macOS) is changed in Zed's **
 - Everything runs on your machine. Rewake makes no network calls of its own and never sees your credentials; sign-in goes through the agent's own flow.
 - It sends only what you scheduled, what you approved, or the resume message you turned on.
 - It stores scheduled messages, per-thread settings and metadata-only logs (never message content) in its state directory, with owner-only permissions. `doctor --details` prints where. Plain `doctor` names no folders, accounts or keys, so you can paste its output anywhere.
+- Your message never goes on a command line. Continuing a closed session (Copilot CLI, Gemini CLI, Grok Build) starts the agent and hands it the message on standard input, or in a file with owner-only permissions that is deleted as soon as the run ends. A command-line argument would be readable by every other process on the computer (`ps`). The **Antigravity CLI** preview is the exception: its CLI has no documented way to take a prompt other than as an argument, so on that preview the message is visible in the process list while the run lasts.
 - Anything it sends runs with your account and the thread's permission settings while you may be away. Report vulnerabilities privately: [SECURITY.md](https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md).
 
 ## Troubleshooting
@@ -422,11 +423,11 @@ Every version updates with the two steps above. If a release ever needs anything
 
 ## Uninstall
 
-`agent-rewake uninstall` puts every agent back the way it was and removes Rewake's task and keybinding, after showing you the list. Then delete Rewake's folder, which `agent-rewake doctor --details` shows. Pending messages aren't sent after removal.
+`agent-rewake uninstall` takes Rewake out of every place it's set up in (Zed, your agents' hooks and plugins, the login item), after showing you every change and asking once. To keep some places, name the others with `--only`, or leave some out with `--skip`. Then delete Rewake's folder, which `agent-rewake doctor --details` shows. Pending messages aren't sent after removal.
 
 ## Status
 
-Version 0.2. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: [what's been tried for each](#outside-zed-previews). Changes: [CHANGELOG](https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md). The site aims for WCAG 2.2 AA; Zed's agent panel itself has limited screen-reader support. Report barriers as [issues](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: [what's been tried for each](#outside-zed-previews). Changes: [CHANGELOG](https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md). The site aims for WCAG 2.2 AA; Zed's agent panel itself has limited screen-reader support. Report barriers as [issues](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
 ## Reference
 
@@ -461,9 +462,9 @@ Everything here is also in the Rewake menu.
 | Command | What it does |
 |---|---|
 | `agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]…` | Add Rewake to your Zed agents (shows the changes and asks first) |
-| `agent-rewake uninstall [--yes] [--dry-run]` | Put every agent back the way it was |
+| `agent-rewake uninstall [--yes] [--dry-run]` | Take Rewake out of every place it's set up in |
 | `agent-rewake install` (in a terminal) | Shows what's on your computer and lets you tick the places to set up; then shows every change and asks once |
-| `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`, `jetbrains`, `devin-desktop`. With `--yes` and no place named: Zed |
+| `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`, `jetbrains`, `devin-desktop`. With `--yes` and no place named, `install` sets up Zed and `uninstall` removes every place |
 | `agent-rewake continue [--always \| --ask \| --cancel]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit. `--always` does it from now on, `--ask` asks again, `--cancel` cancels all planned resumes |
 | `agent-rewake doctor [--details]` | Whether Rewake can work in your Zed, and what to do next; `--details` adds versions and folders for bug reports |
 | `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |

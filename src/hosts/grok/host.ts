@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { classifyGrokFailure } from "../../core/limits/agents.js";
 import { recogniseForHost } from "../../core/limits/recognise.js";
 import { isProcessAlive } from "../../core/lock.js";
+import { privateTempFile } from "../../util/fs.js";
 import {
   type ClosedDeps,
   type ClosedHost,
@@ -30,7 +31,7 @@ import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js"
  *     (billing, never resumed): it counts only when the text says "weekly limit".
  *   - The reset time comes from the billing line Grok logs on every prompt to
  *     `$GROK_HOME/logs/unified.jsonl` ("billing: fetched credits config", `currentPeriod.end`).
- *   - Fire: `grok -p "<message>" -r <session> --cwd <folder> --output-format json` for a closed
+ *   - Fire: `grok --prompt-file <file> -r <session> --cwd <folder> --output-format json` for a closed
  *     session (none of its PIDs alive in `active_sessions.json`). No --always-approve, --yolo,
  *     bypassPermissions or --trust.
  *   - Grok also runs Claude Code's hooks, so every Rewake hook checks who called it: Grok sets
@@ -155,14 +156,20 @@ export function resumeGrok(
     return Promise.resolve({ ok: false, reason: "unsupported", detail: "no Grok found" });
   // npm's .cmd shim on Windows can't be spawned without a shell: run its script with Node.
   const program = nodeAware(r.program, process.execPath);
+  // The message goes in a file, never as `-p <text>`: an argument is readable from `ps` by
+  // anything else on the machine. Grok Build takes a single-turn prompt from a file
+  // (`--prompt-file <PATH>`, `grok --help`, 1.0.46; checked against the pinned CLI), and reads
+  // no prompt from stdin. The file is 0600 in a private directory of its own, and is deleted as
+  // soon as the run ends; only its path is public.
+  const prompt = privateTempFile("agent-rewake-grok-", "message.txt", text);
   return new Promise((resolve) => {
     let out = "";
     const child = spawn(
       program.command,
       [
         ...program.args,
-        "-p",
-        text,
+        "--prompt-file",
+        prompt.path,
         "-r",
         r.sessionId,
         ...(r.cwd ? ["--cwd", r.cwd] : []),
@@ -184,8 +191,12 @@ export function resumeGrok(
       if (out.length < 1 << 20) out += d.toString("utf8");
     });
     const timedOut = resumeDeadline(child);
-    child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
+    child.on("error", () => {
+      prompt.remove();
+      resolve({ ok: false, reason: "failed", detail: "spawn" });
+    });
     child.on("exit", (code) => {
+      prompt.remove();
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       if (code === 0) {
         // The JSON result names the session it ran in: anything else isn't this session.

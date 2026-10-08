@@ -12,6 +12,7 @@ import {
   unanswered,
 } from "./hosts/closed.js";
 import { type SessionRecord, SessionRecords } from "./hosts/sessions.js";
+import { rewake } from "./util/command.js";
 import { SLEEP_DOCS_URL, type SleepSettings, sleepRisks } from "./util/sleep-settings.js";
 
 /**
@@ -61,8 +62,8 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     saveSettings(o.deps.stateDir, { ...settings, newThreads: o.mode === "always" ? "on" : "ask" });
     o.out(
       o.mode === "always"
-        ? "From now on, when a session stops at a usage limit that resets within a day, Rewake continues it by itself once the session is closed. To be asked again: agent-rewake continue --ask\n"
-        : 'Rewake will ask again: after a usage limit, run "agent-rewake continue" to continue a session.\n',
+        ? `From now on, when a session stops at a usage limit that resets within a day, Rewake continues it by itself once the session is closed. To be asked again: ${rewake("continue --ask")}\n`
+        : `Rewake will ask again: after a usage limit, run "${rewake("continue")}" to continue a session.\n`,
     );
     return 0;
   }
@@ -77,10 +78,18 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
       return 0;
     }
     for (const s of pending) {
-      store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), now);
-      o.deps.disarm(s.scheduleId);
       const host = o.hosts.find((h) => h.id === s.host);
-      o.out(`Cancelled: ${host ? placeOf(host, s.cwd) : "a session"} ${formatAt(s.dueAt, now)}.\n`);
+      const place = host ? placeOf(host, s.cwd) : "a session";
+      // A continue already under way can't be taken back: say so rather than "Cancelled".
+      if (!store.cancel(s.scheduleId, now)) {
+        const reopen = host?.reopen ?? `open the session in ${host?.name ?? "its agent"}`;
+        o.out(
+          `Not cancelled: Rewake is already continuing ${place}. It finishes on its own; ${reopen} afterwards to see what it did.\n`,
+        );
+        continue;
+      }
+      o.deps.disarm(s.scheduleId);
+      o.out(`Cancelled: ${place} ${formatAt(s.dueAt, now)}.\n`);
     }
     return 0;
   }
@@ -112,7 +121,7 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
   };
   if (!o.interactive) {
     o.out(
-      `${list.map((c) => `  ${line(c)}`).join("\n")}\nRun "agent-rewake continue" in a terminal to choose.${
+      `${list.map((c) => `  ${line(c)}`).join("\n")}\nRun "${rewake("continue")}" in a terminal to choose.${
         list.some((c) => failedTry(c))
           ? " If a try failed, open that session in its agent to continue it yourself."
           : ""
@@ -208,7 +217,7 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     );
   if (settings.newThreads !== "on" && latest === undefined)
     o.out(
-      "To let Rewake do this by itself next time (when the reset is within a day): agent-rewake continue --always\n",
+      `To let Rewake do this by itself next time (when the reset is within a day): ${rewake("continue --always")}\n`,
     );
   return 0;
 }

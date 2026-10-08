@@ -1,6 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import type { ClosedDeps } from "../src/hosts/closed.js";
@@ -21,6 +30,7 @@ import { SessionRecords } from "../src/hosts/sessions.js";
 const NOW = new Date(2026, 9, 7, 12, 0).getTime();
 const SID = "01993c7e-5a4b-7c2d-9e8f-0a1b2c3d4e5f";
 const END = new Date(2026, 9, 9, 9, 0).toISOString();
+const FAKE_GROK = fileURLToPath(new URL("./fixtures/fake-grok.mjs", import.meta.url));
 
 let dir: string;
 let state: string;
@@ -97,6 +107,37 @@ describe("Grok's limits", () => {
       reason: "limited",
       resetsAt: Date.parse(end),
     });
+  });
+
+  it("gives the message in a 0600 file, never on the command line, and deletes it", async () => {
+    const log = join(dir, "grok.log");
+    const r = {
+      schemaVersion: 1 as const,
+      host: "grok",
+      sessionId: SID,
+      cwd: dir,
+      open: false,
+      program: FAKE_GROK,
+      updatedAt: NOW,
+    };
+    const secret = "Continue: the passphrase is correct-horse-battery-staple.";
+    expect(
+      await resumeGrok(r, secret, { ...process.env, GROK_HOME: grok, FAKE_GROK_LOG: log }),
+    ).toEqual({ ok: true });
+    const call = JSON.parse(readFileSync(log, "utf8").trim()) as {
+      args: string[];
+      prompt: string;
+      mode: number;
+      file: string;
+    };
+    // Grok Build has no stdin prompt, so the message goes in a file only this user can read...
+    expect(call.prompt).toBe(secret);
+    if (process.platform !== "win32") expect(call.mode).toBe(0o600);
+    // ...its path is in the argv, its contents never are...
+    expect(call.args).not.toContain("-p");
+    expect(call.args.join("\u0000")).not.toContain("correct-horse");
+    // ...and nothing is left behind once the run is over.
+    expect(existsSync(call.file)).toBe(false);
   });
 
   it("reads the session a resume ran in from Grok's JSON result", () => {

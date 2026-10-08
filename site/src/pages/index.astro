@@ -4,6 +4,7 @@
  * Every fact here is in the code, the docs, or a linked source.
  * The scenes are illustrations of Zed built from Zed's own theme colours and Rewake's real wording; the schedules page is the program's real output (scripts/site-demos.mjs).
  */
+import { version } from "../../../package.json";
 import "../styles/tokens.css";
 import "../styles/zed.css";
 import "../styles/landing.css";
@@ -32,7 +33,7 @@ const title = "Agent Rewake: auto-resume Claude Code, Codex and other coding age
 const description =
   "Free, open-source add-on: when Claude Code, Codex, Gemini or another coding agent hits its usage limit, the same session picks the work back up when the limit resets. In a terminal, in Claude Code's VS Code and Cursor panel, and in Zed's Agent Panel for every external agent; everything outside Zed is a preview.";
 const image = new URL("social-preview.png", site).href;
-const updated = "2026-10-06";
+const updated = "2026-10-08";
 
 const faq: Array<{ q: string; a: string[] }> = [
   {
@@ -79,9 +80,9 @@ const faq: Array<{ q: string; a: string[] }> = [
     ],
   },
   {
-    q: "Does it spend usage credits or send my data anywhere?",
+    q: "Does it change my plan or send my data anywhere?",
     a: [
-      "No. Rewake doesn't change your plan, limits or credits, and it never approves permission prompts for you. Everything stays on your computer; it sends only the messages you scheduled, to your agent. Logs hold metadata, never message text.",
+      "Rewake sends one message, which uses your plan like any message you type; it doesn't change your plan, limits or credits, and it never approves permission prompts for you. Everything stays on your computer; it sends only the messages you scheduled, to your agent. Logs hold metadata, never message text.",
     ],
   },
   {
@@ -282,7 +283,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
         <div class="dawn" aria-hidden="true"></div>
         <div class="wrap grid">
           <div>
-            <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v0.2 · free and open source</a>
+            <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v{version} · free and open source</a>
             <h1 class="rise">{words.map((w, i) => <><span style={`--i:${i}`}>{w}</span>{" "}</>)}</h1>
             <p class="lede">
               A free, open-source add-on for your coding agents. When Claude Code, Codex, Gemini or another agent hits its usage limit, the same session picks the work back up when the limit resets, on its own once you allow it: in a terminal, in Claude Code's panel in VS Code or Cursor, and in Zed. Everything outside Zed is a preview.
@@ -509,7 +510,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
         <div class="wrap" data-reveal>
           <p class="kicker">Honest limits</p>
           <h2>When it sends, and when it can't.</h2>
-          <p class="sub">Rewake has no background service. In Zed it runs inside Zed, in Claude Code inside Claude Code, and for the other previews the system's own timer starts it at the reset. This is exactly what that means.</p>
+          <p class="sub">Rewake has no always-on service. In Zed it runs inside Zed, in Claude Code inside Claude Code, and for the other previews the system's own timer starts it at the reset. (On Linux without systemd or <code>at</code>, such as WSL and containers, it runs its own process, but only while a resume is waiting.) This is exactly what that means.</p>
           <div class="table-wrap">
             <table class="when">
               <thead><tr><th scope="col">Situation</th><th scope="col">What happens</th></tr></thead>
@@ -548,7 +549,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
                 <tr><td><b>Agent Rewake</b></td><td>Every external agent in Zed's Agent Panel, and the same session of Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI (previews). One command, <code>/rewake</code>, and one page for every thread</td><td>The previews are early, and a closed session needs the computer on and awake. Rewake never approves a permission prompt for you</td></tr>
                 <tr><td>Claude Code's own continue</td><td>Claude, in Claude Code's own terminal sessions</td><td>That one agent only, and nothing is scheduled: no message later, no repeat, no queue. It waits inside the session, so the terminal has to stay open; after the computer sleeps for more than half an hour it asks you to press Enter, and it re-arms at most twice in a row. Rewake steps aside when it handles a limit, and covers the agents and the cases it doesn't</td></tr>
                 <tr><td>Claude Code <code>/loop</code> and scheduled tasks</td><td>Claude, inside a session that is already running</td><td>Recurring tasks end after seven days, and nothing runs once that session is gone</td></tr>
-                <tr><td>Community auto-resume scripts</td><td>Usually one agent, in a terminal or a tmux pane</td><td>They type into a pane, so keystrokes can land in the wrong window; one popular extension drops the time zone the agent gave and waits until the wrong hour; some poll an undocumented usage endpoint until it rate-limits them in turn; one needs <code>--dangerously-skip-permissions</code> to run at all, and another presses Enter on whatever prompt is on screen, approving it for you. Several of the most-starred ones are stale or archived</td></tr>
+                <tr><td>Community auto-resume scripts</td><td>Usually one agent, in a terminal or a tmux pane</td><td>They type into a pane, so keystrokes can land in the wrong window; one popular extension drops the time zone the agent gave and waits until the wrong hour; some read an undocumented usage endpoint that isn't in the public API; one needs <code>--dangerously-skip-permissions</code> to run at all, and one can be turned on to answer the agent's permission prompts for you. Several of the most-starred have gone months without a commit</td></tr>
               </tbody>
             </table>
           </div>
@@ -562,7 +563,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
           <dl class="facts">
             <div><dt>Price</dt><dd>Free</dd></div>
             <div><dt>License</dt><dd>Apache-2.0</dd></div>
-            <div><dt>Status</dt><dd><a href={href("docs/#status")}>Early release (0.2)</a></dd></div>
+            <div><dt>Status</dt><dd><a href={href("docs/#status")}>Early release ({version})</a></dd></div>
             <div><dt>Works with</dt><dd>Every external agent in Zed 1.22 and later; <a href="#agents">previews</a> for Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI</dd></div>
             <div><dt>Needs</dt><dd>Node.js 22 or later</dd></div>
             <div><dt>Systems</dt><dd>macOS, Linux, Windows</dd></div>

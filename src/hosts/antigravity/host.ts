@@ -33,8 +33,10 @@ import { type SessionRecord, safeSessionId } from "../sessions.js";
  *     `antigravity` for 2.0, `antigravity-ide`, `antigravity-acp` for Zed, which Rewake's Zed
  *     add-on owns).
  *   - Fire: `agy --conversation <id> -p "<message>" --output-format json` in the workspace, with
- *     the updater off. While an `agy` runs in that workspace (or where the system won't say), only
- *     a notification: Antigravity has no session lock.
+ *     the updater off. While an `agy` runs in that workspace (or where the system won't say),
+ *     only a notification: Antigravity has no session lock. The message is still an argument
+ *     (so readable from `ps`): no `agy` has ever been run to check for a stdin or prompt-file
+ *     route. See resumeAgy.
  */
 
 export const ANTIGRAVITY_ID = "antigravity";
@@ -116,6 +118,13 @@ export function resumeAgy(
       detail: "no Antigravity CLI found",
     });
   const program = nodeAware(r.program, process.execPath);
+  // KNOWN GAP: the message is still an argument here, so another process on this machine can read
+  // it from `ps`. Every other host now avoids that (stdin for Copilot CLI and Gemini CLI, a 0600
+  // file for Grok Build). The Antigravity CLI (`agy`) is the one Rewake has never run: there is no
+  // pinned version, no contract test and no help output to read, and its documented flags give
+  // neither a prompt on stdin nor a prompt-file flag. Rewake will not guess a flag that may not
+  // exist. Fix this the moment `agy` can be run and its `--help` read (plan §9.5, experiments
+  // AG-E1..AG-E7); until then the Antigravity preview leaks the scheduled message locally.
   return new Promise((resolve) => {
     let out = "";
     const child = spawn(

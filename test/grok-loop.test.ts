@@ -229,8 +229,9 @@ describe.runIf(enabled)("Grok Build in a terminal, offline: limit → continue (
       expect(
         await until(
           () =>
-            read(join(desk, "notifications.log")).includes(
-              'Grok Build in the \\"work\\" folder hit its usage limit. Run \\"agent-rewake continue\\" and choose when to continue it.',
+            // The command as this computer runs it: npx when agent-rewake isn't on PATH (CI).
+            /Grok Build in the \\"work\\" folder hit its usage limit\. Run \\"(npx @codizelabs\/)?agent-rewake continue\\" and choose when to continue it\./.test(
+              read(join(desk, "notifications.log")),
             ),
           10_000,
         ),

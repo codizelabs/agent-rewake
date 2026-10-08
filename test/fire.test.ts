@@ -106,6 +106,40 @@ describe("fire", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("sends nothing when the person cancels while the agent is being checked", async () => {
+    const r = resume();
+    const { deps, sent } = setup();
+    const host = deps.hosts.get("test") as HostAdapter;
+    (deps.hosts as Map<string, HostAdapter>).set("test", {
+      ...host,
+      check: async () => {
+        // `agent-rewake continue --cancel`, or typing in the session, lands right now.
+        expect(new ScheduleStore(dir).cancel(r.scheduleId, NOW + 30_000)).toBe(true);
+        return {};
+      },
+    });
+    expect(await fire(r.scheduleId, deps)).toBe("gone");
+    expect(sent).toEqual([]);
+    expect(store.get(r.scheduleId)?.status).toBe("cancelled");
+  });
+
+  it("a continue already being sent can't be cancelled, and says so", async () => {
+    const r = resume();
+    const { deps } = setup();
+    const host = deps.hosts.get("test") as HostAdapter;
+    let cancelled: boolean | undefined;
+    (deps.hosts as Map<string, HostAdapter>).set("test", {
+      ...host,
+      send: async () => {
+        cancelled = new ScheduleStore(dir).cancel(r.scheduleId, NOW + 61_000);
+        return { ok: true };
+      },
+    });
+    expect(await fire(r.scheduleId, deps)).toBe("sent");
+    expect(cancelled).toBe(false);
+    expect(store.get(r.scheduleId)?.status).toBe("sent");
+  });
+
   it("does nothing when run early (launchd runs a job once when it's loaded)", async () => {
     const r = resume();
     const { deps, sent } = setup({ now: NOW - 5 * 60_000 });

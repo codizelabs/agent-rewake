@@ -5,6 +5,7 @@ import {
   spawnSync,
 } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -14,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // End-to-end tests against the built single-file bundle, the way Zed runs it.
@@ -237,7 +238,21 @@ describe("agent-rewake bundle", () => {
       "qwen-code didn't accept Rewake's tools, so it can't suggest schedules.",
     );
 
-    expect(cli("uninstall", "--yes").status).toBe(0);
+    // Rewake set up in Copilot CLI too: a plain uninstall covers every place, asked about once.
+    const copilotHooks = join(home, ".copilot", "hooks", "agent-rewake.json");
+    mkdirSync(dirname(copilotHooks), { recursive: true });
+    writeFileSync(copilotHooks, '{ "version": 1, "hooks": {} }\n');
+    const notTerminal = cli("uninstall");
+    expect(notTerminal.status).toBe(1);
+    expect(notTerminal.stdout).toContain("GitHub Copilot CLI");
+    expect(notTerminal.stdout).toContain("Run again with --yes to apply the changes above.");
+    expect(existsSync(copilotHooks)).toBe(true);
+    const removed = cli("uninstall", "--yes");
+    expect(removed.status).toBe(0);
+    expect(existsSync(copilotHooks)).toBe(false);
+    expect(removed.stdout).toContain(
+      "Its own folder, with your scheduled messages, is still on disk",
+    );
     const restored = readFileSync(join(zed, "settings.json"), "utf8");
     expect(restored).not.toContain("--wrap-registry");
     expect(restored).toContain('"type": "registry"');
