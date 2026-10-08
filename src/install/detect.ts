@@ -29,6 +29,7 @@ export type PlaceId =
   | "antigravity"
   | "jetbrains"
   | "devin-desktop"
+  | "cursor"
   | "zed";
 
 export interface Found {

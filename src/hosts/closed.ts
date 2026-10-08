@@ -36,6 +36,17 @@ export interface ClosedHost {
   isOpen?(record: SessionRecord): boolean;
   /** How the person gets back into a closed session: 'resume it with "copilot --resume"'. */
   reopen?: string;
+  /** The host's word for a session ("chat" in Cursor); "session" when absent. */
+  noun?: string;
+  /**
+   * A host that delivers by itself (Cursor's waiting hook): the timer runs this much after the
+   * chosen time, only to tell the person when the host couldn't.
+   */
+  fallbackDelayMs?: number;
+  /** The longest after the limit this host can still continue (Cursor's hook waits only so long). */
+  maxWaitAfterLimitMs?: number;
+  /** Added where a continue is confirmed, e.g. "Keep that Cursor window open until then." */
+  keepOpen?: string;
   /** The agent's own non-secret settings variables a resume needs as the session had them. */
   settingsVars?: readonly string[];
   /** The agent's key variables: only whether each was set is recorded, never its value. */
@@ -146,7 +157,11 @@ export function autoFor(settings: Settings): "always" | "never" | "ask" {
 
 /** What Rewake says once a closed session's resume is armed. */
 export function armedText(host: ClosedHost, cwd: string, at: number, now: number): string {
-  return `Rewake will continue ${placeOf(host, cwd)} ${formatAt(at, now)}. Keep this computer on and awake until then. Reopening that session and typing in it before then cancels this resume. To cancel all planned resumes: agent-rewake continue --cancel`;
+  const keep = host.keepOpen ? ` ${host.keepOpen}` : "";
+  const typing = host.keepOpen
+    ? `Typing in the ${host.noun ?? "session"} before then cancels this continue.`
+    : `Reopening that ${host.noun ?? "session"} and typing in it before then cancels this resume.`;
+  return `Rewake will continue ${placeOf(host, cwd)} ${formatAt(at, now)}. Keep this computer on and awake until then.${keep} ${typing} To cancel all planned resumes: agent-rewake continue --cancel`;
 }
 
 /** Arm a resume of a closed session at `at`. */
@@ -168,7 +183,7 @@ export function armClosed(host: ClosedHost, r: SessionRecord, at: number, d: Clo
     sessionRef: { sessionId: r.sessionId, cwd: r.cwd },
   };
   store.put(resume);
-  d.arm(resume.scheduleId, at);
+  d.arm(resume.scheduleId, at + (host.fallbackDelayMs ?? 0));
   return resume;
 }
 
@@ -337,7 +352,7 @@ export function closedAdapter(
   return {
     id: host.id,
     name: host.name,
-    noun: "session",
+    noun: host.noun ?? "session",
     reopen: host.reopen ?? `open the session in ${host.name}`,
     async check(s): Promise<HostFacts> {
       const r = records.get(s.sessionRef?.sessionId ?? s.sessionId);

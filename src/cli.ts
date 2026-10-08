@@ -21,6 +21,7 @@ import { refreshMod, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { type ClosedDeps, reapClosed } from "./hosts/closed.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { runCopilotInstall } from "./hosts/copilot/install.js";
+import { cursorFound, runCursorInstall } from "./hosts/cursor/install.js";
 import { devinFound, runDevinInstall } from "./hosts/devin/install.js";
 import { diagnoseOutside } from "./hosts/doctor.js";
 import { runGeminiInstall } from "./hosts/gemini/install.js";
@@ -103,6 +104,7 @@ const INSTALL_PLACES = new Set([
   "antigravity",
   "jetbrains",
   "devin-desktop",
+  "cursor",
 ]);
 
 const USAGE = `agent-rewake ${VERSION}
@@ -321,6 +323,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           out: o.out,
           ask,
         });
+      if (id === "cursor") return runCursorInstall(common);
       if (id === "jetbrains")
         return runJetbrainsInstall({
           uninstall,
@@ -668,6 +671,9 @@ function placesHere(env: NodeJS.ProcessEnv): { places: Place[]; missing: string[
     ...(devinFound(homedir())
       ? [{ id: "devin-desktop" as const, name: "Devin Desktop", surfaces: ["app"] }]
       : []),
+    ...(cursorFound(env, homedir(), process.platform)
+      ? [{ id: "cursor" as const, name: "Cursor", surfaces: ["app"] }]
+      : []),
   ];
   const places = placesFrom(
     withIde,
@@ -824,7 +830,14 @@ function cancelResumesOf(places: string[], env: NodeJS.ProcessEnv): void {
 
 /** Re-arm lost timers and start due resumes (plan §5); never fails the command running it. */
 /** The previews whose sessions a system timer continues: these need timers back after a restart. */
-const TIMER_PLACES = new Set(["codex", "copilot-cli", "gemini-cli", "grok", "antigravity"]);
+const TIMER_PLACES = new Set([
+  "codex",
+  "copilot-cli",
+  "gemini-cli",
+  "grok",
+  "antigravity",
+  "cursor",
+]);
 
 /** Whether installing these places would add the login item (it isn't there yet). */
 function loginWouldAdd(env: NodeJS.ProcessEnv, places: readonly string[]): boolean {
