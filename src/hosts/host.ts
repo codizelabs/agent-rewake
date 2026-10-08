@@ -66,14 +66,25 @@ export function withMessage(output: string): { message?: string } {
   return message === undefined ? {} : { message };
 }
 
-/** The longest a headless resume run may take before Rewake stops it. */
-export const RESUME_TIMEOUT_MS = 30 * 60_000;
+/**
+ * The longest a headless resume run may take before Rewake stops it: long enough for a night's
+ * work, short enough that a run stuck on something never ends up holding the session for days.
+ */
+export const RESUME_TIMEOUT_MS = 3 * 60 * 60_000;
+
+let runStarted: ((pid: number) => void) | undefined;
+
+/** `fire`: hear when a host starts its headless run, with the agent's process id. */
+export function onResumeRun(listener: ((pid: number) => void) | undefined): void {
+  runStarted = listener;
+}
 
 /**
- * Stop a resume run that is still going after `ms` (waiting on an approval, hung). Returns a check,
- * read when the child exits, of whether it was stopped this way.
+ * Stop a resume run that is still going after `ms` (hung). Returns a check, read when the child
+ * exits, of whether it was stopped this way. Also reports the run's start (`onResumeRun`).
  */
 export function resumeDeadline(child: ChildProcess, ms = RESUME_TIMEOUT_MS): () => boolean {
+  if (child.pid !== undefined) runStarted?.(child.pid);
   let stopped = false;
   const timer = setTimeout(() => {
     stopped = true;

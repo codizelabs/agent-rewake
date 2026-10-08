@@ -43,6 +43,10 @@ export interface Attempt {
   idempotencyKey: string;
   startedAt: number;
   outcome?: string;
+  /** A headless run's agent process, while it runs (for `continue --cancel` to stop it). */
+  pid?: number;
+  /** The person stopped the run (`continue --cancel`). */
+  stopped?: boolean;
 }
 
 /** One scheduled message. Stored as schedules/<scheduleId>.json. */
