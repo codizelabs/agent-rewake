@@ -192,7 +192,7 @@ Preview. Rewake continues a session once it's closed.
    It adds Rewake's extension with Gemini CLI's own command.
 2. Work in Gemini CLI as usual. At a usage limit, Gemini CLI asks what to do. Choose **Stop**. Rewake then says in the conversation when the limit resets. Type `/rewake` there, then close Gemini CLI.
 
-   While that question is open, Gemini CLI runs none of its hooks, so Rewake can't see the limit. If you close Gemini CLI without choosing, Rewake has nothing to continue: open the session again later and continue it yourself.
+   While that question is open, Rewake can't see the limit. If you close Gemini CLI without choosing, Rewake has nothing to continue: open the session again later and continue it yourself.
 
    Gemini CLI shows Rewake's answer as "Agent execution blocked … This request failed". That's expected: Rewake answers `/rewake` itself, without using the model.
 3. If you didn't type `/rewake`: once the session is closed, run `npx @codizelabs/agent-rewake continue`. Run it any time before the reset, and Rewake waits until then, then continues the closed session.
@@ -202,7 +202,7 @@ Preview. Rewake continues a session once it's closed.
 
 **Needs:** Gemini CLI 0.62.0 or newer (tested with 0.62.0). Tried with an API key; signing in with Google hasn't been tried yet.
 
-**Can't:** continue a session that's still open, or schedule messages. It can't approve anything for you either: a continued session runs without a terminal, so Gemini CLI can't ask you to approve an edit or a command. It refuses that step and carries on without it, and Rewake sends a notification saying so. Open the session to see where it stopped, and approve what's needed there. (Rewake recognises the refusal from Gemini CLI's own wording, which comes from its source code and hasn't been seen in a real run yet.)
+**Can't:** continue a session that's still open, or schedule messages. It can't approve anything for you either: a continued session runs without a terminal, so Gemini CLI can't ask you to approve an edit or a command. It refuses that step and carries on without it, and Rewake sends a notification saying so. Open the session to see where it stopped, and approve what's needed there.
 
 ### Grok Build
 
