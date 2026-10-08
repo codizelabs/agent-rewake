@@ -5,7 +5,7 @@ import type { APIRoute } from "astro";
 import { getCollection } from "astro:content";
 
 export const GET: APIRoute = async ({ site }) => {
-  const base = new URL("/agent-rewake/", site);
+  const base = new URL("/", site);
   const pages = (await getCollection("docs")).sort((a, b) => a.id.localeCompare(b.id));
   const line = (p: (typeof pages)[number]) =>
     `- [${p.data.title}](${new URL(`${p.id}/`, base)}): ${p.data.description ?? ""}`;

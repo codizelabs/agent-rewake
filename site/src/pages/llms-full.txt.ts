@@ -5,7 +5,7 @@ import { getCollection } from "astro:content";
 import { AGENT_GUIDE } from "../../../src/guide.ts";
 
 export const GET: APIRoute = async ({ site }) => {
-  const base = new URL("/agent-rewake/", site);
+  const base = new URL("/", site);
   const pages = (await getCollection("docs")).sort((a, b) => a.id.localeCompare(b.id));
   const body = [
     AGENT_GUIDE.trim(),

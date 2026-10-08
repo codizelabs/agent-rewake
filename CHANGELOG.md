@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **The website moves to [rewake.js.org](https://rewake.js.org/).** Links to the old address, `codizelabs.github.io/agent-rewake/`, including the one in the "may sleep" notice of earlier versions, are forwarded to the same page on the new one.
+
 ## [0.3.1] - 2026-10-08
 
 ### Fixed

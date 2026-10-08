@@ -13,13 +13,13 @@ Works where you already use your agent: Claude Code in a terminal or in its VS C
 [![Node.js 22+](https://img.shields.io/badge/node-%E2%89%A522-339933)](https://nodejs.org)
 [![macOS · Linux · Windows](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-555)](#requirements)
 
-[Docs](https://codizelabs.github.io/agent-rewake/docs/) · [Website](https://codizelabs.github.io/agent-rewake/) · [Report a bug](https://github.com/codizelabs/agent-rewake/issues/new/choose)
+[Docs](https://rewake.js.org/docs/) · [Website](https://rewake.js.org/) · [Report a bug](https://github.com/codizelabs/agent-rewake/issues/new/choose)
 
 <br>
 
-[![Watch the 1-minute intro: an agent stops at its limit at 3 AM, and Rewake resumes the thread on its own](site/public/video/rewake-intro-poster.jpg)](https://codizelabs.github.io/agent-rewake/#film)
+[![Watch the 1-minute intro: an agent stops at its limit at 3 AM, and Rewake resumes the thread on its own](site/public/video/rewake-intro-poster.jpg)](https://rewake.js.org/#film)
 
-<sub>▶ <a href="https://codizelabs.github.io/agent-rewake/#film">Watch the 1-minute intro</a> (with narration and captions)</sub>
+<sub>▶ <a href="https://rewake.js.org/#film">Watch the 1-minute intro</a> (with narration and captions)</sub>
 
 </div>
 
@@ -36,12 +36,12 @@ Coding agents stop at their usage limit: Claude's 5-hour session limit, Codex's 
 - **Resumes after a usage limit.** When the agent stops, Rewake asks once whether to continue (or does it on its own, if you turned that on). At the reset, plus a minute, it sends a message that resumes the same session, and the agent carries on. If the agent is still limited, Rewake waits for the new reset time.
 - **Automatic, if you want.** Choose *from now on* when Rewake asks (Claude Code), turn on auto-resume in Zed's **Rewake** menu, or run `agent-rewake continue --always` (Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI), and Rewake resumes without asking. It asks first when a limit resets more than a day away, never resumes credit or billing limits (and says so), and never approves permission prompts for you.
 - **Sends messages later.** `/rewake in 1h Run the tests` schedules a message into the session (Zed and Claude Code; in Zed also on a repeat, such as every weekday at 9).
-- **Keeps the computer awake, if it can.** On macOS, while a resume is due within six hours, Rewake stops the computer from idling to sleep (while plugged in, by default). Closing the lid still puts it to sleep. `agent-rewake doctor` tells you if your computer's own sleep settings would let it sleep, and [which settings to change](https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake).
+- **Keeps the computer awake, if it can.** On macOS, while a resume is due within six hours, Rewake stops the computer from idling to sleep (while plugged in, by default). Closing the lid still puts it to sleep. `agent-rewake doctor` tells you if your computer's own sleep settings would let it sleep, and [which settings to change](https://rewake.js.org/docs/#keep-your-computer-awake).
 - **Same agent, same session.** No new agent to pick: Rewake works inside or in front of the agents you already use, so your sessions and threads keep going where they stopped.
 
 ## Where you work
 
-Install once with `npx @codizelabs/agent-rewake install`: it finds what's on your computer and lets you pick. Everything outside Zed is a preview: new, installed one place at a time, and it may change. Most previews have been tried on a Mac with a simulated usage limit; none has hit a real one yet ([what's been tried](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews)).
+Install once with `npx @codizelabs/agent-rewake install`: it finds what's on your computer and lets you pick. Everything outside Zed is a preview: new, installed one place at a time, and it may change. Most previews have been tried on a Mac with a simulated usage limit; none has hit a real one yet ([what's been tried](https://rewake.js.org/docs/#outside-zed-previews)).
 
 | Where | Agents | What Rewake does there | Status |
 |---|---|---|---|
@@ -57,7 +57,7 @@ Install once with `npx @codizelabs/agent-rewake install`: it finds what's on you
 
 Not supported yet: GitHub Copilot's own chat in VS Code, and the Claude desktop app's Code tab (not tried yet). Out of reach: claude.ai, the Claude desktop app's chat and Zed's own built-in agent, which let no add-on in.
 
-Guides for each: [Claude Code](https://codizelabs.github.io/agent-rewake/docs/#claude-code) · [Codex](https://codizelabs.github.io/agent-rewake/docs/#codex) · [Copilot CLI](https://codizelabs.github.io/agent-rewake/docs/#github-copilot-cli) · [Gemini CLI](https://codizelabs.github.io/agent-rewake/docs/#gemini-cli) · [Grok Build](https://codizelabs.github.io/agent-rewake/docs/#grok-build) · [Antigravity CLI](https://codizelabs.github.io/agent-rewake/docs/#antigravity-cli) · [Cursor](https://codizelabs.github.io/agent-rewake/docs/#cursor) · [Zed](https://codizelabs.github.io/agent-rewake/docs/#zed)
+Guides for each: [Claude Code](https://rewake.js.org/docs/#claude-code) · [Codex](https://rewake.js.org/docs/#codex) · [Copilot CLI](https://rewake.js.org/docs/#github-copilot-cli) · [Gemini CLI](https://rewake.js.org/docs/#gemini-cli) · [Grok Build](https://rewake.js.org/docs/#grok-build) · [Antigravity CLI](https://rewake.js.org/docs/#antigravity-cli) · [Cursor](https://rewake.js.org/docs/#cursor) · [Zed](https://rewake.js.org/docs/#zed)
 
 ## Quick start
 
@@ -84,13 +84,13 @@ npx @codizelabs/agent-rewake doctor
 
 ### Updating
 
-From any version: run `npx @codizelabs/agent-rewake@latest install`. Previews use the new version from their next session; in Zed, quit Zed completely and open it again. Your sessions, scheduled messages and settings stay. Details, and any version-specific steps (none so far), are in the [docs](https://codizelabs.github.io/agent-rewake/docs/#update). To see which version you run: `agent-rewake --version` (in Zed also the **Rewake** menu).
+From any version: run `npx @codizelabs/agent-rewake@latest install`. Previews use the new version from their next session; in Zed, quit Zed completely and open it again. Your sessions, scheduled messages and settings stay. Details, and any version-specific steps (none so far), are in the [docs](https://rewake.js.org/docs/#update). To see which version you run: `agent-rewake --version` (in Zed also the **Rewake** menu).
 
 ### Requirements
 
 - [Node.js](https://nodejs.org) 22 or newer
 - For Zed: [Zed](https://zed.dev) 1.22 or newer, with its AI features on, and an external agent in the Agent Panel (for example Claude Agent, signed in). `install` can add Claude Agent for you
-- For a preview: a recent version of that agent ([the versions](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews))
+- For a preview: a recent version of that agent ([the versions](https://rewake.js.org/docs/#outside-zed-previews))
 - macOS, Linux (including Flatpak Zed) or Windows
 
 ## How it works
@@ -118,7 +118,7 @@ In Zed, the **Rewake** menu under the message box does everything; elsewhere, ty
 
 **One command everywhere:** `/rewake` is the same in Zed, Claude Code and Gemini CLI (in Codex, type `rewake` without the slash). At a usage limit it continues after the reset; `/rewake <time>` continues then, `/rewake cancel` cancels it, and `/rewake help` lists what else works where you are. Rewake answers it itself, without using the model.
 
-Full guide: **[codizelabs.github.io/agent-rewake/docs](https://codizelabs.github.io/agent-rewake/docs/)**.
+Full guide: **[rewake.js.org/docs](https://rewake.js.org/docs/)**.
 
 ## Agents in Zed
 
@@ -141,7 +141,7 @@ This takes Rewake out of every place it's set up in, after showing every change 
 
 ## Status
 
-Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://rewake.js.org/docs/#outside-zed-previews), and what hasn't. Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
 ## Contributing
 

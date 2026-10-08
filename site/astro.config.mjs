@@ -2,8 +2,8 @@
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 
-const SITE = "https://codizelabs.github.io";
-const BASE = "/agent-rewake";
+const SITE = "https://rewake.js.org";
+const BASE = "";
 const SOCIAL_IMAGE = `${SITE}${BASE}/social-preview.png`;
 const SOCIAL_ALT =
   "Agent Rewake: your Zed agent threads resume on their own when a usage limit resets.";

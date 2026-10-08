@@ -2934,7 +2934,7 @@ describe("keeping the computer awake", () => {
     h.addon.tick();
     await settle();
     expect(h.texts().filter((t) => t.startsWith("Rewake: This computer may sleep"))).toEqual([
-      "Rewake: This computer may sleep before the resume at 17:01 today: it's set to sleep after 15 minutes when plugged in. Change that so it stays awake while you're away; the best settings: https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake",
+      "Rewake: This computer may sleep before the resume at 17:01 today: it's set to sleep after 15 minutes when plugged in. Change that so it stays awake while you're away; the best settings: https://rewake.js.org/docs/#keep-your-computer-awake",
     ]);
     h.addon.stop();
   });
@@ -3036,7 +3036,7 @@ describe("keeping the computer awake", () => {
     expect(
       h.texts().filter((t) => t.startsWith("Rewake: Make sure this computer won't sleep")),
     ).toEqual([
-      "Rewake: Make sure this computer won't sleep before the resume at 17:01 today: Rewake couldn't check its sleep settings. The best settings: https://codizelabs.github.io/agent-rewake/docs/#keep-your-computer-awake",
+      "Rewake: Make sure this computer won't sleep before the resume at 17:01 today: Rewake couldn't check its sleep settings. The best settings: https://rewake.js.org/docs/#keep-your-computer-awake",
     ]);
     h.addon.stop();
   });
