@@ -4,6 +4,13 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- **Claims on the website that weren't true.** The comparison said community scripts poll a usage endpoint "until it rate-limits them in turn" (the tool that did this fixed it and closed both issues), that several of the most-starred are "stale or archived" (none of the six most-starred is archived; they are stale), and that one "presses Enter on whatever prompt is on screen" (that is an option you turn on, not what it does by default). Each is now what can be checked today.
+- **"Does it spend usage credits?" said "No."** The resume is a message, and it uses your plan like any message you type. It still doesn't change your plan, limits or credits.
+- **"Rewake has no background service"** is now "no always-on service", and says that on Linux without systemd or `at` (WSL, containers) Rewake runs its own process while a resume is waiting.
+- **The website said "Early release (0.2)" while npm served 0.3.0.** The landing page now takes the version from `package.json`, and a test fails when the README or the docs fall behind.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added

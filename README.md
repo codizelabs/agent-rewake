@@ -140,7 +140,7 @@ This puts every agent back the way it was. `doctor` shows the folder where Rewak
 
 ## Status
 
-Version 0.2. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
 ## Contributing
 
