@@ -1,6 +1,8 @@
 import { ScheduleStore } from "../core/store.js";
 import type { Finding } from "../doctor.js";
 import type { PlaceId } from "../install/detect.js";
+import type { TimerKind } from "../timers/timers.js";
+import { waiterNote } from "../timers/waiter.js";
 import { claudeCodeRecords } from "./claude-code/records.js";
 import type { HostAdapter } from "./host.js";
 import { hooksTurnedOff } from "./policy.js";
@@ -23,6 +25,10 @@ export interface OutsideFacts {
   hosts: ReadonlyMap<string, HostAdapter>;
   /** Whether this computer offers a one-shot timer (src/timers/timers.ts timerKind). */
   hasTimer: boolean;
+  /** Which one (only "waiter" changes what doctor says). */
+  timerKind?: TimerKind;
+  /** Linux in WSL (for the waiter's fix). */
+  wsl?: boolean;
   /** The agents' terminal programs here, with their versions (src/install/detect.ts terminalAgents). */
   agents?: { id: PlaceId; version?: string }[];
   when: (at: number, now: number) => string;
@@ -70,6 +76,8 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
           ? "Sign in to a normal desktop session, or install and start the at service."
           : "Run agent-rewake doctor again after a restart; if it stays, report it with agent-rewake doctor --details.",
     });
+
+  if (f.timerKind === "waiter") add({ level: "info", ...waiterNote(f.wsl ?? false) });
 
   const resumes = new ScheduleStore(f.stateDir).list().filter((s) => s.host !== undefined);
   const name = (host: string | undefined) =>
