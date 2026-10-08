@@ -114,6 +114,16 @@ export const copilotHost: ClosedHost = {
   name: "GitHub Copilot CLI",
   reopen: 'resume the session with "copilot --resume"',
   resume: (r, text, env) => resumeCopilot(r, text, env),
+  settingsVars: [
+    "COPILOT_HOME",
+    "COPILOT_CACHE_HOME",
+    "COPILOT_OFFLINE",
+    "COPILOT_PROVIDER_BASE_URL",
+    "COPILOT_PROVIDER_TYPE",
+    "COPILOT_PROVIDER_WIRE_API",
+    "COPILOT_MODEL",
+  ],
+  keyVars: ["COPILOT_PROVIDER_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"],
 };
 
 export interface CopilotHookDeps {
