@@ -24,7 +24,7 @@ describe.skipIf(process.platform === "win32")("the Node.js finder", () => {
     expect(shim).toBe(nodeShimPath(dir));
     const r = run(shim ?? "", { PATH: "/nowhere", HOME: dir });
     expect(r.status).toBe(0);
-    expect(r.stdout.trim()).toMatch(new RegExp(`^${process.execPath.replace(/[/.]/g, "\\$&")} `));
+    expect(r.stdout.startsWith(`${process.execPath} `)).toBe(true);
   });
 
   it("finds another Node.js when the recorded one has been removed", () => {
