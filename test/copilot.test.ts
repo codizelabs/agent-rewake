@@ -15,6 +15,7 @@ import { runContinue, waiting } from "../src/continue.js";
 import { copilotCode } from "../src/core/limits/agents.js";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
 import { ScheduleStore } from "../src/core/store.js";
+import { DEFAULT_RESUME_PROMPT } from "../src/core/threads.js";
 import {
   autoFor,
   type ClosedDeps,
@@ -528,7 +529,7 @@ describe("Copilot at fire time", () => {
       ? readFileSync(log(), "utf8")
           .trim()
           .split("\n")
-          .map((l) => JSON.parse(l) as { args: string[]; cwd: string; fire: string })
+          .map((l) => JSON.parse(l) as { args: string[]; cwd: string; stdin: string; fire: string })
       : [];
 
   it("resumes the same closed session headless, in its folder, with no permission flags", async () => {
@@ -536,20 +537,25 @@ describe("Copilot at fire time", () => {
     expect(await fire(id, deps({}))).toBe("sent");
     expect(calls()).toEqual([
       {
-        args: [
-          `--resume=${SID}`,
-          "-p",
-          expect.any(String),
-          "--no-ask-user",
-          "--output-format",
-          "json",
-          "--no-auto-update",
-        ],
+        args: [`--resume=${SID}`, "--no-ask-user", "--output-format", "json", "--no-auto-update"],
         cwd: work,
+        stdin: expect.any(String),
         fire: id,
       },
     ]);
     expect(calls()[0]?.args.join(" ")).not.toMatch(/--allow|--yolo/);
+  });
+
+  it("gives the message on stdin, never on the command line", async () => {
+    const id = await armed();
+    expect(await fire(id, deps({}))).toBe("sent");
+    const call = calls()[0];
+    // What was scheduled reached Copilot...
+    expect(call?.stdin).toBe(DEFAULT_RESUME_PROMPT);
+    // ...and no part of it is in the argv any other process can read from `ps`.
+    expect(call?.args).not.toContain("-p");
+    expect(call?.args.join("\u0000")).not.toContain(DEFAULT_RESUME_PROMPT.slice(0, 40));
+    for (const arg of call?.args ?? []) expect(DEFAULT_RESUME_PROMPT).not.toContain(arg);
   });
 
   it("waits and tries later when the run hits the limit again", async () => {
