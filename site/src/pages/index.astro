@@ -539,16 +539,16 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
       <section id="compare">
         <div class="wrap" data-reveal>
           <p class="kicker">Compared</p>
-          <h2>Other ways to get past a limit.</h2>
-          <p class="sub">Good tools exist, and Claude Code can continue on its own after some limits. Rewake covers every external agent in Zed's Agent Panel, and six terminal agents in preview. Checked {updated}.</p>
+          <h2>Where the other ways stop.</h2>
+          <p class="sub">Rewake keeps one session going, across every agent you use, from one place. The ways people try instead each cover a corner of that. Checked {updated}.</p>
           <div class="table-wrap">
             <table>
-              <thead><tr><th scope="col">Option</th><th scope="col">Where it works</th><th scope="col">Agents</th><th scope="col">Send later and repeats</th></tr></thead>
+              <thead><tr><th scope="col">Option</th><th scope="col">What it covers</th><th scope="col">Where it stops</th></tr></thead>
               <tbody>
-                <tr><td><b>Agent Rewake</b></td><td>The Zed thread you already have; the same session of Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI (previews)</td><td>Every external agent in Zed; six terminal agents in preview</td><td>In Zed: once, repeating, and after a resume. In Claude Code: once. Other previews: no</td></tr>
-                <tr><td><a href="https://code.claude.com/docs/en/interactive-mode">Claude Code auto-continue</a></td><td>Claude Code's own interactive sessions; inside Zed not documented. Rewake's Claude Code preview steps aside when Claude Code continues by itself</td><td>Claude</td><td>No</td></tr>
-                <tr><td><a href="https://code.claude.com/docs/en/scheduled-tasks">Claude Code /loop and scheduled tasks</a></td><td>A running Claude Code session; recurring tasks end after 7 days</td><td>Claude</td><td>Yes, in that session</td></tr>
-                <tr><td><a href="https://github.com/topics/auto-resume">Community auto-resume scripts</a></td><td>A terminal or tmux pane</td><td>Usually one</td><td>Varies</td></tr>
+                <tr><td><b>Agent Rewake</b></td><td>Every external agent in Zed's Agent Panel, and the same session of Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI (previews). One command, <code>/rewake</code>, and one page for every thread</td><td>The previews are early, and a closed session needs the computer on and awake. Rewake never approves a permission prompt for you</td></tr>
+                <tr><td>Claude Code's own continue</td><td>Claude, in Claude Code's own terminal sessions</td><td>That one agent only, and nothing is scheduled: no message later, no repeat, no queue. It waits inside the session, so the terminal has to stay open; after the computer sleeps for more than half an hour it asks you to press Enter, and it re-arms at most twice in a row. Rewake steps aside when it handles a limit, and covers the agents and the cases it doesn't</td></tr>
+                <tr><td>Claude Code <code>/loop</code> and scheduled tasks</td><td>Claude, inside a session that is already running</td><td>Recurring tasks end after seven days, and nothing runs once that session is gone</td></tr>
+                <tr><td>Community auto-resume scripts</td><td>Usually one agent, in a terminal or a tmux pane</td><td>They type into a pane, so keystrokes can land in the wrong window; one popular extension drops the time zone the agent gave and waits until the wrong hour; some poll an undocumented usage endpoint until it rate-limits them in turn; one needs <code>--dangerously-skip-permissions</code> to run at all, and another presses Enter on whatever prompt is on screen, approving it for you. Several of the most-starred ones are stale or archived</td></tr>
               </tbody>
             </table>
           </div>
