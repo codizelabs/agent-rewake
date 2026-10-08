@@ -62,6 +62,7 @@ import { agentName } from "./setup.js";
 import { fire } from "./timers/fire.js";
 import { ensureLauncher, launcherPath, refreshLauncher } from "./timers/launcher.js";
 import { loginItem, loginItemPlanText, loginItemText, syncLoginItem } from "./timers/login.js";
+import { rewakeNode } from "./timers/node-shim.js";
 import { osNotifier } from "./timers/notify.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
 import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
@@ -308,7 +309,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         dryRun: o.dryRun,
         env,
         stateDir: stateDir(env),
-        node: stableNode(),
+        node: rewakeNode(stateDir(env)),
         bundle: process.argv[1] ?? "",
         interactive,
         out: o.out,
@@ -857,7 +858,7 @@ function cancelResumesOf(places: string[], env: NodeJS.ProcessEnv): void {
   const gone = places.filter((p) => p !== "zed" && !still.has(p));
   if (gone.length === 0) return;
   const store = new ScheduleStore(state);
-  const hosts = hostAdapters(env, stableNode(), state);
+  const hosts = hostAdapters(env, rewakeNode(state), state);
   for (const place of gone) {
     let n = 0;
     for (const s of store.list()) {
@@ -963,7 +964,7 @@ function closedDeps(env: NodeJS.ProcessEnv, now: number): ClosedDeps {
 /** Timers, the sweep and a detached `fire`, for this run. */
 function timerDeps(env: NodeJS.ProcessEnv) {
   const state = stateDir(env);
-  const node = stableNode();
+  const node = rewakeNode(state);
   const cli = rewakeCli(state);
   const timers = defaultTimerHost(state, node, cli);
   return {
