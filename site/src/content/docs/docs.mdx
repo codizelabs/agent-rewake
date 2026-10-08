@@ -373,6 +373,7 @@ Rewake's own **Keep this computer awake** setting (macOS) is changed in Zed's **
 - Everything runs on your machine. Rewake makes no network calls of its own and never sees your credentials; sign-in goes through the agent's own flow.
 - It sends only what you scheduled, what you approved, or the resume message you turned on.
 - It stores scheduled messages, per-thread settings and metadata-only logs (never message content) in its state directory, with owner-only permissions. `doctor --details` prints where. Plain `doctor` names no folders, accounts or keys, so you can paste its output anywhere.
+- Your message never goes on a command line. Continuing a closed session (Copilot CLI, Gemini CLI, Grok Build) starts the agent and hands it the message on standard input, or in a file with owner-only permissions that is deleted as soon as the run ends. A command-line argument would be readable by every other process on the computer (`ps`). The **Antigravity CLI** preview is the exception: its CLI has no documented way to take a prompt other than as an argument, so on that preview the message is visible in the process list while the run lasts.
 - Anything it sends runs with your account and the thread's permission settings while you may be away. Report vulnerabilities privately: [SECURITY.md](https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md).
 
 ## Troubleshooting

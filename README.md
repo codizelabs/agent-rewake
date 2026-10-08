@@ -129,6 +129,7 @@ In Zed, Rewake works the same way in front of every external agent: **Claude Age
 - Runs locally. Rewake makes no network calls of its own and never sees your credentials: sign-in goes through each agent's own flow.
 - Sends only what you scheduled, approved, or turned on.
 - Stores scheduled messages and per-thread settings in a private folder on your machine; logs hold metadata only, never message content.
+- Keeps your message off the command line. When Rewake continues a closed session, it hands the message to the agent on its standard input, or in a file only you can read — never as a command-line argument, which anything else on the computer could read from the process list. The one exception is the Antigravity CLI preview, which has no way to take it otherwise.
 
 ## Uninstall
 

@@ -1,17 +1,6 @@
-import {
-  chmodSync,
-  closeSync,
-  copyFileSync,
-  existsSync,
-  fsyncSync,
-  openSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-  writeSync,
-} from "node:fs";
+import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { basename, delimiter, dirname, join, posix, win32 } from "node:path";
+import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   applyEdits,
@@ -25,7 +14,7 @@ import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
 import { detectAgents, type Found, otherAgentsNote } from "./install/detect.js";
-import { readText, renameWithRetry } from "./util/fs.js";
+import { readText, renameWithRetry, writeTempExclusive } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
 import { findOnWindows, npmScript } from "./util/spawn.js";
 import { PACKAGE_NAME, REPO_URL, VERSION } from "./version.js";
@@ -622,14 +611,7 @@ export function applyPlan(plan: Plan, now: Date = new Date()): string[] {
       copyFileSync(target, backup);
       backups.push(backup);
     }
-    const tmp = join(dir, `.${basename(target)}.agent-rewake.${process.pid}.tmp`);
-    const fd = openSync(tmp, "w", mode);
-    try {
-      writeSync(fd, bom + change.after);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
+    const tmp = writeTempExclusive(target, bom + change.after, mode);
     // Windows refuses to replace a read-only file: make it writable, then restore its mode.
     if (process.platform === "win32" && change.existed && !(mode & 0o200)) chmodSync(target, 0o666);
     renameWithRetry(tmp, target);

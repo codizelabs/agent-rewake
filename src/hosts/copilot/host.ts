@@ -14,16 +14,17 @@ import {
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult, withMessage } from "../host.js";
+import { resumeDeadline, type SendResult, sendPromptOnStdin, withMessage } from "../host.js";
 import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
  * GitHub Copilot CLI in a terminal (plan §9.3): hooks record the session and its limit; when the
  * person agrees, `fire` continues the closed session headless:
  *
- *   copilot --resume=<sessionId> -p "<message>" --no-ask-user --output-format json --no-auto-update
+ *   copilot --resume=<sessionId> --no-ask-user --output-format json --no-auto-update
  *
- * in the session's folder. No --allow-* or --yolo: a turn that needs approval stops there
+ * in the session's folder, with the message on its stdin, never as an argument
+ * (sendPromptOnStdin). No --allow-* or --yolo: a turn that needs approval stops there
  * (product rule 5; what it does exactly is experiment E-C3). The JSONL output says whether the run
  * hit the limit again (`session.error` with `errorType: "rate_limit"`), and its message says
  * when the limit resets.
@@ -41,7 +42,7 @@ function isCopilot(input: Record<string, unknown>, env: NodeJS.ProcessEnv): bool
   );
 }
 
-/** Run `copilot --resume … -p …` and read its JSONL output for a usage limit. */
+/** Run `copilot --resume …` with the message on stdin, and read its JSONL output for a limit. */
 export function resumeCopilot(
   r: SessionRecord,
   text: string,
@@ -54,13 +55,15 @@ export function resumeCopilot(
   return new Promise((resolve) => {
     let limited = false;
     let resetsAt: number | undefined;
+    // The message goes in on stdin, never as `-p <text>`: an argument is readable from `ps` by
+    // anything else on the machine. Copilot CLI runs non-interactively on piped stdin with no
+    // prompt argument ("combine with -i, -p, or piped stdin", `copilot --help`, 1.0.92; checked
+    // against the pinned CLI with --resume).
     const child = spawn(
       program.command,
       [
         ...program.args,
         `--resume=${r.sessionId}`,
-        "-p",
-        text,
         "--no-ask-user",
         "--output-format",
         "json",
@@ -69,10 +72,11 @@ export function resumeCopilot(
       {
         cwd: r.cwd || undefined,
         env: { ...env, COPILOT_AUTO_UPDATE: "false" },
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       },
     );
+    sendPromptOnStdin(child, text);
     let err = "";
     child.stderr.on("data", (d: Buffer) => {
       if (err.length < 1 << 16) err += d.toString("utf8");
