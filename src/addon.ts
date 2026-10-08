@@ -1162,7 +1162,7 @@ export class SchedulingAddon {
     // replaces it.
     for (const s of resumes)
       if (s.status === "missed" || s.status === "needs_attention")
-        this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), now);
+        this.store.cancel(s.scheduleId, now);
     const thread = this.threads.get(session.sessionId);
     const gate = this.autoGate(session, resetAt);
     // The shared rules decide (src/core/resume.ts): billing never, a reset a day away is asked
@@ -1489,8 +1489,7 @@ export class SchedulingAddon {
     const resumes = this.pending(session).filter(
       (s) => s.kind !== "user" && s.status !== "sending" && s.createdAt < session.turnStartedAt,
     );
-    for (const s of resumes)
-      this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), this.now());
+    for (const s of resumes) this.store.cancel(s.scheduleId, this.now());
     if (resumes.length > 0) {
       const kept = resumes.map((s) => this.keepFollowUps(session, s)).join("");
       this.status(
