@@ -3083,7 +3083,7 @@ export class SchedulingAddon {
     }
     const content = await this.form(
       session,
-      `${capitalize(this.agentName)} wants to change the message scheduled for ${at(s.dueAt)} ("${preview(s.text)}"): ${changes.join(", ")}.${why}${editing ? " You can edit the new message." : ""} Submit changes it; Decline keeps it as it is.`,
+      `${capitalize(this.agentName)} wants to change the message scheduled for ${at(s.dueAt)} ("${preview(s.text)}"): ${changes.join("; ")}.${why}${editing ? " You can edit the new message." : ""} Submit changes it; Decline keeps it as it is.`,
       editing
         ? { message: { type: "string", title: "Message", minLength: 1, default: r.message } }
         : {},

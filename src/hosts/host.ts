@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import type { Schedule } from "../core/store.js";
+import { errorLine } from "../util/error-line.js";
 
 /**
  * What an integration outside Zed (Codex, Copilot CLI, Grok, Gemini CLI, Antigravity) provides so
@@ -53,9 +54,17 @@ export type SendResult =
       ok: false;
       reason: "busy" | "closed" | "limited" | "unsupported" | "failed";
       detail?: string;
+      /** "failed": the agent's own last error line, cleaned (`errorLine`), for the person. */
+      message?: string;
       /** "limited": the next reset the agent's output gave, when it gave one. */
       resetsAt?: number;
     };
+
+/** The agent's last error line as a failed result's `message`, when it said anything. */
+export function withMessage(output: string): { message?: string } {
+  const message = errorLine(output);
+  return message === undefined ? {} : { message };
+}
 
 /** The longest a headless resume run may take before Rewake stops it. */
 export const RESUME_TIMEOUT_MS = 30 * 60_000;

@@ -21,7 +21,7 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult } from "../host.js";
+import { resumeDeadline, type SendResult, withMessage } from "../host.js";
 import {
   type SessionLimit,
   type SessionRecord,
@@ -158,7 +158,12 @@ export function resumeGemini(
         return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       }
       if (code === 0) return resolve({ ok: true });
-      resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
+      resolve({
+        ok: false,
+        reason: "failed",
+        detail: `exit ${code ?? "signal"}`,
+        ...withMessage(err || out),
+      });
     });
   });
 }
@@ -167,6 +172,13 @@ export const geminiHost: ClosedHost = {
   id: GEMINI_ID,
   name: "Gemini CLI",
   resume: (r, text, env) => resumeGemini(r, text, env),
+  settingsVars: [
+    "GEMINI_CLI_HOME",
+    "GOOGLE_GEMINI_BASE_URL",
+    "GOOGLE_GENAI_USE_VERTEXAI",
+    "GOOGLE_GENAI_USE_GCA",
+  ],
+  keyVars: ["GEMINI_API_KEY"],
 };
 
 const isGeminiTranscript = (p: unknown) =>

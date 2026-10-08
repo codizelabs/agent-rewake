@@ -57,6 +57,6 @@ describe("dates", () => {
   it("are written in English whatever the system language", () => {
     const now = new Date(2026, 9, 4, 12, 0).getTime();
     const at = new Date(2026, 9, 5, 9, 0).getTime();
-    expect(formatWhen(at, now)).toMatch(/tomorrow \(Monday\)$/);
+    expect(formatWhen(at, now)).toMatch(/tomorrow, Monday$/);
   });
 });

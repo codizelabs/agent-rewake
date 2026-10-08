@@ -21,6 +21,7 @@ import { refreshMod, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { type ClosedDeps, reapClosed } from "./hosts/closed.js";
 import { runCodexInstall } from "./hosts/codex/install.js";
 import { runCopilotInstall } from "./hosts/copilot/install.js";
+import { cursorFound, runCursorInstall } from "./hosts/cursor/install.js";
 import { devinFound, runDevinInstall } from "./hosts/devin/install.js";
 import { diagnoseOutside } from "./hosts/doctor.js";
 import { runGeminiInstall } from "./hosts/gemini/install.js";
@@ -59,9 +60,11 @@ import { runProxy } from "./proxy.js";
 import { agentName } from "./setup.js";
 import { fire } from "./timers/fire.js";
 import { ensureLauncher, launcherPath, refreshLauncher } from "./timers/launcher.js";
+import { loginItem, loginItemPlanText, loginItemText, syncLoginItem } from "./timers/login.js";
 import { osNotifier } from "./timers/notify.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
 import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
+import { isWsl, runWaiter, waiterNote } from "./timers/waiter.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { Wakefulness } from "./util/keep-awake.js";
@@ -102,6 +105,7 @@ const INSTALL_PLACES = new Set([
   "antigravity",
   "jetbrains",
   "devin-desktop",
+  "cursor",
 ]);
 
 const USAGE = `agent-rewake ${VERSION}
@@ -133,6 +137,7 @@ Usage:
                                    --ask: go back to asking each time.
                                    --cancel: cancel every planned resume.
   agent-rewake fire <id>           Run by Rewake's timers at a resume's time (safe to run any time)
+  agent-rewake sweep               Run at login by Rewake's login item: sets planned resumes again
   agent-rewake hook <agent> <event>
                                    Run by an agent's hooks outside Zed, not by you
   agent-rewake --version
@@ -319,6 +324,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           out: o.out,
           ask,
         });
+      if (id === "cursor") return runCursorInstall(common);
       if (id === "jetbrains")
         return runJetbrainsInstall({
           uninstall,
@@ -349,6 +355,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           out: (t) => print(t.replace(/^Dry run: nothing was (changed|written)\.\n/gm, "")),
         });
       }
+      if (!uninstall && loginWouldAdd(env, order))
+        print(`\n${loginItemPlanText(process.platform)}`);
       if (!(await ask(`\nApply these changes to ${order.length} places? [y/N] `))) {
         print("Nothing was changed.\n");
         return 1;
@@ -367,11 +375,20 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         code = Math.max(code, c);
       }
       print(summaryText(results));
-    } else
+    } else {
+      // Said before the place's own question, with its other changes.
+      if (!uninstall && loginWouldAdd(env, order)) print(loginItemPlanText(process.platform));
       for (const id of order)
         code = Math.max(code, await runPlace(id, { yes, dryRun, out: print }));
+    }
     if (uninstall && !dryRun) cancelResumesOf(chosen, env);
-    if (!dryRun) sweepQuietly(env);
+    if (!dryRun) {
+      const change = syncLogin(env);
+      if (change !== "unchanged") print(loginItemText(change, process.platform));
+      if (!uninstall && order.some((p) => TIMER_PLACES.has(p)) && usesWaiter(env))
+        print(((n) => `${n.text} ${n.fix}\n`)(waiterNote(isWsl())));
+      sweepQuietly(env);
+    }
     return code;
   }
   if (first === "continue") {
@@ -391,6 +408,26 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       return 2;
     }
     return runContinueCommand(env, mode);
+  }
+  if (first === "sweep") {
+    // Run at login by Rewake's login item (src/timers/login.ts): set lost timers again.
+    const at = argv.indexOf("--state-dir");
+    const dir = at !== -1 ? argv[at + 1] : undefined;
+    sweepQuietly(dir ? { ...env, AGENT_REWAKE_STATE_DIR: dir } : env);
+    return 0;
+  }
+  if (first === "wait") {
+    // Rewake's own timer where Linux has no other (src/timers/waiter.ts); started by armTimer.
+    const at = argv.indexOf("--state-dir");
+    const dir = at !== -1 ? argv[at + 1] : undefined;
+    const { state, node, timers } = timerDeps(dir ? { ...env, AGENT_REWAKE_STATE_DIR: dir } : env);
+    return runWaiter({
+      timers,
+      pid: process.pid,
+      now: Date.now,
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      fire: (name) => timers.detached(node, [timers.cli, "fire", name, "--state-dir", state]),
+    });
   }
   if (first === "fire") {
     // Timers name the state folder: they run without Rewake's environment (src/timers/timers.ts).
@@ -514,7 +551,10 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
         name: PREVIEW_NAMES[id] ?? id,
       })),
       hosts: hostAdapters(env, node, state),
-      hasTimer: timerKind(timers) !== undefined,
+      ...((kind) => ({ hasTimer: kind !== undefined, ...(kind && { timerKind: kind }) }))(
+        timerKind(timers),
+      ),
+      wsl: process.platform === "linux" && isWsl(),
       agents: terminalAgents({ env, home: homedir(), platform: process.platform }),
       when: doctorWhen,
     }),
@@ -649,6 +689,9 @@ function placesHere(env: NodeJS.ProcessEnv): { places: Place[]; missing: string[
       : []),
     ...(devinFound(homedir())
       ? [{ id: "devin-desktop" as const, name: "Devin Desktop", surfaces: ["app"] }]
+      : []),
+    ...(cursorFound(env, homedir(), process.platform)
+      ? [{ id: "cursor" as const, name: "Cursor", surfaces: ["app"] }]
       : []),
   ];
   const places = placesFrom(
@@ -805,6 +848,63 @@ function cancelResumesOf(places: string[], env: NodeJS.ProcessEnv): void {
 }
 
 /** Re-arm lost timers and start due resumes (plan §5); never fails the command running it. */
+/** The previews whose sessions a system timer continues: these need timers back after a restart. */
+const TIMER_PLACES = new Set([
+  "codex",
+  "copilot-cli",
+  "gemini-cli",
+  "grok",
+  "antigravity",
+  "cursor",
+]);
+
+/** Whether installing these places would add the login item (it isn't there yet). */
+function usesWaiter(env: NodeJS.ProcessEnv): boolean {
+  try {
+    return timerKind(timerDeps(env).timers) === "waiter";
+  } catch {
+    return false;
+  }
+}
+
+function loginWouldAdd(env: NodeJS.ProcessEnv, places: readonly string[]): boolean {
+  if (!places.some((p) => TIMER_PLACES.has(p))) return false;
+  const { state, node } = timerDeps(env);
+  const item = loginItem({
+    platform: process.platform,
+    home: env.HOME || env.USERPROFILE || homedir(),
+    node,
+    cli: rewakeCli(state),
+    stateDir: state,
+    run: () => ({ status: 0 }),
+    exists: existsSync,
+  });
+  return item !== undefined && !existsSync(item.path);
+}
+
+/** Keep the login item while a preview that uses timers is set up, and remove it after. */
+function syncLogin(env: NodeJS.ProcessEnv): "added" | "removed" | "unchanged" {
+  try {
+    const { state, node, timers } = timerDeps(env);
+    const home = env.HOME || env.USERPROFILE || homedir();
+    const wanted = installedPreviews(env, home, state).some((p) => TIMER_PLACES.has(p));
+    return syncLoginItem(
+      {
+        platform: process.platform,
+        home,
+        node,
+        cli: rewakeCli(state),
+        stateDir: state,
+        run: (cmd, args) => timers.run(cmd, args),
+        exists: existsSync,
+      },
+      wanted,
+    );
+  } catch {
+    return "unchanged";
+  }
+}
+
 function sweepQuietly(env: NodeJS.ProcessEnv): void {
   try {
     const { sweepDeps } = timerDeps(env);

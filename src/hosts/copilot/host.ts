@@ -14,7 +14,7 @@ import {
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult } from "../host.js";
+import { resumeDeadline, type SendResult, withMessage } from "../host.js";
 import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -98,7 +98,13 @@ export function resumeCopilot(
       if (limited) resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       else if (code === 0) resolve({ ok: true });
       else if (SESSION_GONE.test(err)) resolve({ ok: false, reason: "closed", detail: "deleted" });
-      else resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
+      else
+        resolve({
+          ok: false,
+          reason: "failed",
+          detail: `exit ${code ?? "signal"}`,
+          ...withMessage(err),
+        });
     });
   });
 }
@@ -108,6 +114,16 @@ export const copilotHost: ClosedHost = {
   name: "GitHub Copilot CLI",
   reopen: 'resume the session with "copilot --resume"',
   resume: (r, text, env) => resumeCopilot(r, text, env),
+  settingsVars: [
+    "COPILOT_HOME",
+    "COPILOT_CACHE_HOME",
+    "COPILOT_OFFLINE",
+    "COPILOT_PROVIDER_BASE_URL",
+    "COPILOT_PROVIDER_TYPE",
+    "COPILOT_PROVIDER_WIRE_API",
+    "COPILOT_MODEL",
+  ],
+  keyVars: ["COPILOT_PROVIDER_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"],
 };
 
 export interface CopilotHookDeps {

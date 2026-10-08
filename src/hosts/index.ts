@@ -5,6 +5,7 @@ import { type ClosedDeps, type ClosedHost, closedAdapter } from "./closed.js";
 import { codexAdapter } from "./codex/adapter.js";
 import { type CodexHookDeps, codexHooks } from "./codex/hooks.js";
 import { COPILOT_ID, copilotHooks, copilotHost } from "./copilot/host.js";
+import { CURSOR_ID, cursorHooks, cursorHost } from "./cursor/host.js";
 import { GEMINI_ID, geminiHooks, geminiHost } from "./gemini/host.js";
 import { geminiApiKeyAuth } from "./gemini/install.js";
 import { GROK_ID, grokHooks, grokHost } from "./grok/host.js";
@@ -20,6 +21,7 @@ registerHost(COPILOT_ID);
 registerHost(GROK_ID);
 registerHost(GEMINI_ID);
 registerHost(ANTIGRAVITY_ID);
+registerHost(CURSOR_ID);
 
 /** The hosts whose closed sessions Rewake continues (`agent-rewake continue`). */
 export const CLOSED_HOSTS: ClosedHost[] = [
@@ -27,6 +29,7 @@ export const CLOSED_HOSTS: ClosedHost[] = [
   grokHost(process.env),
   geminiHost,
   antigravityHost(),
+  cursorHost,
 ];
 
 /** The adapters `fire` uses, built for this run's environment. */
@@ -61,6 +64,7 @@ export function hookHandler(host: string, deps: HookDeps): HookHandler | undefin
       program: (env) => deps.program(host, env),
       apiKey: (env) => geminiApiKeyAuth(env, env.HOME || env.USERPROFILE || homedir()),
     });
+  if (host === CURSOR_ID) return cursorHooks({ closed: deps.closed });
   if (host === ANTIGRAVITY_ID)
     return antigravityHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   return undefined;

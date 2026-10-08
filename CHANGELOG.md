@@ -4,9 +4,32 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-08
+
+### Added
+
+- **Cursor's own agent (preview):** `agent-rewake install --only cursor` adds two hooks to `~/.cursor/hooks.json` (yours stay). When a chat stops at its usage limit, Rewake tells you to run `agent-rewake continue` and choose when (Cursor doesn't say when its limit resets); at that time (within 4 hours of the limit) it sends "Resume the work from where you were interrupted." (marked as from Agent Rewake) into the same chat, while that Cursor window stays open; typing in the chat meanwhile cancels it. If the window was closed or reloaded, a notification says to continue it yourself. A limit that waiting won't lift (a free plan's allowance, or one that needs payment) gets a notification instead. Continuing the same chat was tried in Cursor 3.23; a real Cursor usage limit wasn't yet.
+- **Linux without systemd or `at` (WSL, containers) can continue sessions too:** before, planned resumes there waited until you next opened an agent. Rewake now uses its own background process, one for all planned resumes, which ends when none is left. It stops when you log out or restart, and starts again the next time you use an agent. `agent-rewake install` and `doctor` say when it's used, with the fix: systemd in WSL, or the `at` service elsewhere.
+
+### Changed
+
+- The landing page's comparison leads with what Rewake covers and says where each other way stops (one agent only, no scheduling, keystrokes into a pane, a dropped time zone, a prompt approved for you). It no longer links to them.
+- **Claude Code's continues show up in `agent-rewake doctor`:** its planned continues count with the other agents' ("keep Claude Code open"), and a session waiting for your answer is named, with its folder. Rewake's plugin now records each session's folder with its limit (never message text).
+- **Claude Code follows Rewake's setting for every agent:** after `agent-rewake continue --always` (or turning it on in Zed's Settings), Claude Code continues without asking too, and `/rewake auto` says why. `/rewake auto off` in Claude Code keeps asking there, whatever the shared setting.
+- **The README, docs and website start from where you work**: a terminal, Claude Code's panel in VS Code or Cursor, Zed, JetBrains IDEs and Devin Desktop, each with what Rewake does there and its status. Zed's menu, forms and settings have their own section, and the website's "How it works" and agent tiles put the terminal agents first. The status badge says v0.2.
+- **The README, docs and website say what's been tried for each preview, and what hasn't:** Claude Code in a terminal, VS Code and Cursor, Copilot CLI, Gemini CLI and Grok Build were tried by hand on a Mac with a test usage limit (none has met a real one yet); Codex only in automated tests; Antigravity CLI not yet. The docs also explain that a closed session is continued without your shell profile's settings, that Copilot's and Grok's limits don't say when they reset (so `continue` asks you when), and how Gemini CLI shows Rewake's answer to `/rewake`.
+
 ### Fixed
 
-- **Claude Code in VS Code, Cursor and the Claude desktop app:** a usage limit in Claude Code's panel is now handled like one in the terminal: Rewake asks, then continues the same session when the limit resets. Before, Rewake ignored limits there, because the panels run Claude Code the way Zed does (through the Agent SDK); only Zed's own sessions are left to the Zed add-on now. Scheduled messages already worked in the panels.
+- **Claude Code's `/rewake` questions in VS Code and Cursor:** "What should Rewake send…" offers "Continue from where you left off." and "Check where things stand and report back.", or type your own; before, the panels showed Yes/No, and "Yes" would have been sent as the message. The custom-time question offers examples with their times, and a time typed in the first question is used.
+- **Times without brackets inside brackets:** "12:07 AM tomorrow, Thursday" instead of "12:07 AM tomorrow (Thursday)", so labels read "In 1 hour (12:07 AM tomorrow, Thursday)". A change an agent proposes in Zed lists its parts with semicolons.
+- **Gemini CLI shows "[Agent Rewake]"** after Rewake's message, not an internal hook name.
+- The website's schedules-page demo shows Rewake's real version again.
+- **Claude Code: a session is never left waiting with nobody to continue it.** Rewake now uses Claude Code's own "Continue automatically at usage limit" setting as the session started with it (the running Claude Code keeps that value), so turning it on or off mid-session no longer leaves the limit to neither. And if Claude Code was expected to continue by itself but hasn't by two minutes after the reset, Rewake asks, or continues if you chose "from now on".
+- **Planned resumes survive a restart** (macOS and Linux; Codex, Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI). A restart could lose a resume's system timer, so it waited until you next opened an agent. Installing one of these previews now adds a login item that sets planned resumes again when you log in (on Linux a systemd user service, or an autostart entry without systemd), and uninstalling the last of these removes it. Windows didn't need this: its scheduled tasks survive a restart.
+- **`agent-rewake continue` no longer lists a session Rewake already continued.** It lists it again only after a new usage limit, or when the continue failed.
+- **A failed continue says why.** When the agent's run fails (for example "No session … matched"), Rewake keeps its last error line, with your home folder shown as `~` and anything like a key, token or email address removed, and `agent-rewake continue` and `agent-rewake doctor` show it, with when Rewake tried.
+- **Copilot CLI, Gemini CLI and Grok Build: a closed session continues with the settings it had.** Rewake now remembers the agent's own settings the session had, such as `COPILOT_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME` or a provider address, and gives them back when it continues the session. Before, the timer started the agent without your shell profile, so a non-default setup failed (Copilot: "No session … matched"). Rewake never stores an API key: if the session used one from your shell profile, Rewake doesn't continue, and its notification says to sign in to the agent and remove the key from your shell profile.
 
 ## [0.2.0] - 2026-10-07
 
@@ -19,6 +42,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **Keep this computer awake for resumes and scheduled messages** (macOS): while a resume or scheduled message is due within six hours, or while the agent works on a scheduled message, Rewake stops the computer from idling to sleep with the system's own `caffeinate`, tied to Rewake's process so it ends with it. A new setting chooses *While it's plugged in* (default), *Always, also on battery* or *Never*; the thread says once when the computer is kept awake. In the Claude Code preview the same happens while a continue is due (Rewake's or Claude Code's own), and every preview keeps the computer awake while the agent works on the resumed session. Closing the lid still puts the computer to sleep, and Rewake can't wake a sleeping one. Linux and Windows aren't supported yet.
 
 ### Fixed
+
+- **Claude Code in VS Code, Cursor and the Claude desktop app:** a usage limit in Claude Code's panel is now handled like one in the terminal: Rewake asks, then continues the same session when the limit resets. Before, Rewake ignored limits there, because the panels run Claude Code the way Zed does (through the Agent SDK); only Zed's own sessions are left to the Zed add-on now. Scheduled messages already worked in the panels.
 
 - A usage limit that names a spend limit or credits but also says when the plan's limit resets ("You've hit your individual spend limit · … · your session limit resets 7:50pm") is resumed at that time. Rewake ignored it before. The same applies to Codex, Copilot, Factory Droid, Amp, Z.AI and others ("purchase more credits or try again at 2:51 PM").
 - When a limit can't be fixed by waiting (credits, billing or a spending limit), Rewake says so in the thread instead of saying nothing.

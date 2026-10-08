@@ -58,7 +58,7 @@ describe("parseWhen", () => {
 describe("formatWhen", () => {
   it("uses an absolute time with a day word", () => {
     expect(formatWhen(local(2026, 10, 4, 18, 0), NOW, "en-GB")).toBe("18:00 today");
-    expect(formatWhen(local(2026, 10, 5, 9, 0), NOW, "en-GB")).toBe("09:00 tomorrow (Monday)");
+    expect(formatWhen(local(2026, 10, 5, 9, 0), NOW, "en-GB")).toBe("09:00 tomorrow, Monday");
     expect(formatWhen(local(2026, 10, 8, 9, 0), NOW, "en-GB")).toBe("Thursday at 09:00");
     expect(formatWhen(local(2026, 10, 20, 9, 0), NOW, "en-GB")).toBe("Tuesday 20 October at 09:00");
   });
