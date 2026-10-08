@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { applyPlan, type FileChange, type Plan } from "../../install.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
+import { rewake } from "../../util/command.js";
 
 /**
  * `agent-rewake install --only cursor` (a preview): Cursor's own agent (the Agent panel, the Agents
@@ -172,7 +173,7 @@ export async function runCursorInstall(o: CursorInstallOptions): Promise<number>
           "Agent Rewake (preview) will add its hooks to Cursor's own agent:",
           `  ${file}`,
           "",
-          "When a Cursor chat stops at its usage limit, run agent-rewake continue and pick a time within 4 hours. Rewake then continues that chat, as long as its window stays open. Typing in the chat cancels it. A limit that waiting won't lift (one that needs a paid plan or a new month) gets a notification instead. Your own hooks stay; Rewake keeps a backup of the file.",
+          `When a Cursor chat stops at its usage limit, run "${rewake("continue")}" and pick a time within 4 hours. Rewake then continues that chat, as long as its window stays open. Typing in the chat cancels it. A limit that waiting won't lift (one that needs a paid plan or a new month) gets a notification instead. Your own hooks stay; Rewake keeps a backup of the file.`,
           "",
         ].join("\n"),
   );

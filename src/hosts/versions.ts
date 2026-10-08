@@ -1,4 +1,5 @@
 import { compareVersions, type PlaceId } from "../install/detect.js";
+import { rewake } from "../util/command.js";
 
 /**
  * The agent versions each preview works with. `min` is the oldest Rewake supports (the hooks or
@@ -60,5 +61,5 @@ export function newerThanTested(id: PlaceId, found: string | undefined): boolean
 /** Said at install, and in `doctor`, for a version newer than the one tested. */
 export function untestedText(id: PlaceId, found: string): string {
   const v = versionOf(id);
-  return `${v.name} ${found} is newer than the versions Rewake was tested with (up to ${v.tested}). It should still work; if Rewake misses a usage limit there, report it with agent-rewake doctor --details.`;
+  return `${v.name} ${found} is newer than the versions Rewake was tested with (up to ${v.tested}). It should still work; if Rewake misses a usage limit there, report it with ${rewake("doctor --details")}.`;
 }

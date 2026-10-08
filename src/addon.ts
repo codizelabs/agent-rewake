@@ -51,6 +51,7 @@ import { introNote } from "./guide.js";
 import { zedAgentSetting } from "./install.js";
 import { phase1Hooks } from "./proxy.js";
 import { overview, overviewMarkdown, STATUS_WORDS } from "./ui/overview.js";
+import { rewake } from "./util/command.js";
 import { type Wake, Wakefulness } from "./util/keep-awake.js";
 import type { Logger } from "./util/log.js";
 import { ensurePrivateDir } from "./util/paths.js";
@@ -1162,7 +1163,7 @@ export class SchedulingAddon {
     // replaces it.
     for (const s of resumes)
       if (s.status === "missed" || s.status === "needs_attention")
-        this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), now);
+        this.store.cancel(s.scheduleId, now);
     const thread = this.threads.get(session.sessionId);
     const gate = this.autoGate(session, resetAt);
     // The shared rules decide (src/core/resume.ts): billing never, a reset a day away is asked
@@ -1489,8 +1490,7 @@ export class SchedulingAddon {
     const resumes = this.pending(session).filter(
       (s) => s.kind !== "user" && s.status !== "sending" && s.createdAt < session.turnStartedAt,
     );
-    for (const s of resumes)
-      this.store.update(s.scheduleId, (x) => ({ ...x, status: "cancelled" }), this.now());
+    for (const s of resumes) this.store.cancel(s.scheduleId, this.now());
     if (resumes.length > 0) {
       const kept = resumes.map((s) => this.keepFollowUps(session, s)).join("");
       this.status(
@@ -2618,7 +2618,7 @@ export class SchedulingAddon {
         writeFileSync(file, overviewMarkdown(overview(this.opts.stateDir), now, this.opts.locale), {
           mode: 0o600,
         });
-        return `Rewake: [Open the overview of all scheduled messages](${pathToFileURL(file).href}) (a snapshot). To manage them, run the "Agent Rewake: schedules" task (\`agent-rewake setup zed\` prints it).`;
+        return `Rewake: [Open the overview of all scheduled messages](${pathToFileURL(file).href}) (a snapshot). To manage them, run the "Agent Rewake: schedules" task (\`${rewake("setup zed")}\` prints it).`;
       }
       case "repeat":
         return this.cmdRepeat(session, command.sub, command.words);

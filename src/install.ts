@@ -1,17 +1,6 @@
-import {
-  chmodSync,
-  closeSync,
-  copyFileSync,
-  existsSync,
-  fsyncSync,
-  openSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-  writeSync,
-} from "node:fs";
+import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { basename, delimiter, dirname, join, posix, win32 } from "node:path";
+import { delimiter, dirname, join, posix, win32 } from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   applyEdits,
@@ -25,7 +14,8 @@ import { MENU_CONFIG_ID } from "./addon.js";
 import { ThreadStore } from "./core/threads.js";
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
 import { detectAgents, type Found, otherAgentsNote } from "./install/detect.js";
-import { readText, renameWithRetry } from "./util/fs.js";
+import { rewake } from "./util/command.js";
+import { readText, renameWithRetry, writeTempExclusive } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
 import { findOnWindows, npmScript } from "./util/spawn.js";
 import { PACKAGE_NAME, REPO_URL, VERSION } from "./version.js";
@@ -622,14 +612,7 @@ export function applyPlan(plan: Plan, now: Date = new Date()): string[] {
       copyFileSync(target, backup);
       backups.push(backup);
     }
-    const tmp = join(dir, `.${basename(target)}.agent-rewake.${process.pid}.tmp`);
-    const fd = openSync(tmp, "w", mode);
-    try {
-      writeSync(fd, bom + change.after);
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
+    const tmp = writeTempExclusive(target, bom + change.after, mode);
     // Windows refuses to replace a read-only file: make it writable, then restore its mode.
     if (process.platform === "win32" && change.existed && !(mode & 0o200)) chmodSync(target, 0o666);
     renameWithRetry(tmp, target);
@@ -736,7 +719,7 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
   for (const b of backups) out(`  Backup: ${b}\n`);
   out(
     opts.uninstall
-      ? "Rewake is out of your agents. Your threads are untouched, and your scheduled messages are kept; `agent-rewake doctor` shows where.\n"
+      ? `Rewake is out of Zed. Your threads are untouched, and your scheduled messages are kept; \`${rewake("doctor")}\` shows where.\n`
       : nextSteps(note !== undefined),
   );
   return 0;
@@ -763,7 +746,7 @@ function nextSteps(reachShown = false): string {
     `Now ${quitZed()} and open it again.`,
     `Then open Zed's Agent Panel (${agentPanelKey()}) and open or start a thread with one of these agents.`,
     "Zed starts Rewake when you open a thread with the agent, not when Zed itself starts.",
-    "`agent-rewake doctor` shows whether it has started.",
+    `\`${rewake("doctor")}\` shows whether it has started.`,
     "",
     'In the thread, the "Rewake" menu under the message box (next to the model picker) schedules messages.',
     "When the agent hits a usage limit, Rewake asks you in the thread with Yes/No buttons.",

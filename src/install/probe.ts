@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { codexProgram } from "../hosts/codex/cli.js";
+import { rewake } from "../util/command.js";
 
 /**
  * An agent's version when its files don't say (Homebrew, apt, WinGet, copied binaries, standalone
@@ -52,5 +53,5 @@ export function unknownVersionText(
   update: string,
   place: string,
 ): string {
-  return `Rewake couldn't tell which version of ${agent} you have. It needs ${min} or newer: if Rewake doesn't respond in ${agent}, update it with "${update}", then run "agent-rewake install --only ${place}" again.\n`;
+  return `Rewake couldn't tell which version of ${agent} you have. It needs ${min} or newer: if Rewake doesn't respond in ${agent}, update it with "${update}", then run "${rewake(`install --only ${place}`)}" again.\n`;
 }

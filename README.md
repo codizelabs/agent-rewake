@@ -129,6 +129,7 @@ In Zed, Rewake works the same way in front of every external agent: **Claude Age
 - Runs locally. Rewake makes no network calls of its own and never sees your credentials: sign-in goes through each agent's own flow.
 - Sends only what you scheduled, approved, or turned on.
 - Stores scheduled messages and per-thread settings in a private folder on your machine; logs hold metadata only, never message content.
+- Keeps your message off the command line. When Rewake continues a closed session, it hands the message to the agent on its standard input, or in a file only you can read — never as a command-line argument, which anything else on the computer could read from the process list. The one exception is the Antigravity CLI preview, which has no way to take it otherwise.
 
 ## Uninstall
 
@@ -136,11 +137,11 @@ In Zed, Rewake works the same way in front of every external agent: **Claude Age
 npx @codizelabs/agent-rewake uninstall
 ```
 
-This puts every agent back the way it was. `doctor` shows the folder where Rewake keeps its data, if you want to delete that too.
+This takes Rewake out of every place it's set up in, after showing every change and asking once. `doctor` shows the folder where Rewake keeps its data, if you want to delete that too.
 
 ## Status
 
-Version 0.2. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
 ## Contributing
 

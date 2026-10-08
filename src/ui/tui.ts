@@ -1,3 +1,4 @@
+import { rewake } from "../util/command.js";
 import { parseInput } from "./input.js";
 import { SchedulesPage } from "./page.js";
 
@@ -33,7 +34,7 @@ export async function runTui(stateDir: string, opts: TuiOptions = {}): Promise<n
   const { stdin, stdout } = process;
   if (!stdin.isTTY || !stdout.isTTY) {
     process.stderr.write(
-      "agent-rewake ui needs an interactive terminal. Use `agent-rewake schedules` for plain output.\n",
+      `The schedules page needs an interactive terminal. For plain output, run "${rewake("schedules")}".\n`,
     );
     return 2;
   }

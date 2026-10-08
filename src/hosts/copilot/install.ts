@@ -10,6 +10,7 @@ import {
   withVersion,
 } from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
+import { rewake } from "../../util/command.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { hooksTurnedOff } from "../policy.js";
 import { newerThanTested, untestedText, versionOf } from "../versions.js";
@@ -98,7 +99,7 @@ export async function runCopilotInstall(o: CopilotInstallOptions): Promise<numbe
     const label = `GitHub Copilot CLI${copilot.version ? ` (version ${copilot.version} found)` : ""}`;
     if (copilot.version && compareVersions(copilot.version, MIN_COPILOT) < 0) {
       o.out(
-        `GitHub Copilot CLI ${copilot.version} is too old for Rewake (it needs ${MIN_COPILOT} or newer). Update it with "copilot update" (or npm install -g @github/copilot@latest), then run "agent-rewake install --only copilot-cli" again.\n`,
+        `GitHub Copilot CLI ${copilot.version} is too old for Rewake (it needs ${MIN_COPILOT} or newer). Update it with "copilot update" (or npm install -g @github/copilot@latest), then run "${rewake("install --only copilot-cli")}" again.\n`,
       );
       return 1;
     }
