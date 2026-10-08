@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { basename } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import type { JsonRpcMessage } from "./acp/ndjson.js";
 import { type InFlightRequest, Router, type RouterHooks } from "./acp/router.js";
@@ -79,7 +80,8 @@ export function runProxy(opts: ProxyOptions): Promise<number> {
         windowsHide: true,
         ...(run.windowsVerbatimArguments && { windowsVerbatimArguments: true }),
       });
-      opts.log.info("agent.spawned", { pid: child.pid, command: opts.agent.command });
+      // The program's name only: its full path holds the person's user name and folders.
+      opts.log.info("agent.spawned", { pid: child.pid, command: basename(opts.agent.command) });
       // A write that reaches an agent that just died fails with EPIPE. Without a listener that
       // error would end Rewake with status 1; the exit handler below reports the agent's own.
       child.stdin.on("error", (err) => {
