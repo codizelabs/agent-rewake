@@ -1,4 +1,5 @@
 import { ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
+import { reportError } from "../errors/report.js";
 import type { HostAdapter } from "../hosts/host.js";
 import { SENDING_STALE_MS } from "./fire.js";
 import {
@@ -86,7 +87,16 @@ export function sweep(deps: SweepDeps): { fired: number; armed: number; removed:
       (!timerArmed(s.scheduleId, deps.timers) || timerStale(s.scheduleId, s.dueAt, deps.timers))
     ) {
       // Lost, or set for another time zone or Node.js: armed again for the right moment.
-      if (armTimer(s.scheduleId, s.dueAt, deps.timers).ok) armed++;
+      const result = armTimer(s.scheduleId, s.dueAt, deps.timers);
+      if (result.ok) armed++;
+      // Found audit: a failure here was dropped entirely; the resume is left without a live
+      // timer until the next sweep, with nothing telling anyone.
+      else
+        reportError(deps.stateDir, {
+          name: "sweep.arm_failed",
+          message: `armTimer failed during sweep: ${result.reason}`,
+          tags: { place: "sweep" },
+        });
     }
   }
   return { fired, armed, removed };

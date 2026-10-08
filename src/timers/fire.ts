@@ -11,6 +11,7 @@ import {
 import { loadSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { formatAt, formatWhen } from "../core/time.js";
+import { reportError } from "../errors/report.js";
 import { type HostAdapter, type HostFacts, onResumeRun, RESUME_TIMEOUT_MS } from "../hosts/host.js";
 import { rewake } from "../util/command.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
@@ -201,6 +202,12 @@ function rearmEarly(id: string, store: ScheduleStore, deps: FireDeps, now: numbe
   if (armed.ok) {
     store.update(id, (x) => ({ ...x, earlyRearms: (x.earlyRearms ?? 0) + 1 }), now);
     cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
+  } else {
+    reportError(deps.stateDir, {
+      name: "fire.early_rearm_failed",
+      message: `armTimer failed while re-arming an early fire: ${armed.reason}`,
+      tags: { place: "fire" },
+    });
   }
   deps.log?.("fire.early", { armed: armed.ok });
   return "early";
@@ -241,7 +248,16 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       lock.release(lockKey);
     }
   }
-  if (!lock.acquire(lockKey)) return "busy";
+  if (!lock.acquire(lockKey)) {
+    // Relies on the next sweep to notice the timer is stale and re-arm it (sweep.ts); worth
+    // knowing about if that safety net is ever slow or missing.
+    reportError(deps.stateDir, {
+      name: "fire.busy",
+      message: "fire found the lock held by another run and returned without re-arming itself",
+      tags: { place: "fire" },
+    });
+    return "busy";
+  }
   const slot: { release?: () => void } = {};
   const giveBack = (): void => {
     slot.release?.();
@@ -275,6 +291,14 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         const gen = nextGen(id, deps.timerGen ?? 0, deps.timers);
         armed = armTimer(id, next, deps.timers, gen);
         if (armed.ok) cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
+        // Found audit: armTimer's failure was only ever logged, never surfaced; the planned
+        // resume is now silently relying on the next sweep to notice it has no timer.
+        else
+          reportError(deps.stateDir, {
+            name: "fire.arm_failed",
+            message: `armTimer failed while re-arming: ${armed.reason}`,
+            tags: { place: "fire" },
+          });
       }
       log("fire.wait", { why, armed: armed?.ok ?? false });
       return "waiting";
@@ -288,7 +312,6 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       if (place === undefined) return wait(now + MIN_ARM_MS, "no-free-place", false);
       // On an error, carried on without a place: throttling is best effort.
       if (place !== "error") slot.release = place;
-    }
     // The person's 12- or 24-hour clock, for notifications, and whether to keep the computer awake.
     const settings = loadSettings(deps.stateDir);
     const key = `${id}:${s.dueAt}`;

@@ -63,6 +63,7 @@ export const COMMAND_WORDS = [
   "history",
   "continue",
   "settings",
+  "errors",
   "setup",
   "help",
   "completion",
@@ -230,6 +231,19 @@ export const COMMANDS: CommandInfo[] = [
     ],
     words: ["change", ...SETTING_NAMES],
     footer: [`Settings: ${SETTING_NAMES.join(", ")}.`],
+  },
+  {
+    name: "errors",
+    summary: "Error reports to the maintainer: opt-in, off by default",
+    usage: ["errors on|off|status"],
+    about: [
+      "Turns scrubbed error reports to the maintainer on or off (doctor also shows this): the kind",
+      "of error, a scrubbed message and stack trace, Rewake's version, OS, place and command —",
+      "never messages, agent output, file contents, tokens, session ids or full paths. Off by",
+      "default; `install` asks once, interactively, with a default of No.",
+    ],
+    options: [],
+    words: ["on", "off", "status"],
   },
   {
     name: "setup",

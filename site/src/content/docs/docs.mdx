@@ -469,11 +469,44 @@ Rewake's own **Keep this computer awake** setting (macOS, Linux, Windows) is cha
 
 The full picture, with what Rewake never does, what each place runs and stores, what `install` changes and how to undo it, is on its own page: [Privacy and security](privacy-and-security/). In short:
 
-- Everything runs on your machine. Rewake sends nothing about you anywhere and never sees your credentials; sign-in goes through the agent's own flow. Its only network use is fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it.
+- Everything runs on your machine. Rewake never sees your credentials; sign-in goes through the agent's own flow. Besides fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it, its only network use is error reports, which are off unless you turn them on (below).
 - It sends only what you scheduled, what you approved, or the resume message you turned on.
 - It stores scheduled messages, per-thread settings and metadata-only logs (events, codes and program names, never message text) in its state directory, with owner-only permissions. `doctor --details` prints where. Plain `doctor` names no folders, accounts or keys, so you can paste its output anywhere.
 - Your message stays off the command line for most agents, with exceptions. Continuing a closed session starts the agent and hands it the message on standard input (Copilot CLI, Gemini CLI, Qwen Code, OpenCode), or in a file with owner-only permissions that is deleted as soon as the run ends (Grok Build). A command-line argument would be readable by every other process on the computer (`ps`), and three cases still use one, so the message is visible in the process list while the command runs: **Codex** (`codex queue --message <text>`, a few seconds), **Antigravity CLI** (`-p <text>`, the whole run, because its CLI has no documented way to take a prompt otherwise) and **Gemini CLI** or **Qwen Code** when you've turned its sandbox on (they start themselves again with the text as `--prompt`). Claude Code, Cursor and Zed don't use a command line for it.
 - Anything it sends runs with your account and the thread's permission settings while you may be away. Report vulnerabilities privately: [SECURITY.md](https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md).
+
+### Error reports
+
+Off by default. `install` asks once, in a terminal, with a default of No; it's never turned on by a non-interactive install (no terminal, or CI). Change it any time: `agent-rewake errors on`, `agent-rewake errors off`, or `agent-rewake errors status`. `doctor` also shows whether it's on.
+
+**Sent, when it's on:** the kind of error and a one-line message produced by Rewake's own code (not yours), a scrubbed stack trace (file names only, no folders), which part of Rewake it happened in, the place it ran (Zed, Claude Code, Codex, …), Rewake's version, your OS and Node.js version. Example payload (the `tags.place` and timestamp vary):
+
+```json
+{
+  "event_id": "9f1c2b3a4d5e6f708192a3b4c5d6e7f8",
+  "timestamp": "2026-10-08T12:00:00.000Z",
+  "level": "error",
+  "platform": "node",
+  "release": "agent-rewake@0.3.0",
+  "environment": "production",
+  "message": { "formatted": "sweep.arm_failed" },
+  "tags": { "place": "sweep", "os": "darwin", "os_version": "24.6.0", "node_version": "v22.14.0" },
+  "exception": {
+    "values": [
+      {
+        "type": "Error",
+        "value": "armTimer failed during sweep: no-scheduler",
+        "stacktrace": { "frames": [{ "filename": "sweep.js", "function": "sweep", "lineno": 64 }] }
+      }
+    ]
+  },
+  "user": { "ip_address": null }
+}
+```
+
+**Never sent:** your messages or prompts, agent output, file contents, environment variables, tokens or keys, session or thread ids, usernames, hostnames, or full file paths (the home folder is shown as `~`, and anything outside it is dropped). At most 20 events are sent per day per install, with duplicates within a day skipped.
+
+A local, owner-only record of every error (whether or not reporting is on) is kept in Rewake's state directory, bounded to the last 200, so `doctor` can show what happened even with reporting off. Turn it on or off: `AGENT_REWAKE_ERROR_REPORTS=0` and `DO_NOT_TRACK=1` always force it off, as does running in CI.
 
 ## Troubleshooting
 
@@ -589,8 +622,9 @@ Everything here is also in the Rewake menu.
 | `agent-rewake history [--days <n>]` | What Rewake did in the last days (7 by default), newest first: the agent and folder, and what happened and why (sent, cancelled because you typed, too late, still limited, failed and the reason) |
 | `agent-rewake setup zed` | Print the Zed entries, to add by hand |
 | `agent-rewake completion <bash\|zsh\|fish>` | Print a script that completes Rewake's commands and options in your shell. Nothing is installed for you: `source <(agent-rewake completion bash)` in `~/.bashrc`, the same with `zsh` in `~/.zshrc`, or `agent-rewake completion fish > ~/.config/fish/completions/agent-rewake.fish` |
+| `agent-rewake errors on\|off\|status` | Turn error reports to the maintainer on or off (opt-in, off by default), or see the current state (see [Error reports](#error-reports)) |
 | `agent-rewake help [<command>]`, `agent-rewake <command> --help` | The commands you run, or one command's options. `agent-rewake --help --all` also lists the ones Rewake runs itself |
-| `agent-rewake --version` | |
+| `agent-rewake --version`, `--help` | |
 | `agent-rewake --wrap-registry <id>`, `--wrap-command <json>`, `-- <cmd>`, `mcp`, `hook <agent> <event>`, `fire <id>`, `wait`, `sweep` | Started by Zed, an agent, a timer or the login item, not by you |
 
 </details>
@@ -633,6 +667,8 @@ Everything here is also in the Rewake menu.
 | `AGENT_REWAKE_TEST_ALLOW_HTTP` | Internal, for Rewake's own tests: lets a test serve a fake agent download over plain http. Real downloads must be https |
 | `AGENT_REWAKE_TEST_NO_OS_TIMERS` | Internal, for Rewake's own tests: Rewake does not create launchd, systemd, `at` or Task Scheduler jobs and does not start its waiter, so a test can't leave one behind |
 | `AGENT_REWAKE_FIRE` | Internal: set by Rewake on an agent it starts to continue a session, so that run isn't taken for you typing |
+| `AGENT_REWAKE_ERROR_REPORTS=0` | Force error reports off, overriding the setting (see [Error reports](#error-reports)) |
+| `AGENT_REWAKE_SENTRY_DSN` | Internal: a different Sentry DSN for error reports (testing); the owner's own DSN is the default |
 
 </details>
 

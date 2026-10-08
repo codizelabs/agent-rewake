@@ -26,3 +26,6 @@ export const VERSION: string =
 
 /** The npm package name, for pinned `npx` launches. */
 export const PACKAGE_NAME: string = pkg.name ?? "@codizelabs/agent-rewake";
+
+/** True when running from source (no build stamp): error reports tag this as "development". */
+export const FROM_SOURCE: boolean = typeof __REWAKE_VERSION__ !== "string";

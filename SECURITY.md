@@ -23,6 +23,7 @@ Agent Rewake sits between Zed and a coding agent and sends messages to that agen
 - **Process execution:** any way to make Rewake run a program other than the configured agent, or run commands through a shell.
 - **Scheduled messages and local state:** ways for untrusted input to create, change or trigger scheduled messages without the user's action, or to send a message twice.
 - **Logs:** any leak of prompts, code or file contents into logs or state files (logs hold metadata only).
+- **Error reports (opt-in):** turned on with `agent-rewake errors on`, off by default. Reports are built from an allow-list (error type and message produced by Rewake's own code, scrubbed stack frames, versions, OS, place and command); report any way a message, prompt, agent output, file contents, environment value, token, session id, username, hostname, IP address or full path could reach one.
 - **Untrusted content:** any way repository files, agent output or web content can change what Rewake sends or when, for example by faking a usage-limit reset time.
 - **Permissions:** Rewake never approves an agent's permission requests. Report anything that does.
 
