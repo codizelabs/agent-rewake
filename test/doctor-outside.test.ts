@@ -108,6 +108,36 @@ describe("doctor: outside Zed", () => {
     expect(out[1]?.fix).toBe("Review it with: agent-rewake ui");
   });
 
+  it("shows Claude Code's planned continues and the sessions waiting for an answer", () => {
+    const sessions = join(dir, "state", "hosts", "claude-code", "sessions");
+    mkdirSync(sessions, { recursive: true });
+    const rec = (id: string, state: string, extra: Record<string, unknown> = {}) =>
+      writeFileSync(
+        join(sessions, `${id}.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          host: "claude-code",
+          sessionId: id,
+          state,
+          updatedAt: NOW,
+          ...extra,
+        }),
+      );
+    rec("a", "armed", { cwd: "/w/shop", fireAt: NOW + 30 * 60_000 });
+    rec("b", "offered", { resetAt: NOW + 60 * 60_000, cwd: "/w/shop" });
+    rec("c", "sent", { fireAt: NOW - 60_000 });
+    rec("old", "armed", { fireAt: NOW + 60_000, updatedAt: NOW - 3 * 86_400_000 });
+    const out = diagnoseOutside(facts({ previews: [{ id: "claude-code", name: "Claude Code" }] }));
+    expect(out.map((f) => f.level)).toEqual(["ok", "todo"]);
+    expect(out[0]?.text).toMatch(
+      /^1 planned resume; the next one continues Claude Code .+\. Keep this computer on and awake, and Claude Code open, then\.$/,
+    );
+    expect(out[1]).toMatchObject({
+      text: '1 Claude Code session (in the "shop" folder) is waiting for your answer: continue it after the reset?',
+      fix: "Answer Rewake's question there, or type /rewake.",
+    });
+  });
+
   it("says where Rewake is set up when there's nothing else to say", () => {
     expect(diagnoseOutside(facts())).toEqual([
       {
