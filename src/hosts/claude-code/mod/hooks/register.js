@@ -74,6 +74,10 @@ let clock = "12h";
 let armed;
 /** `<stateDir>/hosts/claude-code/sessions`, when the installer said where the state folder is. */
 let mirrorDir;
+/** Rewake's shared "automatic resume" (settings.json newThreads): "on" counts as "always" here. */
+let sharedAuto;
+/** The session's folder, for where Rewake's CLI names it ("in the shop folder"). */
+let sessionCwd;
 /** This process, in a send's claim: two Claude Code processes can have one session open. */
 const ME = Math.random().toString(36).slice(2);
 /** A claim older than this was left by a process that stopped mid-send. */
@@ -102,6 +106,7 @@ async function loadConfig($) {
     try {
       const settings = JSON.parse(await $.fs.read(`${cfg.stateDir}/settings.json`));
       if (settings.clock === "24h" || settings.clock === "12h") clock = settings.clock;
+      if (["on", "off", "ask"].includes(settings.newThreads)) sharedAuto = settings.newThreads;
       if (["plugged-in", "always", "never"].includes(settings.keepAwake))
         keepAwake = settings.keepAwake;
     } catch {
@@ -122,6 +127,7 @@ async function mirror($, id, ep) {
     schemaVersion: 1,
     host: "claude-code",
     sessionId: id,
+    ...(typeof sessionCwd === "string" && { cwd: sessionCwd }),
     state,
     kind,
     resetAt,
@@ -248,11 +254,26 @@ async function classify($, id, ep, now) {
   await ask($, id, ep, now);
 }
 
+/**
+ * The person's choice for this plugin: what they said here ("always" or "ask"), else Rewake's
+ * shared setting (turned on with `agent-rewake continue --always` or in Zed's Settings).
+ */
+function autoChoice(prefs) {
+  return prefs.autoContinue ?? (sharedAuto === "on" ? "always" : undefined);
+}
+
+/** Why Rewake continues without asking here: the person's choice in Claude Code, or the shared one. */
+function autoText(prefs) {
+  return prefs.autoContinue === "always"
+    ? "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake auto off"
+    : "Rewake's setting for every agent is on (agent-rewake continue --always, or Zed's Settings), so after a usage limit it continues without asking when the reset is within a day. To be asked in Claude Code: /rewake auto off";
+}
+
 async function ask($, id, ep, now) {
   const prefs = (await $.store.get("prefs")) ?? {};
   let state = "armed";
   // A reset more than a day away is always asked about, even with "always".
-  if (mustAsk({ autoContinue: prefs.autoContinue, fireAt: ep.fireAt, now, surface })) {
+  if (mustAsk({ autoContinue: autoChoice(prefs), fireAt: ep.fireAt, now, surface })) {
     const yes = `Continue at ${at(ep.fireAt, now)}`;
     const always = `${yes}, and from now on in every session when the reset is within a day`;
     try {
@@ -581,10 +602,7 @@ async function listText($, id, now) {
   for (const [i, s] of sched.entries()) lines.push(`${i + 1}. ${at(s.at, now)}: ${s.text}`);
   if (lines.length === 0) lines.push("Nothing scheduled in this session.");
   const prefs = (await $.store.get("prefs")) ?? {};
-  if (prefs.autoContinue === "always")
-    lines.push(
-      "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake auto off",
-    );
+  if (autoChoice(prefs) === "always") lines.push(autoText(prefs));
   return lines.join("\n");
 }
 
@@ -689,12 +707,13 @@ async function runCommand($, args) {
       text =
         "From now on, after a usage limit Rewake continues every session without asking when the reset is within a day. To be asked each time: /rewake auto off";
     } else if (c.on === false) {
-      await $.store.set("prefs", rest);
+      // "ask" stays even when Rewake's shared setting is on: the person asked for it here.
+      await $.store.set("prefs", { ...rest, autoContinue: "ask" });
       text = "Rewake will ask before continuing after a usage limit.";
     } else {
       text =
-        prefs.autoContinue === "always"
-          ? "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake auto off"
+        autoChoice(prefs) === "always"
+          ? autoText(prefs)
           : "After a usage limit, Rewake asks before continuing. To continue without asking: /rewake auto on";
     }
   } else {
@@ -710,6 +729,7 @@ const passOn = (_$, e, next) => (next.called ? undefined : next(e));
 export function register(on) {
   on("session.start", async ($, e, next) => {
     isInteractive = e.isInteractive;
+    sessionCwd = e.cwd;
     entrypoint = await $.env.get("CLAUDE_CODE_ENTRYPOINT").catch(() => undefined);
     surface = surfaceOf({ surface: e.surface, entrypoint });
     try {
