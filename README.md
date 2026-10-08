@@ -137,7 +137,7 @@ In Zed, Rewake works the same way in front of every external agent: **Claude Age
 npx @codizelabs/agent-rewake uninstall
 ```
 
-This puts every agent back the way it was. `doctor` shows the folder where Rewake keeps its data, if you want to delete that too.
+This takes Rewake out of every place it's set up in, after showing every change and asking once. `doctor` shows the folder where Rewake keeps its data, if you want to delete that too.
 
 ## Status
 
