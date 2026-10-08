@@ -36,6 +36,32 @@ export interface ClosedHost {
   isOpen?(record: SessionRecord): boolean;
   /** How the person gets back into a closed session: 'resume it with "copilot --resume"'. */
   reopen?: string;
+  /** The agent's own non-secret settings variables a resume needs as the session had them. */
+  settingsVars?: readonly string[];
+  /** The agent's key variables: only whether each was set is recorded, never its value. */
+  keyVars?: readonly string[];
+}
+
+/** Folders every agent may be told to use through the environment. */
+const COMMON_VARS = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
+/** A name that looks secret is never recorded, whatever a host's list says. */
+const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
+
+/** What to record from a hook's environment for this host. */
+export function sessionEnv(
+  host: ClosedHost,
+  env: NodeJS.ProcessEnv,
+): { env?: Record<string, string>; keysSet?: string[] } {
+  const vars: Record<string, string> = {};
+  for (const name of [...COMMON_VARS, ...(host.settingsVars ?? [])]) {
+    const v = env[name];
+    if (v !== undefined && v !== "" && !SECRET_NAME.test(name)) vars[name] = v;
+  }
+  const keys = (host.keyVars ?? []).filter((k) => env[k] !== undefined && env[k] !== "");
+  return {
+    ...(Object.keys(vars).length > 0 && { env: vars }),
+    ...(keys.length > 0 && { keysSet: keys }),
+  };
 }
 
 export interface ClosedDeps {
@@ -187,10 +213,21 @@ export function ensureProgram(
   program: () => string | undefined,
 ): void {
   const records = new SessionRecords(d.stateDir, host.id);
-  if (records.get(sessionId)?.program) return;
-  const found = program();
-  if (found)
-    records.update(sessionId, cwd, d.now, (r) => (r.program ? r : { ...r, program: found }));
+  const had = records.get(sessionId);
+  // The session's own settings: kept current (a resume runs with them), never from a resume run.
+  const seen = d.env[FIRE_ENV] ? {} : sessionEnv(host, d.env);
+  const same =
+    JSON.stringify(had?.env ?? null) === JSON.stringify(seen.env ?? null) &&
+    JSON.stringify(had?.keysSet ?? null) === JSON.stringify(seen.keysSet ?? null);
+  if (had?.program && (same || d.env[FIRE_ENV])) return;
+  const found = had?.program ? undefined : program();
+  records.update(sessionId, cwd, d.now, (r) => {
+    const { env: _e, keysSet: _k, ...rest } = r;
+    return {
+      ...(d.env[FIRE_ENV] ? r : { ...rest, ...seen }),
+      ...(!r.program && found && { program: found }),
+    };
+  });
 }
 
 export function onPrompt(host: ClosedHost, sessionId: string, cwd: string, d: ClosedDeps): void {
@@ -313,7 +350,11 @@ export function closedAdapter(
     async send(s): Promise<SendResult> {
       const r = records.get(s.sessionRef?.sessionId ?? s.sessionId);
       if (!r) return { ok: false, reason: "closed", detail: "deleted" };
-      return host.resume(r, s.text, { ...env, [FIRE_ENV]: s.scheduleId });
+      // A key the session had only from the person's shell: the timer can't have it, and running
+      // the agent without it would fail or use another account.
+      const missing = (r.keysSet ?? []).filter((k) => !env[k]);
+      if (missing.length > 0) return { ok: false, reason: "failed", detail: "missing-key" };
+      return host.resume(r, s.text, { ...env, ...r.env, [FIRE_ENV]: s.scheduleId });
     },
   };
 }

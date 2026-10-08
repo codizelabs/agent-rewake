@@ -218,7 +218,14 @@ export function grokHost(env: NodeJS.ProcessEnv): ClosedHost {
     id: GROK_ID,
     name: "Grok Build",
     resume: (r, text, e) => resumeGrok(r, text, e),
-    isOpen: (r) => grokSessionOpen(grokHome(env), r.sessionId),
+    isOpen: (r) => grokSessionOpen(grokHome({ ...env, ...r.env }), r.sessionId),
+    settingsVars: [
+      "GROK_HOME",
+      "GROK_CLI_CHAT_PROXY_BASE_URL",
+      "GROK_XAI_API_BASE_URL",
+      "GROK_MODELS_BASE_URL",
+    ],
+    keyVars: ["XAI_API_KEY"],
   };
 }
 
