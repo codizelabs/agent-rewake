@@ -51,7 +51,7 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
       add({
         level: set ? "problem" : "info",
         text: `${v.name} ${a.version} is too old for Rewake (it needs ${v.min} or newer), so ${set ? "Rewake may miss its usage limits" : "Rewake isn't set up for it"}.`,
-        fix: `Update it with: ${v.update}${set ? "" : `, then run: agent-rewake install --only ${a.id}`}`,
+        fix: `Update it with: ${v.update}${set ? "" : `, then run: ${rewake(`install --only ${a.id}`)}`}`,
       });
     } else if (setUp.has(a.id) && newerThanTested(a.id, a.version))
       add({ level: "info", text: untestedText(a.id, a.version) });

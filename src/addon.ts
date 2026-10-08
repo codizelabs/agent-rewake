@@ -51,6 +51,7 @@ import { introNote } from "./guide.js";
 import { zedAgentSetting } from "./install.js";
 import { phase1Hooks } from "./proxy.js";
 import { overview, overviewMarkdown, STATUS_WORDS } from "./ui/overview.js";
+import { rewake } from "./util/command.js";
 import { type Wake, Wakefulness } from "./util/keep-awake.js";
 import type { Logger } from "./util/log.js";
 import { ensurePrivateDir } from "./util/paths.js";
@@ -2617,7 +2618,7 @@ export class SchedulingAddon {
         writeFileSync(file, overviewMarkdown(overview(this.opts.stateDir), now, this.opts.locale), {
           mode: 0o600,
         });
-        return `Rewake: [Open the overview of all scheduled messages](${pathToFileURL(file).href}) (a snapshot). To manage them, run the "Agent Rewake: schedules" task (\`agent-rewake setup zed\` prints it).`;
+        return `Rewake: [Open the overview of all scheduled messages](${pathToFileURL(file).href}) (a snapshot). To manage them, run the "Agent Rewake: schedules" task (\`${rewake("setup zed")}\` prints it).`;
       }
       case "repeat":
         return this.cmdRepeat(session, command.sub, command.words);
