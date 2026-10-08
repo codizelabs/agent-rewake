@@ -4,10 +4,6 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-### Changed
-
-- The landing page's comparison leads with what Rewake covers and says where each other way stops (one agent only, no scheduling, keystrokes into a pane, a dropped time zone, a prompt approved for you). It no longer links to them.
-
 ### Added
 
 - **Cursor's own agent (preview):** `agent-rewake install --only cursor` adds two hooks to `~/.cursor/hooks.json` (yours stay). When a chat stops at its usage limit, Rewake tells you to run `agent-rewake continue` and choose when (Cursor doesn't say when its limit resets); at that time (within 4 hours of the limit) it sends "Resume the work from where you were interrupted." (marked as from Agent Rewake) into the same chat, while that Cursor window stays open; typing in the chat meanwhile cancels it. If the window was closed or reloaded, a notification says to continue it yourself. A limit that waiting won't lift (a free plan's allowance, or one that needs payment) gets a notification instead. Continuing the same chat was tried in Cursor 3.23; a real Cursor usage limit wasn't yet.
@@ -15,6 +11,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Changed
 
+- The landing page's comparison leads with what Rewake covers and says where each other way stops (one agent only, no scheduling, keystrokes into a pane, a dropped time zone, a prompt approved for you). It no longer links to them.
 - **Claude Code's continues show up in `agent-rewake doctor`:** its planned continues count with the other agents' ("keep Claude Code open"), and a session waiting for your answer is named, with its folder. Rewake's plugin now records each session's folder with its limit (never message text).
 - **Claude Code follows Rewake's setting for every agent:** after `agent-rewake continue --always` (or turning it on in Zed's Settings), Claude Code continues without asking too, and `/rewake auto` says why. `/rewake auto off` in Claude Code keeps asking there, whatever the shared setting.
 - **The README, docs and website start from where you work**: a terminal, Claude Code's panel in VS Code or Cursor, Zed, JetBrains IDEs and Devin Desktop, each with what Rewake does there and its status. Zed's menu, forms and settings have their own section, and the website's "How it works" and agent tiles put the terminal agents first. The status badge says v0.2.
