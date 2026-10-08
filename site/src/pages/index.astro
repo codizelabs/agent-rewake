@@ -30,7 +30,7 @@ const site = new URL(base, Astro.site);
 const href = (path = "") => `${base}${path}`;
 const title = "Agent Rewake: auto-resume Claude Code, Codex and other coding agents after a usage limit";
 const description =
-  "Free, open-source add-on: when Claude, Codex, Gemini or another coding agent hits its usage limit, the work picks back up on its own when the limit resets. In Zed's Agent Panel for every external agent, and as previews for Claude Code, Codex, Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI in the terminal.";
+  "Free, open-source add-on: when Claude Code, Codex, Gemini or another coding agent hits its usage limit, the same session picks the work back up when the limit resets. In a terminal, in Claude Code's VS Code and Cursor panel, and in Zed's Agent Panel for every external agent; everything outside Zed is a preview.";
 const image = new URL("social-preview.png", site).href;
 const updated = "2026-10-06";
 
@@ -174,18 +174,6 @@ const zedAgents = [
 type FlowNode = { title: string; lines: string[]; rw?: boolean };
 const flows: Array<{ id: string; heading: string; text: string; label: string; back: boolean; nodes: FlowNode[] }> = [
   {
-    id: "zed",
-    heading: "In Zed's Agent Panel",
-    text: "Zed talks to coding agents over the Agent Client Protocol (ACP). Zed starts Rewake as the agent, Rewake starts the real agent, and everything else passes through unchanged. Keep Zed open.",
-    label: "Zed connects to Agent Rewake, which connects to your agent (Claude, Codex, Gemini and others). Messages pass through in both directions.",
-    back: true,
-    nodes: [
-      { title: "Zed", lines: ["your threads, unchanged"] },
-      { title: "Agent Rewake", lines: ["menu · schedules · limits", "runs on your computer"], rw: true },
-      { title: "Your agent", lines: ["Claude · Codex · Gemini…"] },
-    ],
-  },
-  {
     id: "inside",
     heading: "Inside Claude Code (preview)",
     text: "Rewake's plugin runs inside the Claude Code session. It sees the limit, asks once, and continues the same session after the reset. When Claude Code's own continue will do that, the plugin leaves it to Claude Code. Keep Claude Code open.",
@@ -207,6 +195,18 @@ const flows: Array<{ id: string; heading: string; text: string; label: string; b
       { title: "The agent's hooks", lines: ["Codex · Copilot CLI · Gemini CLI", "Grok Build · Antigravity CLI"] },
       { title: "Your computer's timer", lines: ["launchd · systemd or at", "Task Scheduler"], rw: true },
       { title: "Rewake, once", lines: ["at the reset:", "continues the same session"] },
+    ],
+  },
+  {
+    id: "zed",
+    heading: "In Zed's Agent Panel",
+    text: "Zed talks to coding agents over the Agent Client Protocol (ACP). Zed starts Rewake as the agent, Rewake starts the real agent, and everything else passes through unchanged. Keep Zed open.",
+    label: "Zed connects to Agent Rewake, which connects to your agent (Claude, Codex, Gemini and others). Messages pass through in both directions.",
+    back: true,
+    nodes: [
+      { title: "Zed", lines: ["your threads, unchanged"] },
+      { title: "Agent Rewake", lines: ["menu · schedules · limits", "runs on your computer"], rw: true },
+      { title: "Your agent", lines: ["Claude · Codex · Gemini…"] },
     ],
   },
 ];
@@ -282,10 +282,10 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
         <div class="dawn" aria-hidden="true"></div>
         <div class="wrap grid">
           <div>
-            <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v0.1 · free and open source</a>
+            <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v0.2 · free and open source</a>
             <h1 class="rise">{words.map((w, i) => <><span style={`--i:${i}`}>{w}</span>{" "}</>)}</h1>
             <p class="lede">
-              A free, open-source add-on for your coding agents. In Zed, Claude, Codex, Gemini or any other agent picks the work back up on its own when its usage limit resets. Previews bring it to Claude Code (in a terminal, VS Code or Cursor), Codex and four more agents.
+              A free, open-source add-on for your coding agents. When Claude Code, Codex, Gemini or another agent hits its usage limit, the same session picks the work back up when the limit resets, on its own once you allow it: in a terminal, in Claude Code's panel in VS Code or Cursor, and in Zed. Everything outside Zed is a preview.
             </p>
             <p class="install-label">Install in one line</p>
             <div class="install-cmd">
@@ -344,7 +344,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
               <p><b>A terminal agent:</b> start a new session. Codex asks you once to trust Rewake's hooks.</p>
             </li>
           </ol>
-          <p class="install-meta">For Zed's Agent Panel and six terminal agents (<a href={href("docs/#is-it-for-you")}>is it for you?</a>) · Needs Node.js 22+, plus Zed 1.22+ for Zed; each agent's minimum version is in <a href={href("docs/#outside-zed-previews")}>its guide</a> · macOS, Linux and Windows (previews tried by hand on macOS so far) · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
+          <p class="install-meta">For six coding agents in a terminal, Claude Code's VS Code and Cursor panel, and Zed's Agent Panel (<a href={href("docs/#is-it-for-you")}>is it for you?</a>) · Needs Node.js 22+, plus Zed 1.22+ for Zed; each agent's minimum version is in <a href={href("docs/#outside-zed-previews")}>its guide</a> · macOS, Linux and Windows (previews tried by hand on macOS so far) · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
         </div>
       </section>
 
@@ -473,21 +473,9 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
       <section id="agents">
         <div class="wrap" data-reveal>
           <p class="kicker">Works with</p>
-          <h2>Your coding agent, in Zed or in a terminal.</h2>
-          <p class="sub">In Zed's Agent Panel, Rewake works the same way with every external agent. In a terminal, previews for six agents install one by one. Pick yours for its step-by-step guide.</p>
+          <h2>Your coding agent, where you already use it.</h2>
+          <p class="sub">In a terminal, in Claude Code's panel in VS Code or Cursor, and in Zed's Agent Panel with every external agent. Each preview installs on its own. Pick yours for its step-by-step guide.</p>
           <ul class="agent-grid">
-            <li class="agent-tile agent-zed">
-              <span class="agent-logo" role="img" aria-label="Zed" set:html={logo(zedLogo, "zed")} />
-              <div class="agent-body">
-                <h3><a href={href("docs/#zed")}>Zed<span class="agent-go" aria-hidden="true"> →</span></a></h3>
-                <p>Resumes the thread at the reset, and sends messages later, with every external agent in the Agent Panel.</p>
-                <ul class="agent-mini" aria-label="Agents in Zed">
-                  {zedAgents.map((a, i) => <li><span class="agent-logo" set:html={logo(a.svg, `zed-${i}`)} />{a.name}</li>)}
-                  <li class="more">and every agent in the ACP Registry</li>
-                </ul>
-              </div>
-              <span class="agent-tag">Zed 1.22+</span>
-            </li>
             {
               previews.map((a) => (
                 <li class="agent-tile">
@@ -500,8 +488,20 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
                 </li>
               ))
             }
+            <li class="agent-tile agent-zed">
+              <span class="agent-logo" role="img" aria-label="Zed" set:html={logo(zedLogo, "zed")} />
+              <div class="agent-body">
+                <h3><a href={href("docs/#zed")}>Zed<span class="agent-go" aria-hidden="true"> →</span></a></h3>
+                <p>Resumes the thread at the reset, and sends messages later, with every external agent in the Agent Panel.</p>
+                <ul class="agent-mini" aria-label="Agents in Zed">
+                  {zedAgents.map((a, i) => <li><span class="agent-logo" set:html={logo(a.svg, `zed-${i}`)} />{a.name}</li>)}
+                  <li class="more">and every agent in the ACP Registry</li>
+                </ul>
+              </div>
+              <span class="agent-tag">Zed 1.22+</span>
+            </li>
           </ul>
-          <p class="sub">Previews are new: tried by hand on a Mac with a test limit, not yet a real one. <a href={href("docs/#agents")}>Every agent's guide, with the versions it needs and what's been tried</a></p>
+          <p class="sub">Most previews were tried by hand on a Mac with a test limit; none has met a real one yet. <a href={href("docs/#agents")}>Every agent's guide, with the versions it needs and what's been tried</a></p>
         </div>
       </section>
 
@@ -562,7 +562,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
           <dl class="facts">
             <div><dt>Price</dt><dd>Free</dd></div>
             <div><dt>License</dt><dd>Apache-2.0</dd></div>
-            <div><dt>Status</dt><dd><a href={href("docs/#status")}>Early release (0.1)</a></dd></div>
+            <div><dt>Status</dt><dd><a href={href("docs/#status")}>Early release (0.2)</a></dd></div>
             <div><dt>Works with</dt><dd>Every external agent in Zed 1.22 and later; <a href="#agents">previews</a> for Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI</dd></div>
             <div><dt>Needs</dt><dd>Node.js 22 or later</dd></div>
             <div><dt>Systems</dt><dd>macOS, Linux, Windows</dd></div>
