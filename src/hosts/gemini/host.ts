@@ -172,6 +172,13 @@ export const geminiHost: ClosedHost = {
   id: GEMINI_ID,
   name: "Gemini CLI",
   resume: (r, text, env) => resumeGemini(r, text, env),
+  settingsVars: [
+    "GEMINI_CLI_HOME",
+    "GOOGLE_GEMINI_BASE_URL",
+    "GOOGLE_GENAI_USE_VERTEXAI",
+    "GOOGLE_GENAI_USE_GCA",
+  ],
+  keyVars: ["GEMINI_API_KEY"],
 };
 
 const isGeminiTranscript = (p: unknown) =>

@@ -34,6 +34,14 @@ export interface SessionRecord {
   /** When the person last sent a prompt (Rewake's own resume runs aren't counted). */
   lastPromptAt?: number;
   limit?: SessionLimit;
+  /**
+   * The agent's own settings variables as the session had them (its home folder, provider base
+   * URL…: never a key), so a resume from a timer, which starts without the person's shell, finds
+   * the same session and setup.
+   */
+  env?: Record<string, string>;
+  /** Names of the key variables the session had set (never their values). */
+  keysSet?: string[];
   updatedAt: number;
 }
 
