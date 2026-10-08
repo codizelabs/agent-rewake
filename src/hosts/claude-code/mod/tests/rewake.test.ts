@@ -586,6 +586,15 @@ test("/rewake help lists what works here; the rest gets one line", async ($, on)
   );
 });
 
+test("/rewake alone: a time typed in the first question's own free-text choice is used", async ($, on) => {
+  const { seen } = harness(on, { answers: ["in 2h", "run the tests"] });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  const r = await $.command.run({ command: "rewake", args: "" } as never);
+  expect(r.text).toMatch(/^Scheduled for /);
+  expect(seen.questions).toHaveLength(2);
+  await $.command.run({ command: "rewake", args: "cancel all" } as never);
+});
+
 test("/rewake alone asks when (presets with their times), then what", async ($, on) => {
   const { clock, seen } = harness(on, { answers: ["FIRST", "run the tests"] });
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
@@ -597,6 +606,15 @@ test("/rewake alone asks when (presets with their times), then what", async ($, 
   expect(seen.questions[1]?.question).toMatch(
     /^What should Rewake send into this session (at|on) /,
   );
+  // Real choices: an editor panel answers a question without options with Yes/No.
+  const labels = (seen.questions[1]?.options ?? []).map((o) =>
+    typeof o === "string" ? o : o.label,
+  );
+  expect(labels).toEqual([
+    "Continue from where you left off.",
+    "Check where things stand and report back.",
+  ]);
+  expect(seen.questions.every((q) => (q.options?.length ?? 0) >= 2)).toBe(true);
   await clock.advance(31 * MIN);
   expect(seen.submitted).toEqual(["run the tests"]);
 });

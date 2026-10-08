@@ -287,7 +287,7 @@ describe("/rewake", () => {
     h.prompt(8, "/rewake list");
     await settle();
     expect(h.texts().at(-1)).toContain("| 1 | 15:00 today | First, edited | Paused |");
-    expect(h.texts().at(-1)).toContain("| 2 | 09:00 tomorrow (Monday) | Second | Scheduled |");
+    expect(h.texts().at(-1)).toContain("| 2 | 09:00 tomorrow, Monday | Second | Scheduled |");
 
     h.prompt(9, "/rewake resume 1");
     h.prompt(10, "/rewake cancel 2");
@@ -1447,7 +1447,7 @@ describe("the Rewake menu in the thread toolbar", () => {
       "In 30 minutes (14:30 today)",
       "In 1 hour (15:00 today)",
       "In 3 hours (17:00 today)",
-      "Tomorrow morning (09:00 tomorrow (Monday))",
+      "Tomorrow morning (09:00 tomorrow, Monday)",
       "Custom time…",
     ]);
     await answer(h, { message: "Run the tests", time: "in 1h" });
@@ -1712,7 +1712,7 @@ describe("scheduling in small steps, with custom cron", () => {
     expect(formKeys(h)).toEqual(["cron"]);
     await answer(h, { cron: "0 9 * * 1-5" });
     expect(formMessage(h)).toBe(
-      'Rewake understood "0 9 * * 1-5" as: Every weekday (Monday to Friday) at 09:00. Next runs: 09:00 tomorrow (Monday); Tuesday at 09:00; Wednesday at 09:00.',
+      'Rewake understood "0 9 * * 1-5" as: Every weekday (Monday to Friday) at 09:00. Next runs: 09:00 tomorrow, Monday; Tuesday at 09:00; Wednesday at 09:00.',
     );
     expect(formKeys(h)).toEqual(["how"]);
     await answer(h, { how: "repeat" });
@@ -1728,7 +1728,7 @@ describe("scheduling in small steps, with custom cron", () => {
     h.agent({ id: sent?.id, result: { stopReason: "end_turn" } });
     await settle();
     expect(h.store.list()[0]).toMatchObject({ status: "scheduled", dueAt: MON9 + 24 * HOUR });
-    expect(h.texts().at(-1)).toBe("Rewake: Next run: 09:00 tomorrow (Tuesday).");
+    expect(h.texts().at(-1)).toBe("Rewake: Next run: 09:00 tomorrow, Tuesday.");
     h.addon.stop();
   });
 
@@ -1786,7 +1786,7 @@ describe("/rewake every and /rewake cron", () => {
     h.prompt(2, "/rewake every weekday 9:30 Check the build");
     await settle();
     expect(h.texts().at(-1)).toMatch(
-      /^Rewake: Scheduled to repeat\. Rewake understood "30 9 \* \* 1-5" as: Every weekday \(Monday to Friday\) at 09:30\. Next runs: 09:30 tomorrow \(Monday\)/,
+      /^Rewake: Scheduled to repeat\. Rewake understood "30 9 \* \* 1-5" as: Every weekday \(Monday to Friday\) at 09:30\. Next runs: 09:30 tomorrow, Monday/,
     );
     h.prompt(3, '/rewake cron "*/30 * * * *" Status update');
     await settle();
@@ -1916,7 +1916,7 @@ describe("the agent's tools (approved by the user)", () => {
     await settle();
     const list = (await tool("list_scheduled_messages", {})).content[0]?.text ?? "";
     expect(list).toMatch(/^Current time: Sun, 4 Oct 2026, 14:00 \(/);
-    expect(list).toMatch(/\n1\. Next: Mon, 5 Oct 2026, 09:00 \(.*\) · 09:00 tomorrow \(Monday\)\n/);
+    expect(list).toMatch(/\n1\. Next: Mon, 5 Oct 2026, 09:00 \(.*\) · 09:00 tomorrow, Monday\n/);
     expect(list).toContain(
       "Status: scheduled · Repeats: Every day at 09:00 (until cancelled) · Added by: the user",
     );
@@ -1990,7 +1990,7 @@ describe("the agent's tools (approved by the user)", () => {
     });
     await drive(h);
     expect(formMessage(h)).toBe(
-      'Claude wants to change the message scheduled for 09:00 tomorrow (Monday) ("Daily summary"): move it from 09:00 tomorrow (Monday) to 10:00 tomorrow (Monday), end the repeat, ending after 3 runs, pause it. Reason: "Later works better". Submit changes it; Decline keeps it as it is.',
+      'Claude wants to change the message scheduled for 09:00 tomorrow, Monday ("Daily summary"): move it from 09:00 tomorrow, Monday to 10:00 tomorrow, Monday; end the repeat, ending after 3 runs; pause it. Reason: "Later works better". Submit changes it; Decline keeps it as it is.',
     );
     expect(h.store.list()[0]?.status).toBe("scheduled"); // nothing until the user accepts
     await answer(h, {});
