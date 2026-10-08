@@ -97,7 +97,11 @@ export function profileFor(agentId: string | undefined, agentName: unknown): Age
 }
 
 /** A usage-limit classification may carry the reset time the error's own text gives. */
-export type LimitClassification = Classification & { resetAt?: number };
+export type LimitClassification = Classification & {
+  resetAt?: number;
+  /** Read from the agent's last message, which a model writes, not from an error or a field. */
+  viaText?: boolean;
+};
 
 /** What else Rewake saw during the turn, for agents that report limits outside the error. */
 export interface TurnContext {

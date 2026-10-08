@@ -1048,7 +1048,7 @@ export class SchedulingAddon {
       now,
       session.lastMessageChunks,
     );
-    if (fromText) return fromText;
+    if (fromText) return { ...fromText, viaText: true };
     // Nova reports its token quota as a session update of its own.
     if (session.turnError?.code === "TOKEN_LIMIT_EXCEEDED")
       return { kind: "usage_limit", text: session.turnError.message, limitType: "other" };
@@ -1165,7 +1165,7 @@ export class SchedulingAddon {
       if (s.status === "missed" || s.status === "needs_attention")
         this.store.cancel(s.scheduleId, now);
     const thread = this.threads.get(session.sessionId);
-    const gate = this.autoGate(session, resetAt);
+    const gate = this.autoGate(session, resetAt, c.viaText === true);
     // The shared rules decide (src/core/resume.ts): billing never, a reset a day away is asked
     // about, no reset time waits the time last chosen in the resume form (C2).
     const delay = thread?.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS;
@@ -1195,7 +1195,11 @@ export class SchedulingAddon {
   }
 
   /** Why a remembered automatic resume may not run, or undefined if it may. */
-  private autoGate(session: SessionState, resetAt: number | undefined): string | undefined {
+  private autoGate(
+    session: SessionState,
+    resetAt: number | undefined,
+    viaText = false,
+  ): string | undefined {
     if (this.opts.allowAutomaticResume === false)
       return "automatic resume is turned off in Agent Rewake's settings.";
     if (this.claudeAgent && claudeAutoContinueDisabled(this.env, session.cwd)) {
@@ -1207,6 +1211,10 @@ export class SchedulingAddon {
     ) {
       return "this thread bypasses permissions, and your setting excludes those threads.";
     }
+    // A limit read only from the agent's own message could be text a model was steered into
+    // writing: with no permission prompts to fall back on, a person decides.
+    if (viaText && isBypassMode(session.permissionMode))
+      return "the limit was read from the agent's message, and this thread skips permission prompts, so a person should confirm it.";
     if (resetAt === undefined) {
       const delay = this.threads.get(session.sessionId)?.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS;
       const started = session.limit?.startedAt ?? this.now();

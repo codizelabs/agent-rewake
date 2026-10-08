@@ -2552,6 +2552,45 @@ describe("limits that agents report in their own way", () => {
     h.addon.stop();
   });
 
+  it("a limit read only from the agent's message, in a thread that skips permission prompts, asks first", async () => {
+    const text =
+      "Error: You've hit your session rate limit. Please wait for your limit to reset in 3 hours.";
+    const options = {
+      agentName: "copilot",
+      agentTitle: "GitHub Copilot",
+      agentId: "github-copilot-cli",
+    };
+    const turn = async (h: Awaited<ReturnType<typeof harness>>) => {
+      h.prompt(2, "/rewake auto on");
+      await settle();
+      h.prompt(3, "keep going");
+      await settle();
+      h.agent(chunk(text));
+      h.agent({ id: 3, result: { stopReason: "end_turn" } });
+      await settle();
+    };
+    // Prompts are asked for: an automatic resume is as before.
+    const normal = await harness(dir, options);
+    await turn(normal);
+    expect(normal.store.list()[0]).toMatchObject({ kind: "auto_limit_resume" });
+    normal.addon.stop();
+    // No permission prompts: a model-written line could be steering this, so a person confirms.
+    const other = mkdtempSync(join(tmpdir(), "rewake-text-bypass-"));
+    const g = await harness(other, {
+      ...options,
+      configOptions: [
+        { id: "mode", category: "mode", type: "select", currentValue: "bypassPermissions" },
+      ],
+    });
+    await turn(g);
+    expect(g.store.list()).toEqual([]);
+    expect(forms(g)).toHaveLength(1);
+    expect(g.texts()).toContain(
+      "Rewake: Not resuming automatically this time: the limit was read from the agent's message, and this thread skips permission prompts, so a person should confirm it.",
+    );
+    g.addon.stop();
+  });
+
   it("Copilot: limit words in the middle of a turn are not a limit", async () => {
     const h = await harness(dir, {
       agentName: "copilot",
