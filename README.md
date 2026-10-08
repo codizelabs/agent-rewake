@@ -51,7 +51,7 @@ Install once with `npx @codizelabs/agent-rewake install`: it finds what's on you
 | | Antigravity CLI | The same | Preview, not tried yet |
 | **VS Code, Cursor** | Claude Code's panel | The same as in a terminal: the same plugin loads there | Preview, tried on a Mac |
 | | Codex's extension | Rewake's hooks show up there, waiting to be trusted; the rest isn't tried yet | Not tried yet |
-| | Cursor's own agent | At a usage limit, continues the chat at the time you choose, while its window stays open | Preview, limit not tried yet |
+| | Cursor's own agent | At a usage limit, continues the chat at the time you choose (within 4 hours), while its window stays open | Preview, limit not tried yet |
 | **Zed** | Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and every other external agent | Resumes the thread at the reset; a **Rewake** menu, scheduled and repeating messages, a schedules page | In daily use |
 | **JetBrains IDEs, Devin Desktop** | Claude Agent, Codex (picked in AI Assistant or the agent selector) | Resumes after a limit while the IDE stays open, through the same add-on as in Zed | Preview, not tried yet |
 
