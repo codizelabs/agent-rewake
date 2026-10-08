@@ -191,13 +191,14 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       alreadySent: s.attempts.some((a) => a.idempotencyKey === key),
     });
     const at = where(host, s);
-    const settle = (status: Schedule["status"], failureReason?: string) =>
+    const settle = (status: Schedule["status"], failureReason?: string, failureMessage?: string) =>
       store.update(
         id,
         (x) => ({
           ...x,
           status,
           ...(failureReason !== undefined && { failureReason }),
+          ...(failureMessage !== undefined && { failureMessage }),
           lastRun: { at: now, outcome: status },
         }),
         now,
@@ -223,8 +224,9 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       why: Parameters<typeof notice>[0],
       status: Schedule["status"],
       cause?: FailCause,
+      message?: string,
     ): FireOutcome => {
-      settle(status, cause ?? why);
+      settle(status, cause ?? why, message);
       // Keep the later reset the agent reported, so asking again ("rewake") continues then.
       if (facts.newResetsAt !== undefined && (why === "far-reset" || why === "expired"))
         store.update(id, (x) => ({ ...x, dueAt: (facts.newResetsAt ?? 0) + RESET_MARGIN_MS }), now);
@@ -304,7 +306,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         const cause = ["signed-out", "archived", "deleted", "timeout"].includes(result.detail ?? "")
           ? (result.detail as FailCause)
           : undefined;
-        return tell("failed", "failed", cause);
+        return tell("failed", "failed", cause, result.message);
       }
       case "wait":
         return wait(decision.until, decision.why);
