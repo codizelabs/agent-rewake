@@ -45,7 +45,7 @@ describe("Cursor's hooks file", () => {
       { command: '"/n" "/l.mjs" hook cursor beforeSubmitPrompt', timeout: 10 },
     ]);
     writeFileSync(file, plan.changes[0]?.after ?? "");
-    expect(cursorInstalled(dir.replace(/$/, ""))).toBe(false); // not ~/.cursor here
+    expect(cursorInstalled(dir)).toBe(false); // not ~/.cursor here
     // Installing again changes nothing; uninstall leaves the person's hook.
     const again = planCursor(file, "/n", "/l.mjs", false);
     expect("changes" in again && again.changes).toEqual([]);
@@ -53,6 +53,12 @@ describe("Cursor's hooks file", () => {
     if ("error" in back) throw new Error(back.error);
     expect(JSON.parse(back.changes[0]?.after ?? "{}").hooks).toEqual({
       stop: [{ command: "./my-audit.sh" }],
+    });
+  });
+
+  it("refuses a path with a double quote in it rather than write a broken command", () => {
+    expect(planCursor(join(dir, "hooks.json"), '/my "node"/node', "/l.mjs", false)).toMatchObject({
+      error: expect.stringContaining("contains a double quote"),
     });
   });
 

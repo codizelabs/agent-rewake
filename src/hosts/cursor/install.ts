@@ -74,7 +74,8 @@ export function cursorInstalled(home: string): boolean {
   );
 }
 
-const quote = (s: string) => `"${s.replace(/"/g, '\\"')}"`;
+// As for Gemini CLI and Grok: Windows paths can't contain double quotes; others are refused below.
+const quote = (s: string) => `"${s}"`;
 
 /** The change to hooks.json: Rewake's entries added or replaced (or removed), the rest kept. */
 export function planCursor(
@@ -83,6 +84,10 @@ export function planCursor(
   launcher: string,
   uninstall: boolean,
 ): Plan | { error: string } {
+  if (`${node}${launcher}`.includes('"'))
+    return {
+      error: `Rewake couldn't set up Cursor: the path to Node.js or to Rewake contains a double quote (${node}, ${launcher}). Rewake didn't change anything.`,
+    };
   const existed = existsSync(file);
   const before = existed ? readFileSync(file, "utf8") : "";
   const parsed = existed ? readHooks(file) : { version: 1, hooks: {} };
