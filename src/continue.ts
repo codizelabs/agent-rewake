@@ -89,15 +89,34 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     o.out("Nothing to continue: no closed session is stopped at a usage limit.\n");
     return 0;
   }
-  const line = (c: Candidate) =>
-    `${placeOf(c.host, c.record.cwd)}: stopped ${formatAt(c.record.limit?.seenAt ?? now, now)}${
+  const failedTry = (c: Candidate) =>
+    new ScheduleStore(o.deps.stateDir)
+      .listForSession(c.record.sessionId, c.host.id)
+      .filter((s) => s.status === "failed" && s.updatedAt >= (c.record.limit?.seenAt ?? 0))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const line = (c: Candidate) => {
+    const f = failedTry(c);
+    return `${placeOf(c.host, c.record.cwd)}: stopped ${formatAt(c.record.limit?.seenAt ?? now, now)}${
       c.resetsAt && c.resetsAt + RESET_MARGIN_MS > now
         ? `; Rewake can continue it ${formatAt(c.resetsAt + RESET_MARGIN_MS, now)}`
         : ""
+    }${
+      f
+        ? `; Rewake tried ${formatAt(f.lastRun?.at ?? f.updatedAt, now)}${
+            f.failureMessage
+              ? ` and ${c.host.name} ended with: "${f.failureMessage}"`
+              : ", without success"
+          }`
+        : ""
     }`;
+  };
   if (!o.interactive) {
     o.out(
-      `${list.map((c) => `  ${line(c)}`).join("\n")}\nRun "agent-rewake continue" in a terminal to choose.\n`,
+      `${list.map((c) => `  ${line(c)}`).join("\n")}\nRun "agent-rewake continue" in a terminal to choose.${
+        list.some((c) => failedTry(c))
+          ? " If a try failed, open that session in its agent to continue it yourself."
+          : ""
+      }\n`,
     );
     return 1;
   }
@@ -121,14 +140,29 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
   }
 
   const place = placeOf(chosen.host, chosen.record.cwd);
+  // Cursor's hook waits only so long after the limit: nothing later is offered or taken.
+  const latest =
+    chosen.host.maxWaitAfterLimitMs === undefined
+      ? undefined
+      : (chosen.record.limit?.seenAt ?? now) + chosen.host.maxWaitAfterLimitMs;
+  const tooLate = () =>
+    `Rewake can continue ${place} only until ${formatWhen(latest ?? now, now)}, 4 hours after its usage limit. Choose an earlier time, or open the ${chosen.host.noun ?? "session"} later and continue it yourself.\n`;
+  if (latest !== undefined && latest - now < 5 * 60_000) {
+    o.out(
+      `Rewake can continue ${place} only within 4 hours of its usage limit, and that time has passed. Open the ${chosen.host.noun ?? "session"} and continue it yourself.\n`,
+    );
+    return 1;
+  }
   let at: number;
   if (chosen.resetsAt && chosen.resetsAt + RESET_MARGIN_MS > now) {
     at = chosen.resetsAt + RESET_MARGIN_MS;
   } else {
     // The reset time isn't known: a few times with their clock time, or another one.
-    const presets = [1, 3, 5].map((h) => ({ h, at: now + h * 3_600_000 }));
+    const presets = [1, 3, 5]
+      .map((h) => ({ h, at: now + h * 3_600_000 }))
+      .filter((p) => latest === undefined || p.at <= latest);
     o.out(
-      `When should Rewake continue ${place}?\n${presets
+      `When should Rewake continue ${place}?${latest === undefined ? "" : ` (It can wait until ${formatWhen(latest, now)}, 4 hours after the limit.)`}\n${presets
         .map(
           (p, i) => `  ${i + 1}. In ${p.h} hour${p.h === 1 ? "" : "s"} (${formatWhen(p.at, now)})`,
         )
@@ -160,6 +194,10 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
       return 1;
     }
   }
+  if (latest !== undefined && at > latest) {
+    o.out(tooLate());
+    return 1;
+  }
   armClosed(chosen.host, chosen.record, at, o.deps);
   o.out(`${armedText(chosen.host, chosen.record.cwd, at, now)}\n`);
   // Nothing of Rewake's runs while it waits here, so any sleep setting counts.
@@ -168,7 +206,7 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     o.out(
       `This computer may sleep before then: ${risks.join("; ")}. To keep it awake: ${SLEEP_DOCS_URL}\n`,
     );
-  if (settings.newThreads !== "on")
+  if (settings.newThreads !== "on" && latest === undefined)
     o.out(
       "To let Rewake do this by itself next time (when the reset is within a day): agent-rewake continue --always\n",
     );

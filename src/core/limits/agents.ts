@@ -202,3 +202,25 @@ export function classifyGrokFailure(
     return { kind: "weekly", billing: false };
   return { kind: "billing", billing: true };
 }
+
+// ---- Cursor's own agent (its hooks and transcript) -------------------------------------------
+
+/**
+ * Cursor's own agent: the error its transcript records when a turn ends at a limit (the `stop`
+ * hook gives no text; Cursor 3.23 writes `{"type":"turn_ended","status":"error","error":…}`).
+ * Seen on a Free plan: "You've hit your usage limit Get Cursor Pro…". It never says when the
+ * limit resets, so the person picks a time. That one, payment and spend messages are billing:
+ * waiting hours won't lift them.
+ */
+export function classifyCursorError(text: unknown): SessionLimit | undefined {
+  if (typeof text !== "string" || text === "") return undefined;
+  const t = text.slice(0, 4096);
+  // A free plan's allowance ("… Get Cursor Pro for more Agent usage …") doesn't lift in hours either.
+  if (
+    /add a payment method|spend(ing)? limit|out of credits|on-demand usage|get cursor pro/i.test(t)
+  )
+    return { kind: "billing", billing: true };
+  if (/hit your (usage|rate) limit|usage limit|rate limit|upgrade your plan to continue/i.test(t))
+    return { kind: "other", billing: false };
+  return undefined;
+}

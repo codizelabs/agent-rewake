@@ -1,6 +1,9 @@
 import { ScheduleStore } from "../core/store.js";
 import type { Finding } from "../doctor.js";
 import type { PlaceId } from "../install/detect.js";
+import type { TimerKind } from "../timers/timers.js";
+import { waiterNote } from "../timers/waiter.js";
+import { claudeCodeRecords } from "./claude-code/records.js";
 import type { HostAdapter } from "./host.js";
 import { hooksTurnedOff } from "./policy.js";
 import { AGENT_VERSIONS, newerThanTested, tooOld, untestedText } from "./versions.js";
@@ -22,6 +25,10 @@ export interface OutsideFacts {
   hosts: ReadonlyMap<string, HostAdapter>;
   /** Whether this computer offers a one-shot timer (src/timers/timers.ts timerKind). */
   hasTimer: boolean;
+  /** Which one (only "waiter" changes what doctor says). */
+  timerKind?: TimerKind;
+  /** Linux in WSL (for the waiter's fix). */
+  wsl?: boolean;
   /** The agents' terminal programs here, with their versions (src/install/detect.ts terminalAgents). */
   agents?: { id: PlaceId; version?: string }[];
   when: (at: number, now: number) => string;
@@ -70,11 +77,20 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
           : "Run agent-rewake doctor again after a restart; if it stays, report it with agent-rewake doctor --details.",
     });
 
+  if (f.timerKind === "waiter") add({ level: "info", ...waiterNote(f.wsl ?? false) });
+
   const resumes = new ScheduleStore(f.stateDir).list().filter((s) => s.host !== undefined);
-  const name = (host: string | undefined) => (host && f.hosts.get(host)?.name) || host || "";
-  const upcoming = resumes
-    .filter((s) => s.status === "scheduled" || s.status === "sending")
-    .sort((a, b) => a.dueAt - b.dueAt);
+  const name = (host: string | undefined) =>
+    (host && f.hosts.get(host)?.name) || (host === "claude-code" ? "Claude Code" : host) || "";
+  // Claude Code's continues live in its own plugin; its copies say what's planned there.
+  const cc = setUp.has("claude-code") ? claudeCodeRecords(f.stateDir, f.now) : [];
+  const upcoming = [
+    ...resumes.filter((s) => s.status === "scheduled" || s.status === "sending"),
+    ...cc
+      .filter((r) => r.state === "armed" && r.fireAt !== undefined && r.fireAt > f.now - 5 * 60_000)
+      .map((r) => ({ host: "claude-code", dueAt: r.fireAt as number })),
+  ].sort((a, b) => a.dueAt - b.dueAt);
+  const asking = cc.filter((r) => r.state === "offered" || r.state === "waiting");
   const needsYou = resumes.filter((s) => s.status === "needs_attention");
   const recent = (s: { dueAt: number }) => s.dueAt > f.now - 7 * DAY;
   const missed = resumes.filter((s) => s.status === "missed" && recent(s));
@@ -85,8 +101,22 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
   if (next)
     add({
       level: "ok",
-      text: `${n(upcoming.length, "planned resume")}; the next one continues ${name(next.host)} ${f.when(next.dueAt, f.now)}. Keep this computer on and awake then.`,
+      text: `${n(upcoming.length, "planned resume")}; the next one continues ${name(next.host)} ${
+        next.dueAt <= f.now ? "now" : f.when(next.dueAt, f.now)
+      }. Keep this computer on and awake${next.host === "claude-code" ? ", and Claude Code open," : ""} then.`,
     });
+  if (asking.length > 0) {
+    const where = (r: { cwd?: string }) =>
+      r.cwd ? ` (in the "${r.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? r.cwd}" folder)` : "";
+    add({
+      level: "todo",
+      text:
+        asking.length === 1
+          ? `1 Claude Code session${where(asking[0] as { cwd?: string })} is waiting for your answer: continue it after the reset?`
+          : `${asking.length} Claude Code sessions are waiting for your answer: continue them after the reset?`,
+      fix: "Answer Rewake's question there, or type /rewake.",
+    });
+  }
   if (needsYou.length > 0)
     add({
       level: "todo",
@@ -98,11 +128,18 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
       level: "info",
       text: `${n(missed.length, "resume")} ${missed.length === 1 ? "was" : "were"} missed in the last 7 days (the computer was off or asleep at the time).`,
     });
+  const lastFailed = [...failed].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   if (failed.length > 0)
     add({
       level: "info",
-      text: `${n(failed.length, "resume")} failed in the last 7 days.`,
-      fix: "See why with: agent-rewake ui",
+      text: `${n(failed.length, "resume")} failed in the last 7 days.${
+        lastFailed?.failureMessage
+          ? ` The last one, in ${name(lastFailed.host)}, ended with: "${lastFailed.failureMessage}"`
+          : ""
+      }`,
+      fix: lastFailed?.failureMessage
+        ? "See all of them with: agent-rewake ui"
+        : "See why with: agent-rewake ui",
     });
   if (out.length === 0)
     add({

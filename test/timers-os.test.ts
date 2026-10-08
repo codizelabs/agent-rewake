@@ -32,7 +32,12 @@ describe.runIf(enabled)("OS timer", () => {
       );
       const h = defaultTimerHost(dir, process.execPath, stub);
       const kind = timerKind(h);
+      // Rewake's own waiter runs the real CLI, not a stub: test/waiter-os.test.ts.
+      if (kind === "waiter") return;
       if (!kind) {
+        // On CI a missing scheduler is a broken runner, not a pass.
+        if (process.env.CI)
+          throw new Error("No OS timer on this CI runner (no systemd user manager or at).");
         console.warn("No OS timer on this computer (no systemd user manager or at): skipped.");
         return;
       }
@@ -83,7 +88,10 @@ describe.runIf(enabled)("OS timer", () => {
       const stub = join(dir, "stub.mjs");
       const h = defaultTimerHost(dir, process.execPath, stub);
       const kind = timerKind(h);
+      if (kind === "waiter") return;
       if (!kind) {
+        // On CI a missing scheduler is a broken runner, not a pass.
+        if (process.env.CI) throw new Error("No OS timer on this CI runner.");
         console.warn("No OS timer on this computer: skipped.");
         return;
       }

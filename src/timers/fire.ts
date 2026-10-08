@@ -72,7 +72,13 @@ function where(host: HostAdapter, s: Schedule): string {
 }
 
 /** Why a send failed, when the host knows: named so the person can fix it. */
-export type FailCause = "signed-out" | "archived" | "deleted" | "timeout";
+export type FailCause =
+  | "signed-out"
+  | "archived"
+  | "deleted"
+  | "timeout"
+  | "missing-key"
+  | "window-closed";
 
 export interface NoticeFacts {
   /** "thread" (Codex, Zed) or "session" (Copilot, Grok): the host's own word. */
@@ -127,6 +133,10 @@ export function notice(
         return `${agent}: Rewake couldn't continue the ${n} because you're signed out of ${f.agentName}. Sign in, then ${reopen} to continue.`;
       if (f.cause === "archived")
         return `${agent}: Rewake couldn't continue the ${n} because it's archived. Unarchive it, then ${reopen} to continue.`;
+      if (f.cause === "missing-key")
+        return `${agent}: Rewake couldn't continue the ${n} because it used a key or token from your shell, and Rewake never stores those. ${cap(reopen)} to continue. Next time, sign in to ${f.agentName} and remove the key from your shell profile.`;
+      if (f.cause === "window-closed")
+        return `${agent}: the time you chose has come, but Rewake couldn't continue the ${n} (was its window closed or reloaded?). ${cap(reopen)} to continue.`;
       if (f.cause === "deleted")
         return `${agent}: Rewake couldn't continue the ${n} because it no longer exists.`;
       return `${agent}: Rewake couldn't continue the ${n}. ${cap(reopen)} to continue.`;
@@ -191,13 +201,14 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       alreadySent: s.attempts.some((a) => a.idempotencyKey === key),
     });
     const at = where(host, s);
-    const settle = (status: Schedule["status"], failureReason?: string) =>
+    const settle = (status: Schedule["status"], failureReason?: string, failureMessage?: string) =>
       store.update(
         id,
         (x) => ({
           ...x,
           status,
           ...(failureReason !== undefined && { failureReason }),
+          ...(failureMessage !== undefined && { failureMessage }),
           lastRun: { at: now, outcome: status },
         }),
         now,
@@ -223,8 +234,9 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       why: Parameters<typeof notice>[0],
       status: Schedule["status"],
       cause?: FailCause,
+      message?: string,
     ): FireOutcome => {
-      settle(status, cause ?? why);
+      settle(status, cause ?? why, message);
       // Keep the later reset the agent reported, so asking again ("rewake") continues then.
       if (facts.newResetsAt !== undefined && (why === "far-reset" || why === "expired"))
         store.update(id, (x) => ({ ...x, dueAt: (facts.newResetsAt ?? 0) + RESET_MARGIN_MS }), now);
@@ -301,10 +313,17 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           }
           return wait(now + backoffMs(rearms), result.reason);
         }
-        const cause = ["signed-out", "archived", "deleted", "timeout"].includes(result.detail ?? "")
+        const cause = [
+          "signed-out",
+          "archived",
+          "deleted",
+          "timeout",
+          "missing-key",
+          "window-closed",
+        ].includes(result.detail ?? "")
           ? (result.detail as FailCause)
           : undefined;
-        return tell("failed", "failed", cause);
+        return tell("failed", "failed", cause, result.message);
       }
       case "wait":
         return wait(decision.until, decision.why);

@@ -393,3 +393,17 @@ describe("fire from a timer", () => {
     expect(existsSync(join(dir, "logs"))).toBe(true);
   });
 });
+
+describe("a failed resume keeps the agent's own reason", () => {
+  it("stores the agent's last error line with the failed resume", async () => {
+    const r = resume();
+    const { deps } = setup({
+      send: { ok: false, reason: "failed", detail: "exit 1", message: "No session matched 'abc'." },
+    });
+    await fire(r.scheduleId, deps);
+    expect(new ScheduleStore(deps.stateDir).get(r.scheduleId)).toMatchObject({
+      status: "failed",
+      failureMessage: "No session matched 'abc'.",
+    });
+  });
+});

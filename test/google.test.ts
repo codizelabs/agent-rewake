@@ -339,7 +339,7 @@ describe("Gemini CLI", () => {
     ]);
     expect(json.hooks.AfterAgent[0].hooks[0]).toEqual({
       type: "command",
-      name: "agent-rewake-after-agent",
+      name: "Agent Rewake",
       command: '"/n" "/l.mjs" hook gemini-cli AfterAgent',
       timeout: 5000,
     });

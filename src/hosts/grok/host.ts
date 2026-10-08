@@ -18,7 +18,7 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult } from "../host.js";
+import { resumeDeadline, type SendResult, withMessage } from "../host.js";
 import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -203,7 +203,12 @@ export function resumeGrok(
       }
       if (SESSION_GONE.test(`${out}\n${err}`))
         return resolve({ ok: false, reason: "closed", detail: "deleted" });
-      resolve({ ok: false, reason: "failed", detail: `exit ${code ?? "signal"}` });
+      resolve({
+        ok: false,
+        reason: "failed",
+        detail: `exit ${code ?? "signal"}`,
+        ...withMessage(err || out),
+      });
     });
   });
 }
@@ -213,7 +218,14 @@ export function grokHost(env: NodeJS.ProcessEnv): ClosedHost {
     id: GROK_ID,
     name: "Grok Build",
     resume: (r, text, e) => resumeGrok(r, text, e),
-    isOpen: (r) => grokSessionOpen(grokHome(env), r.sessionId),
+    isOpen: (r) => grokSessionOpen(grokHome({ ...env, ...r.env }), r.sessionId),
+    settingsVars: [
+      "GROK_HOME",
+      "GROK_CLI_CHAT_PROXY_BASE_URL",
+      "GROK_XAI_API_BASE_URL",
+      "GROK_MODELS_BASE_URL",
+    ],
+    keyVars: ["XAI_API_KEY"],
   };
 }
 

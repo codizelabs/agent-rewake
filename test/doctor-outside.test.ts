@@ -47,6 +47,21 @@ describe("doctor: outside Zed", () => {
     expect(out[1]?.fix).toContain("install and start the at service");
   });
 
+  it("says when Rewake's own waiter is the timer, and the one fix (WSL: systemd)", () => {
+    const out = diagnoseOutside(
+      facts({ hasTimer: true, timerKind: "waiter", platform: "linux", wsl: true }),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.text).toMatch(
+      /^Planned resumes run at their times while this computer stays on\./,
+    );
+    expect(out[0]?.fix).toContain("systemd=true to /etc/wsl.conf, then run wsl.exe --shutdown");
+    const linux = diagnoseOutside(
+      facts({ hasTimer: true, timerKind: "waiter", platform: "linux" }),
+    );
+    expect(linux[0]?.fix).toContain("sudo apt install at, then sudo service atd start");
+  });
+
   it("names an agent too old for Rewake, set up or not, and one newer than tested", () => {
     const agents = [
       { id: "copilot-cli" as const, version: "1.0.80" },
@@ -106,6 +121,36 @@ describe("doctor: outside Zed", () => {
     expect(out.map((f) => f.level)).toEqual(["ok", "todo"]);
     expect(out[0]?.text).toMatch(/^1 planned resume; the next one continues GitHub Copilot CLI /);
     expect(out[1]?.fix).toBe("Review it with: agent-rewake ui");
+  });
+
+  it("shows Claude Code's planned continues and the sessions waiting for an answer", () => {
+    const sessions = join(dir, "state", "hosts", "claude-code", "sessions");
+    mkdirSync(sessions, { recursive: true });
+    const rec = (id: string, state: string, extra: Record<string, unknown> = {}) =>
+      writeFileSync(
+        join(sessions, `${id}.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          host: "claude-code",
+          sessionId: id,
+          state,
+          updatedAt: NOW,
+          ...extra,
+        }),
+      );
+    rec("a", "armed", { cwd: "/w/shop", fireAt: NOW + 30 * 60_000 });
+    rec("b", "offered", { resetAt: NOW + 60 * 60_000, cwd: "/w/shop" });
+    rec("c", "sent", { fireAt: NOW - 60_000 });
+    rec("old", "armed", { fireAt: NOW + 60_000, updatedAt: NOW - 3 * 86_400_000 });
+    const out = diagnoseOutside(facts({ previews: [{ id: "claude-code", name: "Claude Code" }] }));
+    expect(out.map((f) => f.level)).toEqual(["ok", "todo"]);
+    expect(out[0]?.text).toMatch(
+      /^1 planned resume; the next one continues Claude Code .+\. Keep this computer on and awake, and Claude Code open, then\.$/,
+    );
+    expect(out[1]).toMatchObject({
+      text: '1 Claude Code session (in the "shop" folder) is waiting for your answer: continue it after the reset?',
+      fix: "Answer Rewake's question there, or type /rewake.",
+    });
   });
 
   it("says where Rewake is set up when there's nothing else to say", () => {

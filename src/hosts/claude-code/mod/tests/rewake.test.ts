@@ -182,6 +182,56 @@ test("stands down when Claude Code will continue by itself, and clears on quota_
   expect(seen.submitted.length).toBe(0);
 });
 
+test("Claude Code's own setting turned on mid-session still counts as off: Rewake asks", async ($, on) => {
+  const opts = { windows: () => fiveHour("2026-10-06T11:00:00Z"), setting: false, answer: "FIRST" };
+  const { clock, seen } = harness(on, opts);
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  // The person turns it on in the settings file; the running Claude Code keeps "off".
+  opts.setting = true;
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.asked).toBe(1);
+  await clock.advance(62 * MIN);
+  expect(seen.submitted).toEqual([CONTINUE]);
+});
+
+test("Claude Code was expected to continue by itself but didn't: Rewake asks after the reset", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("native");
+  // No quota_auto_resume_fired from Claude Code by two minutes after the 11:00 reset.
+  await clock.advance(63 * MIN);
+  expect(seen.submitted).toEqual([CONTINUE]);
+  await clock.advance(30 * MIN);
+  expect(seen.submitted).toHaveLength(1);
+});
+
+test("Rewake's shared automatic resume (continue --always) counts here; /rewake auto off overrides it", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
+    config: JSON.stringify({ stateDir: "/state" }),
+    settings: JSON.stringify({ newThreads: "on" }),
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.asked).toBe(0);
+  expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
+  const status = await $.command.run({ command: "rewake", args: "auto" } as never);
+  expect(status.text).toMatch(
+    /^Rewake's setting for every agent is on \(agent-rewake continue --always/,
+  );
+  // The person asks to be asked, in this plugin: that wins over the shared setting.
+  await $.command.run({ command: "rewake", args: "auto off" } as never);
+  expect(seen.store.prefs).toEqual({ autoContinue: "ask" });
+});
+
 test("the weekly limit is past the native 24-hour horizon, so Rewake asks", async ($, on) => {
   const { clock, seen } = harness(on, {
     windows: () => [{ kind: "seven_day", percentUsed: 100, resetsAt: "2026-10-09T09:00:00Z" }],
@@ -504,7 +554,7 @@ test('"/rewake auto off" turns "always" off, "auto on" back on, and the list say
   expect(list.text).toContain("To be asked each time: /rewake auto off");
   const r = await $.command.run({ command: "rewake", args: "auto off" } as never);
   expect(r.text).toBe("Rewake will ask before continuing after a usage limit.");
-  expect(seen.store.prefs).toEqual({});
+  expect(seen.store.prefs).toEqual({ autoContinue: "ask" });
   const on2 = await $.command.run({ command: "rewake", args: "auto on" } as never);
   expect(on2.text).toMatch(/^From now on, after a usage limit Rewake continues every session/);
   expect(seen.store.prefs).toEqual({ autoContinue: "always" });
@@ -557,6 +607,15 @@ test("/rewake help lists what works here; the rest gets one line", async ($, on)
   );
 });
 
+test("/rewake alone: a time typed in the first question's own free-text choice is used", async ($, on) => {
+  const { seen } = harness(on, { answers: ["in 2h", "run the tests"] });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  const r = await $.command.run({ command: "rewake", args: "" } as never);
+  expect(r.text).toMatch(/^Scheduled for /);
+  expect(seen.questions).toHaveLength(2);
+  await $.command.run({ command: "rewake", args: "cancel all" } as never);
+});
+
 test("/rewake alone asks when (presets with their times), then what", async ($, on) => {
   const { clock, seen } = harness(on, { answers: ["FIRST", "run the tests"] });
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
@@ -568,6 +627,15 @@ test("/rewake alone asks when (presets with their times), then what", async ($, 
   expect(seen.questions[1]?.question).toMatch(
     /^What should Rewake send into this session (at|on) /,
   );
+  // Real choices: an editor panel answers a question without options with Yes/No.
+  const labels = (seen.questions[1]?.options ?? []).map((o) =>
+    typeof o === "string" ? o : o.label,
+  );
+  expect(labels).toEqual([
+    "Continue from where you left off.",
+    "Check where things stand and report back.",
+  ]);
+  expect(seen.questions.every((q) => (q.options?.length ?? 0) >= 2)).toBe(true);
   await clock.advance(31 * MIN);
   expect(seen.submitted).toEqual(["run the tests"]);
 });

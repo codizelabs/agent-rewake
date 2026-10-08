@@ -98,11 +98,11 @@ function parseIso(text: string): number | undefined {
 
 /**
  * Rewake's text is English, so dates are written in English too, whatever the system language
- * (on Windows the system language would otherwise give "tomorrow (Montag)").
+ * (on Windows the system language would otherwise give "tomorrow, Montag").
  */
 export const TEXT_LOCALE = "en-US";
 
-/** "09:00 today", "09:00 tomorrow (Monday)", "on Thursday at 09:00": absolute local time first. */
+/** "09:00 today", "09:00 tomorrow, Monday", "on Thursday at 09:00": absolute local time first. */
 /** How times are shown: 12-hour "3:19 PM" by default, or 24-hour "15:19". */
 export type Clock = "12h" | "24h";
 let clockSetting: Clock = "12h";
@@ -133,7 +133,7 @@ export function formatWhen(at: number, now: number, locale?: string): string {
   const dayDiff = Math.round((startOfDay(at) - startOfDay(now)) / 86_400_000);
   const weekday = new Intl.DateTimeFormat(locale ?? TEXT_LOCALE, { weekday: "long" }).format(at);
   if (dayDiff === 0) return `${time} today`;
-  if (dayDiff === 1) return `${time} tomorrow (${weekday})`;
+  if (dayDiff === 1) return `${time} tomorrow, ${weekday}`;
   if (dayDiff > 1 && dayDiff < 7) return `${weekday} at ${time}`;
   const date = new Intl.DateTimeFormat(locale ?? TEXT_LOCALE, {
     day: "numeric",

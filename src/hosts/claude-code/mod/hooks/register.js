@@ -56,6 +56,13 @@ const QUESTION =
 
 let isInteractive = false;
 let surface = null;
+/**
+ * Claude Code's own "Continue automatically at usage limit" as this session started with it: the
+ * running Claude Code keeps that value, so a change in the settings file mid-session doesn't count.
+ */
+let nativeSetting;
+/** How long after the reset Claude Code's own continue may take before Rewake steps in. */
+const NATIVE_GRACE_MS = 2 * 60_000;
 /** How Claude Code was started (`CLAUDE_CODE_ENTRYPOINT`): "cli", "claude-vscode", "sdk-ts"… */
 let entrypoint;
 /** Sessions whose limit is being handled right now (a burst of StopFailures is one limit). */
@@ -67,6 +74,10 @@ let clock = "12h";
 let armed;
 /** `<stateDir>/hosts/claude-code/sessions`, when the installer said where the state folder is. */
 let mirrorDir;
+/** Rewake's shared "automatic resume" (settings.json newThreads): "on" counts as "always" here. */
+let sharedAuto;
+/** The session's folder, for where Rewake's CLI names it ("in the shop folder"). */
+let sessionCwd;
 /** This process, in a send's claim: two Claude Code processes can have one session open. */
 const ME = Math.random().toString(36).slice(2);
 /** A claim older than this was left by a process that stopped mid-send. */
@@ -95,6 +106,7 @@ async function loadConfig($) {
     try {
       const settings = JSON.parse(await $.fs.read(`${cfg.stateDir}/settings.json`));
       if (settings.clock === "24h" || settings.clock === "12h") clock = settings.clock;
+      if (["on", "off", "ask"].includes(settings.newThreads)) sharedAuto = settings.newThreads;
       if (["plugged-in", "always", "never"].includes(settings.keepAwake))
         keepAwake = settings.keepAwake;
     } catch {
@@ -115,6 +127,7 @@ async function mirror($, id, ep) {
     schemaVersion: 1,
     host: "claude-code",
     sessionId: id,
+    ...(typeof sessionCwd === "string" && { cwd: sessionCwd }),
     state,
     kind,
     resetAt,
@@ -221,7 +234,10 @@ async function refreshStatus($, id, now) {
 
 /** A limit whose reset time is known: leave it to Claude Code, or ask. */
 async function classify($, id, ep, now) {
-  const { autoContinueAtUsageLimit } = await $.settings.read();
+  const autoContinueAtUsageLimit =
+    nativeSetting === undefined
+      ? (await $.settings.read()).autoContinueAtUsageLimit
+      : nativeSetting.value;
   if (
     nativeLikely({
       isInteractive,
@@ -238,11 +254,26 @@ async function classify($, id, ep, now) {
   await ask($, id, ep, now);
 }
 
+/**
+ * The person's choice for this plugin: what they said here ("always" or "ask"), else Rewake's
+ * shared setting (turned on with `agent-rewake continue --always` or in Zed's Settings).
+ */
+function autoChoice(prefs) {
+  return prefs.autoContinue ?? (sharedAuto === "on" ? "always" : undefined);
+}
+
+/** Why Rewake continues without asking here: the person's choice in Claude Code, or the shared one. */
+function autoText(prefs) {
+  return prefs.autoContinue === "always"
+    ? "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake auto off"
+    : "Rewake's setting for every agent is on (agent-rewake continue --always, or Zed's Settings), so after a usage limit it continues without asking when the reset is within a day. To be asked in Claude Code: /rewake auto off";
+}
+
 async function ask($, id, ep, now) {
   const prefs = (await $.store.get("prefs")) ?? {};
   let state = "armed";
   // A reset more than a day away is always asked about, even with "always".
-  if (mustAsk({ autoContinue: prefs.autoContinue, fireAt: ep.fireAt, now, surface })) {
+  if (mustAsk({ autoContinue: autoChoice(prefs), fireAt: ep.fireAt, now, surface })) {
     const yes = `Continue at ${at(ep.fireAt, now)}`;
     const always = `${yes}, and from now on in every session when the reset is within a day`;
     try {
@@ -438,6 +469,10 @@ async function tick($) {
     await refreshStatus($, id, now);
   }
   if (ep?.state === "armed" && ep.fireAt !== undefined && now >= ep.fireAt) return fire($, id);
+  // Claude Code was expected to continue by itself, but hasn't said so since the reset: Rewake
+  // asks (or, with "always", continues), so a session never waits with nobody to continue it.
+  if (ep?.state === "native" && ep.resetAt !== undefined && now >= ep.resetAt + NATIVE_GRACE_MS)
+    return ask($, id, { ...ep, fireAt: now }, now);
   await updateWake($, ep, now);
   // Scheduled messages wait while a limit is pending; one per tick.
   if (busy || (ep && ep.state !== "sent")) return;
@@ -492,6 +527,12 @@ async function addMessage($, id, when, text) {
  * `/rewake` in a session that isn't waiting at a limit: one question per step, when (presets with
  * their times, or Custom…), then what. Dismissing the first question shows what's scheduled.
  */
+/** Messages to pick in `/rewake`'s second question; "Other" types any message. */
+const MESSAGE_PRESETS = [
+  "Continue from where you left off.",
+  "Check where things stand and report back.",
+];
+
 async function scheduleFlow($, id, now) {
   const presets = [
     ["In 30 minutes", 30 * MINUTE],
@@ -506,11 +547,27 @@ async function scheduleFlow($, id, now) {
       header: "Rewake",
     });
     when = presets.find((p) => p.label === answer)?.at;
+    // A time typed in the question's own free-text choice ("Other", "Type something").
+    if (when === undefined && answer !== custom && String(answer).trim() !== "") {
+      const p = parseWhen(String(answer).replace(/^\s*at\s+/i, ""), now);
+      if (!p.ok) return `Rewake: ${p.error}`;
+      when = p.at;
+    }
     if (when === undefined && answer === custom) {
-      const typed = await $.ui.ask(
-        `When? For example "in 45m", "${clock === "24h" ? "18:00" : "6pm"}" or "tomorrow 9:00".`,
+      // Real choices, not a bare question: Claude Code's VS Code and Cursor panels answer a
+      // question without options with Yes/No. "Other" (the panels' own) types any time.
+      const examples = ["in 45m", clock === "24h" ? "18:00" : "6pm", "tomorrow 9:00"]
+        .map((t) => ({ t, p: parseWhen(t, now) }))
+        .filter((e) => e.p.ok)
+        .map((e) => ({ label: `${e.t} (${at(e.p.at, now)})`, t: e.t }));
+      const typed = String(
+        await $.ui.ask("When? Pick one, or type a time.", {
+          options: examples.map((e) => e.label),
+          header: "Rewake",
+        }),
       );
-      const p = parseWhen(String(typed).replace(/^\s*at\s+/i, ""), now);
+      const picked = examples.find((e) => e.label === typed)?.t ?? typed;
+      const p = parseWhen(picked.replace(/^\s*at\s+/i, ""), now);
       if (!p.ok) return `Rewake: ${p.error}`;
       when = p.at;
     }
@@ -521,7 +578,10 @@ async function scheduleFlow($, id, now) {
   let text;
   try {
     text = String(
-      await $.ui.ask(`What should Rewake send into this session ${atWhen(when, now)}?`),
+      await $.ui.ask(
+        `What should Rewake send into this session ${atWhen(when, now)}? Pick one, or type your own.`,
+        { options: MESSAGE_PRESETS, header: "Rewake" },
+      ),
     ).trim();
   } catch {
     return "Nothing was scheduled.";
@@ -542,10 +602,7 @@ async function listText($, id, now) {
   for (const [i, s] of sched.entries()) lines.push(`${i + 1}. ${at(s.at, now)}: ${s.text}`);
   if (lines.length === 0) lines.push("Nothing scheduled in this session.");
   const prefs = (await $.store.get("prefs")) ?? {};
-  if (prefs.autoContinue === "always")
-    lines.push(
-      "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake auto off",
-    );
+  if (autoChoice(prefs) === "always") lines.push(autoText(prefs));
   return lines.join("\n");
 }
 
@@ -650,12 +707,13 @@ async function runCommand($, args) {
       text =
         "From now on, after a usage limit Rewake continues every session without asking when the reset is within a day. To be asked each time: /rewake auto off";
     } else if (c.on === false) {
-      await $.store.set("prefs", rest);
+      // "ask" stays even when Rewake's shared setting is on: the person asked for it here.
+      await $.store.set("prefs", { ...rest, autoContinue: "ask" });
       text = "Rewake will ask before continuing after a usage limit.";
     } else {
       text =
-        prefs.autoContinue === "always"
-          ? "After a usage limit, Rewake continues without asking when the reset is within a day. To be asked each time: /rewake auto off"
+        autoChoice(prefs) === "always"
+          ? autoText(prefs)
           : "After a usage limit, Rewake asks before continuing. To continue without asking: /rewake auto on";
     }
   } else {
@@ -671,8 +729,14 @@ const passOn = (_$, e, next) => (next.called ? undefined : next(e));
 export function register(on) {
   on("session.start", async ($, e, next) => {
     isInteractive = e.isInteractive;
+    sessionCwd = e.cwd;
     entrypoint = await $.env.get("CLAUDE_CODE_ENTRYPOINT").catch(() => undefined);
     surface = surfaceOf({ surface: e.surface, entrypoint });
+    try {
+      nativeSetting = { value: (await $.settings.read()).autoContinueAtUsageLimit };
+    } catch {
+      nativeSetting = undefined;
+    }
     await loadConfig($);
     $.clock.every(TICK_MS, () => void tick($));
     void reopen($);
