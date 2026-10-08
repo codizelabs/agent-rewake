@@ -5,6 +5,7 @@ import { applySettings, loadSettings, saveSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { type ThreadSettings, ThreadStore } from "../core/threads.js";
 import { formatClock, formatWhen, parseWhen } from "../core/time.js";
+import { rewake } from "../util/command.js";
 import { ensurePrivateDir } from "../util/paths.js";
 import { REPO_URL, VERSION } from "../version.js";
 import type { InputEvent } from "./input.js";
@@ -87,7 +88,7 @@ export const TIPS = [
   "When Claude hits its usage limit, Rewake asks in the thread whether to resume after the reset.",
   "Hold Shift while dragging to select text on this page.",
   "Messages are sent while Zed is open with that thread's project. Missed ones wait for you here.",
-  "agent-rewake schedules prints this list as plain text, which works well with screen readers.",
+  `The command "${rewake("schedules")}" prints this list as plain text, which works well with screen readers.`,
 ];
 
 const TIME_PRESETS = [
@@ -1144,7 +1145,7 @@ const HELP = [
   "",
   "# Good to know",
   "Messages are sent while Zed is open with that thread's project.",
-  "Hold Shift while dragging to select text. Plain list: agent-rewake schedules",
+  `Hold Shift while dragging to select text. Plain list: "${rewake("schedules")}"`,
   "",
   `Open source: ${REPO_URL} (a star there helps others find it)`,
 ];

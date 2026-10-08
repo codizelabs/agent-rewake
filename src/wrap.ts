@@ -14,6 +14,7 @@ import {
 import { platform } from "node:os";
 import { basename, join, win32 } from "node:path";
 import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
+import { rewake } from "./util/command.js";
 import { readJsonFile, renameWithRetry } from "./util/fs.js";
 import { ensurePrivateDir, zedDataDir } from "./util/paths.js";
 import { npmScript, type Resolved, resolveCommand } from "./util/spawn.js";
@@ -378,7 +379,7 @@ export async function downloadBinaryAgent(
   } catch (err) {
     rmSync(tmp, { recursive: true, force: true });
     throw new Error(
-      `couldn't set up "${id}" ${version} (${(err as Error).message}). Check your network, or open the agent once without Rewake (agent-rewake uninstall), then reopen the thread.`,
+      `couldn't set up "${id}" ${version} (${(err as Error).message}). Check your network, or open the agent once without Rewake (${rewake("uninstall")}), then reopen the thread.`,
     );
   }
 }
@@ -436,7 +437,7 @@ export async function wrappedAgentCommand(
   const agent = registryAgent(target.id, env);
   if (!agent)
     throw new Error(
-      `"${target.id}" isn't in Zed's copy of the ACP Registry. Open Zed's agent registry once, or run agent-rewake uninstall to restore the original entry.`,
+      `"${target.id}" isn't in Zed's copy of the ACP Registry. Open Zed's agent registry once, or run "${rewake("uninstall")}" to restore the original entry.`,
     );
   if (agent.kind === "binary") {
     const cmd =
@@ -450,7 +451,7 @@ export async function wrappedAgentCommand(
   }
   if (agent.kind !== "npx")
     throw new Error(
-      `"${target.id}" has no build for this computer (${platformKey(env) ?? "unknown platform"}), so Zed can't run it either. Run agent-rewake uninstall to restore it.`,
+      `"${target.id}" has no build for this computer (${platformKey(env) ?? "unknown platform"}), so Zed can't run it either. Run "${rewake("uninstall")}" to restore it.`,
     );
   const dir = ensureNpxAgent(target.id, agent.npx, stateDir, env, logFile);
   const [pkg] = splitPackageSpec(agent.npx.package);

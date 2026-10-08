@@ -12,6 +12,7 @@ import {
   withVersion,
 } from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
+import { rewake } from "../../util/command.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { VERSION } from "../../version.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
@@ -173,13 +174,13 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
   } else {
     if (gemini.version && compareVersions(gemini.version, MIN_GEMINI) < 0) {
       o.out(
-        `Gemini CLI ${gemini.version} is too old for Rewake (it needs ${MIN_GEMINI} or newer). Update it with "npm install -g @google/gemini-cli@latest", then run "agent-rewake install --only gemini-cli" again.\n`,
+        `Gemini CLI ${gemini.version} is too old for Rewake (it needs ${MIN_GEMINI} or newer). Update it with "npm install -g @google/gemini-cli@latest", then run "${rewake("install --only gemini-cli")}" again.\n`,
       );
       return 1;
     }
     if (!geminiHooksOn(o.env, home)) {
       o.out(
-        `Gemini CLI's hooks are turned off ("hooksConfig": { "enabled": false } in ${geminiSettingsFile(o.env, home)}), and Rewake needs them. Nothing was changed. To use Rewake, change false to true there (this turns all Gemini CLI hooks back on, including any of your own), then run "agent-rewake install --only gemini-cli" again.\n`,
+        `Gemini CLI's hooks are turned off ("hooksConfig": { "enabled": false } in ${geminiSettingsFile(o.env, home)}), and Rewake needs them. Nothing was changed. To use Rewake, change false to true there (this turns all Gemini CLI hooks back on, including any of your own), then run "${rewake("install --only gemini-cli")}" again.\n`,
       );
       return 1;
     }
@@ -213,7 +214,7 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
     o.out(
       o.uninstall
         ? "Not a terminal, so nothing was changed. Run this in a terminal: gemini extensions uninstall agent-rewake\n"
-        : `Not a terminal, so nothing was changed. Run "agent-rewake install --only gemini-cli" in a terminal; Gemini CLI asks you to confirm.\n`,
+        : `Not a terminal, so nothing was changed. Run "${rewake("install --only gemini-cli")}" in a terminal; Gemini CLI asks you to confirm.\n`,
     );
     return 1;
   }

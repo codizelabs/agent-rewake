@@ -7,6 +7,7 @@ import {
   withVersion,
 } from "../../install/probe.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
+import { rewake } from "../../util/command.js";
 import { newerThanTested, untestedText, versionOf } from "../versions.js";
 import { codexProgram, listHooks } from "./cli.js";
 import {
@@ -143,7 +144,7 @@ export async function runCodexInstall(o: CodexInstallOptions): Promise<number> {
     o.out(
       [
         "",
-        "Codex added the plugin but doesn't list Rewake's hooks, so it won't run them. This usually means your organisation's settings allow only hooks it manages (allow_managed_hooks_only). Ask whoever manages Codex for you, or remove the plugin with: agent-rewake uninstall --only codex",
+        `Codex added the plugin but doesn't list Rewake's hooks, so it won't run them. This usually means your organisation's settings allow only hooks it manages (allow_managed_hooks_only). Ask whoever manages Codex for you, or remove the plugin with: ${rewake("uninstall --only codex")}`,
         "",
       ].join("\n"),
     );

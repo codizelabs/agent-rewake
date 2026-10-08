@@ -68,6 +68,7 @@ import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./time
 import { isWsl, runWaiter, waiterNote } from "./timers/waiter.js";
 import { overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
+import { rewake } from "./util/command.js";
 import { Wakefulness } from "./util/keep-awake.js";
 import { Logger } from "./util/log.js";
 import { ensurePrivateDir, stateDir } from "./util/paths.js";
@@ -390,7 +391,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       print(summaryText(results, uninstall ? "uninstall" : "install"));
       if (uninstall && code === 0)
         print(
-          "\nRewake's entries and hooks are gone from every place above. Its own folder, with your scheduled messages, is still on disk: agent-rewake doctor --details shows where; delete it to finish.\n",
+          `\nRewake's entries and hooks are gone from every place above. Its own folder, with your scheduled messages, is still on disk: "${rewake("doctor --details")}" shows where; delete it to finish.\n`,
         );
     } else {
       // Said before the place's own question, with its other changes.
@@ -638,7 +639,7 @@ function setupZedText(): string {
   const dir = zedConfigDir();
   const file = (name: string) => join(dir, name);
   return [
-    "Easiest: run `agent-rewake install`, which adds these for you after asking.",
+    `Easiest: run \`${rewake("install")}\`, which adds these for you after asking.`,
     "To add them by hand instead:",
     "",
     `1. ${file("settings.json")}: put Rewake in front of an agent you already use, under the`,
@@ -780,7 +781,7 @@ export function summaryText(
         : (said.at(-1) ?? "");
     const state = c === 0 ? "done" : "not changed";
     // A place that didn't change: its reason, then how to try it on its own.
-    const retry = c === 0 ? "" : ` Try it on its own: agent-rewake ${verb} --only ${id}`;
+    const retry = c === 0 ? "" : ` Try it on its own: ${rewake(`${verb} --only ${id}`)}`;
     return `  ${placeName(id).padEnd(width)}  ${state}${next ? `: ${next}` : ""}${retry}`;
   });
   return `\nResult:\n${lines.join("\n")}\n`;
