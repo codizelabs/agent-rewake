@@ -2589,6 +2589,27 @@ describe("limits that agents report in their own way", () => {
       "Rewake: Not resuming automatically this time: the limit was read from the agent's message, and this thread skips permission prompts, so a person should confirm it.",
     );
     g.addon.stop();
+
+  it("Cursor: a monthly allowance at the end of a turn is not offered a resume", async () => {
+    const h = await harness(dir, {
+      agentName: "cursor-agent",
+      agentTitle: "Cursor",
+      agentId: "cursor",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent(toolCall);
+    h.agent(
+      chunk(
+        "\n\nError: ConnectError: You've hit your usage limit\nSwitch to Auto for more usage or set a Spend Limit.",
+      ),
+    );
+    h.agent({ id: 2, result: { stopReason: "end_turn" } });
+    await settle();
+    // Waiting hours won't lift it: no resume form, nothing scheduled.
+    expect(forms(h)).toHaveLength(0);
+    expect(h.store.list()).toEqual([]);
+    h.addon.stop();
   });
 
   it("Copilot: limit words in the middle of a turn are not a limit", async () => {
