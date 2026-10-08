@@ -2,6 +2,7 @@ import { type AgentProfile, classifyLimit } from "../../adapters/profiles.js";
 import {
   classifyAntigravityStop,
   classifyCopilotError,
+  classifyCursorError,
   classifyGeminiError,
   classifyGrokFailure,
 } from "./agents.js";
@@ -38,6 +39,8 @@ function hostLimit(s: LimitSignal, now: number): HostLimit | undefined {
       return classifyGeminiError(text, now);
     case "antigravity":
       return classifyAntigravityStop({ terminationReason: s.code, error: text }, now);
+    case "cursor":
+      return classifyCursorError(text);
     case "grok":
       return classifyGrokFailure(
         { error: s.code, errorDetails: text },

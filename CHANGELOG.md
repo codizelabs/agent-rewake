@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Cursor's own agent (preview):** `agent-rewake install --only cursor` adds two hooks to `~/.cursor/hooks.json` (yours stay). When a chat stops at its usage limit, Rewake tells you to run `agent-rewake continue` and choose when (Cursor doesn't say when its limit resets); at that time (within 4 hours of the limit) it sends "Resume the work from where you were interrupted." (marked as from Agent Rewake) into the same chat, while that Cursor window stays open; typing in the chat meanwhile cancels it. If the window was closed or reloaded, a notification says to continue it yourself. A limit that waiting won't lift (a free plan's allowance, or one that needs payment) gets a notification instead. Continuing the same chat was tried in Cursor 3.23; a real Cursor usage limit wasn't yet.
+
 ### Changed
 
 - **Claude Code's continues show up in `agent-rewake doctor`:** its planned continues count with the other agents' ("keep Claude Code open"), and a session waiting for your answer is named, with its folder. Rewake's plugin now records each session's folder with its limit (never message text).

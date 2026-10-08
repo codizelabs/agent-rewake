@@ -30,7 +30,7 @@ It can't reach:
 - **Zed's own agent** (the panel's built-in one): Zed doesn't let add-ons into it. Start the thread with Claude Agent in the same panel instead.
 - **Claude's own apps**: claude.ai and the Claude desktop app's chat.
 
-Not supported yet: the built-in agents of Cursor and of GitHub Copilot in VS Code. The Claude desktop app's Code tab hasn't been tried yet.
+Not supported yet: GitHub Copilot's own chat in VS Code. The Claude desktop app's Code tab hasn't been tried yet.
 
 ## Install
 
@@ -62,10 +62,11 @@ Pick your agent for a step-by-step guide. Rewake works in a terminal, in VS Code
 | [Gemini CLI](#gemini-cli) (preview) | Terminal | Continues a closed session after the reset |
 | [Grok Build](#grok-build) (preview) | Terminal | Continues a closed session after the reset |
 | [Antigravity CLI](#antigravity-cli) (preview) | Terminal | Continues a closed session after the reset |
+| [Cursor](#cursor) (preview, limit not tried yet) | Cursor's own agent | At a limit, continues the chat at the time you choose, while its window stays open |
 | [Zed](#zed) | Every external agent in Zed's Agent Panel | Resume after a limit, automatic resume, messages sent later, a **Rewake** menu |
 | [JetBrains IDEs, Devin Desktop](#outside-zed-previews) (preview, not tried yet) | Claude Agent and Codex, picked in the IDE | Resume after a limit while the IDE stays open |
 
-Not supported yet: the built-in agents of Cursor and of GitHub Copilot in VS Code.
+Not supported yet: GitHub Copilot's own chat in VS Code.
 
 ### Outside Zed: previews
 
@@ -234,6 +235,26 @@ Preview. Rewake continues a conversation once it's closed.
 **Needs:** any version of Antigravity CLI. Rewake doesn't check the version, and no real copy has been tested yet.
 
 **Can't:** schedule messages. While Antigravity CLI runs in that conversation's project, Rewake doesn't continue it and tells you instead.
+
+### Cursor
+
+Preview, for Cursor's own agent (the Agent panel). Not tried with a real Cursor usage limit yet: continuing the same chat was tried in Cursor 3.23, the limit itself wasn't.
+
+1. Install:
+
+   ```sh
+   npx @codizelabs/agent-rewake install --only cursor
+   ```
+
+   It adds two hooks to `~/.cursor/hooks.json` and keeps your own. Then reload Cursor's window: run **Developer: Reload Window** from the Command Palette.
+2. Work as usual. When a chat stops at its usage limit, Rewake notices and tells you to run `agent-rewake continue` (or `npx @codizelabs/agent-rewake continue`): Cursor doesn't say when its limit resets, so you choose the time, within 4 hours of the limit.
+3. Keep that Cursor window open: reloading or quitting Cursor cancels the continue. At the time, Rewake sends "Resume the work from where you were interrupted." (marked as from Agent Rewake) into the same chat. If you type in the chat before then, it doesn't. If the window was closed or reloaded, Rewake tells you to continue the chat yourself.
+4. To see what's planned: `npx @codizelabs/agent-rewake doctor`. To cancel it: `npx @codizelabs/agent-rewake continue --cancel`.
+5. To remove it: `npx @codizelabs/agent-rewake uninstall --only cursor`.
+
+**Needs:** Cursor 3.23 or newer (its agent hooks).
+
+**Can't:** continue more than 4 hours after the limit, or after a limit that waiting won't lift (a free plan's allowance, or one that needs payment or a new month: Rewake sends a notification instead), continue a chat whose window is closed, continue by itself (`continue --always` doesn't apply: you always choose the time), or reach Cursor's Agents window and CLI (not tried).
 
 ### Zed
 

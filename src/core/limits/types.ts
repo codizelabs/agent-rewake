@@ -11,6 +11,7 @@ export type AgentKind =
   | "grok"
   | "gemini"
   | "antigravity"
+  | "cursor"
   | (string & {});
 
 export interface LimitSignal {
