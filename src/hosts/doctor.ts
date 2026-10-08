@@ -3,6 +3,7 @@ import type { Finding } from "../doctor.js";
 import type { PlaceId } from "../install/detect.js";
 import type { TimerKind } from "../timers/timers.js";
 import { waiterNote } from "../timers/waiter.js";
+import { rewake } from "../util/command.js";
 import { claudeCodeRecords } from "./claude-code/records.js";
 import type { HostAdapter } from "./host.js";
 import { hooksTurnedOff } from "./policy.js";
@@ -63,7 +64,7 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
       add({
         level: "problem",
         text: `${p.name} has its hooks turned off, so Rewake can't see its usage limits.`,
-        fix: `Turn hooks back on in ${p.name}'s settings, or take Rewake out of it: agent-rewake uninstall --only ${p.id}`,
+        fix: `Turn hooks back on in ${p.name}'s settings, or take Rewake out of it: ${rewake(`uninstall --only ${p.id}`)}`,
       });
   }
 
@@ -74,7 +75,7 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
       fix:
         f.platform === "linux"
           ? "Sign in to a normal desktop session, or install and start the at service."
-          : "Run agent-rewake doctor again after a restart; if it stays, report it with agent-rewake doctor --details.",
+          : `Run ${rewake("doctor")} again after a restart; if it stays, report it with ${rewake("doctor --details")}.`,
     });
 
   if (f.timerKind === "waiter") add({ level: "info", ...waiterNote(f.wsl ?? false) });
@@ -121,7 +122,7 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
     add({
       level: "todo",
       text: `${n(needsYou.length, "resume")} need${needsYou.length === 1 ? "s" : ""} you.`,
-      fix: `Review ${needsYou.length === 1 ? "it" : "them"} with: agent-rewake ui`,
+      fix: `Review ${needsYou.length === 1 ? "it" : "them"} with: ${rewake("ui")}`,
     });
   if (missed.length > 0)
     add({
@@ -138,8 +139,8 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
           : ""
       }`,
       fix: lastFailed?.failureMessage
-        ? "See all of them with: agent-rewake ui"
-        : "See why with: agent-rewake ui",
+        ? `See all of them with: ${rewake("ui")}`
+        : `See why with: ${rewake("ui")}`,
     });
   if (out.length === 0)
     add({
