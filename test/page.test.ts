@@ -194,7 +194,7 @@ describe("the schedules page", () => {
     enter(p);
     type(p, "0 22 * * *");
     expect(p.render(120, 30).lines.map(plain).join("\n")).toContain(
-      "Means: Every day at 22:00. Next: 22:00 today; 22:00 tomorrow (Monday); Tuesday at 22:00",
+      "Means: Every day at 22:00. Next: 22:00 today; 22:00 tomorrow, Monday; Tuesday at 22:00",
     );
     p.handle({ type: "key", name: "backspace" });
     expect(p.render(120, 30).lines.map(plain).join("\n")).toContain("has 5 parts");

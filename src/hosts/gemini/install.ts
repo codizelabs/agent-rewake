@@ -71,6 +71,13 @@ export function geminiApiKeyAuth(env: NodeJS.ProcessEnv, home: string): boolean 
 }
 
 export function geminiHooksJson(node: string, launcher: string): string {
+  // Gemini CLI prints a hook's name after the message it adds: "[Agent Rewake]", not an internal id.
+  const NAMES: Record<string, string> = {
+    SessionStart: "Agent Rewake (session start)",
+    SessionEnd: "Agent Rewake (session end)",
+    BeforeAgent: "Agent Rewake (/rewake)",
+    AfterAgent: "Agent Rewake",
+  };
   const hooks = Object.fromEntries(
     GEMINI_EVENTS.map((event) => [
       event,
@@ -79,7 +86,7 @@ export function geminiHooksJson(node: string, launcher: string): string {
           hooks: [
             {
               type: "command",
-              name: `agent-rewake-${event.replace(/[A-Z]/g, (c, i) => (i ? "-" : "") + c.toLowerCase())}`,
+              name: NAMES[event] ?? "Agent Rewake",
               command: `"${node}" "${launcher}" hook gemini-cli ${event}`,
               timeout: 5000,
             },
