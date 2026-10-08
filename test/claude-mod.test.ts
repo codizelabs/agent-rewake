@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { FAR_RESET_MS, LATE_MS, MAX_REARMS, RESET_MARGIN_MS } from "../src/core/resume.js";
+import {
+  backoffMs,
+  FAR_RESET_MS,
+  LATE_MS,
+  MAX_REARMS,
+  RESET_MARGIN_MS,
+} from "../src/core/resume.js";
 import { formatWhen, setClock } from "../src/core/time.js";
 
 /**
@@ -12,6 +18,7 @@ interface Logic {
   STALE_MS: number;
   FAR_RESET_MS: number;
   MAX_REARMS: number;
+  backoffMs: (rearms: number) => number;
   blockedUntil: (
     w: { kind: string; percentUsed: number; resetsAt?: string }[],
     now: number,
@@ -31,6 +38,10 @@ describe("Claude Code mod: rules shared with Rewake's core", () => {
     expect(logic.STALE_MS).toBe(LATE_MS);
     expect(logic.FAR_RESET_MS).toBe(FAR_RESET_MS);
     expect(logic.MAX_REARMS).toBe(MAX_REARMS);
+  });
+
+  it("waits the same backoff between tries", () => {
+    for (const n of [-1, 0, 1, 2, 3, 4, 9]) expect(logic.backoffMs(n)).toBe(backoffMs(n));
   });
 
   it("formats times the way every other Rewake surface does, in both clocks", () => {
