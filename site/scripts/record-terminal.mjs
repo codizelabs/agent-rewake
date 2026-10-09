@@ -217,7 +217,7 @@ try {
   await sleep(1500);
   // The model takes a few seconds, as a real one does, so Claude Code shows real durations.
   mock.set({
-    think: 6000,
+    think: true,
     reply:
       "I'll split the scheduler in two: a store that owns the schedule file, and a delivery loop that sends each message when it's due. Starting with the store, then the tests.",
   });
