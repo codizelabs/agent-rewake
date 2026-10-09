@@ -788,6 +788,37 @@ test("the limit coming back right after continuing: continued once more, then of
   expect(seen.submitted.length).toBe(2);
 });
 
+test("refused just after the reset with no new reset time: tried again after the wait, once", async ($, on) => {
+  let windows = fiveHour("2026-10-06T11:00:00Z");
+  const { clock, seen } = harness(on, {
+    windows: () => windows,
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  await clock.set(Date.parse("2026-10-06T11:01:00Z"));
+  expect(seen.submitted.length).toBe(1);
+  // Refused at reset + 61 s: the usage figures carry no future reset.
+  windows = [];
+  await clock.advance(MIN);
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.store["limit:S1"] as Episode).toMatchObject({ state: "armed", rehits: 1 });
+  await clock.advance(MIN);
+  expect(seen.submitted.length).toBe(1);
+  await clock.advance(2 * MIN);
+  expect(seen.submitted.length).toBe(2);
+  // Refused again: the cap is reached, so it stops instead of trying for ever.
+  await clock.advance(MIN);
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.store["limit:S1"]).toBeUndefined();
+  await clock.advance(30 * MIN);
+  expect(seen.submitted.length).toBe(2);
+});
+
 /** An armed continue due two minutes in, as another Claude Code process with the session sees it too. */
 const armedNow = (claim?: { by: string; at: number }) => ({
   state: "armed",

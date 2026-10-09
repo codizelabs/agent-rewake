@@ -19,6 +19,7 @@
 
 import {
   AFTER_RESET_MS,
+  backoffMs,
   blockedUntil,
   blockingKind,
   CONTINUE_TEXT,
@@ -337,6 +338,22 @@ async function onLimitOnce($, id) {
       resetAt,
       fireAt: resetAt + AFTER_RESET_MS,
     });
+    await refreshStatus($, id, now);
+    return;
+  }
+  if (resetAt === undefined && rehits > 0) {
+    // The limit came back right after Rewake continued, with no new reset time: the first request
+    // after the reset was refused (seen at reset + 61 s). The person already said yes, so try
+    // again after the usual wait; the re-hit cap above bounds the tries.
+    const next = {
+      state: "armed",
+      createdAt: now,
+      rehits,
+      attempts: 0,
+      fireAt: now + backoffMs(rehits - 1),
+    };
+    await save($, id, next);
+    await arm($, id, next);
     await refreshStatus($, id, now);
     return;
   }

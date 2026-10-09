@@ -153,6 +153,47 @@ describe("doctor: outside Zed", () => {
     });
   });
 
+  describe("Claude Code settings that hide usage limits", () => {
+    const claude = (o: Partial<OutsideFacts> = {}) =>
+      facts({ previews: [{ id: "claude-code", name: "Claude Code" }], ...o });
+    const settings = (env: unknown) => {
+      mkdirSync(join(dir, ".claude"), { recursive: true });
+      writeFileSync(join(dir, ".claude", "settings.json"), JSON.stringify({ env }));
+    };
+    const texts = (o: Partial<OutsideFacts> = {}) =>
+      diagnoseOutside(claude(o))
+        .filter((f) => f.level === "problem")
+        .map((f) => f.text);
+
+    it("warns when the watchdog or a high retry count is in the environment", () => {
+      expect(texts({ env: { HOME: dir, CLAUDE_CODE_RETRY_WATCHDOG: "1" } })).toEqual([
+        "CLAUDE_CODE_RETRY_WATCHDOG is set in this terminal's environment. Claude Code may keep retrying at a usage limit instead of stopping, so Rewake may never see the limit.",
+      ]);
+      const out = diagnoseOutside(claude({ env: { HOME: dir, CLAUDE_CODE_MAX_RETRIES: "10" } }));
+      expect(out[0]).toMatchObject({
+        level: "problem",
+        fix: "Remove it or lower it below 10 if you want Rewake to continue Claude Code after a usage limit.",
+      });
+    });
+
+    it("warns when settings.json sets them in its env section", () => {
+      settings({ CLAUDE_CODE_RETRY_WATCHDOG: true, CLAUDE_CODE_MAX_RETRIES: 25 });
+      expect(texts()).toEqual([
+        expect.stringContaining("CLAUDE_CODE_RETRY_WATCHDOG is set in the env section"),
+        expect.stringContaining("CLAUDE_CODE_MAX_RETRIES is set in the env section"),
+      ]);
+    });
+
+    it("stays quiet for low counts, switched-off values, other agents and no settings", () => {
+      settings({ CLAUDE_CODE_RETRY_WATCHDOG: "0", CLAUDE_CODE_MAX_RETRIES: "3" });
+      expect(texts({ env: { HOME: dir, CLAUDE_CODE_MAX_RETRIES: "9" } })).toEqual([]);
+      settings({ CLAUDE_CODE_RETRY_WATCHDOG: "1" });
+      expect(texts({ previews: [] })).toEqual([]);
+      rmSync(join(dir, ".claude"), { recursive: true });
+      expect(texts()).toEqual([]);
+    });
+  });
+
   it("says where Rewake is set up when there's nothing else to say", () => {
     expect(diagnoseOutside(facts())).toEqual([
       {
