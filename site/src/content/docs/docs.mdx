@@ -398,6 +398,8 @@ Rewake's own **Keep this computer awake** setting (macOS) is changed in Zed's **
 
 ## Privacy and security
 
+The full picture, with what Rewake never does, what each place runs and stores, what `install` changes and how to undo it, is on its own page: [Privacy and security](privacy-and-security/). In short:
+
 - Everything runs on your machine. Rewake sends nothing about you anywhere and never sees your credentials; sign-in goes through the agent's own flow. Its only network use is fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it.
 - It sends only what you scheduled, what you approved, or the resume message you turned on.
 - It stores scheduled messages, per-thread settings and metadata-only logs (events, codes and program names, never message text) in its state directory, with owner-only permissions. `doctor --details` prints where. Plain `doctor` names no folders, accounts or keys, so you can paste its output anywhere.
@@ -416,6 +418,17 @@ Start with `agent-rewake doctor`. It checks Zed (installed, version, AI features
 - **"Another Zed window owns this thread":** the thread is open in two windows; only one sends.
 - **"Rewake hit a problem and switched itself off for now":** something went wrong inside Rewake. Your agent isn't affected: Rewake passes everything through untouched and keeps your scheduled messages, but sends none until you restart Zed. If it happens again, [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose) with what `agent-rewake doctor --details` shows.
 - **"…because the project folder is gone (moved, renamed or deleted)":** the folder the session was started in no longer exists. Open the session from its new folder to continue. This applies to Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions.
+
+### Report a limit Rewake missed
+
+If an agent hit a usage limit and Rewake didn't offer to resume, or resumed at the wrong time, [open a bug report](https://github.com/codizelabs/agent-rewake/issues/new?template=bug_report.yml) with:
+
+- the agent and its version, and where you use it (terminal, VS Code, Cursor, Zed, JetBrains);
+- the exact limit message, as the agent printed it, with anything private removed;
+- what you expected, and what happened;
+- the output of `agent-rewake doctor --details` (run it with `npx @codizelabs/agent-rewake doctor --details`). It shows versions and folders, with your home folder as `~`, and no keys.
+
+The exact message is what shows whether Rewake could recognise the limit. Please don't paste conversation content or credentials.
 
 ## Update
 
@@ -444,7 +457,7 @@ To see which version a thread runs, hover over the **Rewake** menu. Picking **Re
 
 ### Version-specific steps
 
-Every version updates with the two steps above. If a release ever needs anything more (a newer Node.js or Zed, a setting renamed, stored messages in a new format), it's listed here and under **Upgrade notes** for that version in the [CHANGELOG](https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md), and `doctor` checks for it where it can.
+Every version updates with the two steps above. If a release ever needs anything more (a newer Node.js or Zed, a setting renamed, stored messages in a new format), it's listed here and under **Upgrade notes** for that version in the [changelog](../changelog/), and `doctor` checks for it where it can.
 
 | From | To | Extra steps |
 |---|---|---|
@@ -457,7 +470,7 @@ Every version updates with the two steps above. If a release ever needs anything
 
 ## Status
 
-Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: [what's been tried for each](#outside-zed-previews). Changes: [CHANGELOG](https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md). The site aims for WCAG 2.2 AA; Zed's agent panel itself has limited screen-reader support. Report barriers as [issues](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: [what's been tried for each](#outside-zed-previews). Changes: the [changelog](../changelog/). The site aims for WCAG 2.2 AA; Zed's agent panel itself has limited screen-reader support. Report barriers as [issues](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
 ## Reference
 

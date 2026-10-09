@@ -944,3 +944,101 @@ table.when tr.group th {
   font-weight: 700;
   color: var(--rw-ink);
 }
+
+/* the night-to-morning scene, in words */
+.night {
+  margin-top: 1.25rem;
+  max-width: 62ch;
+}
+.night p {
+  margin: 0 0 0.75rem;
+  font-size: 1.125rem;
+}
+
+/* "What works where" and the install list: tables that scroll sideways on a phone, reachable by keyboard */
+.matrix-title {
+  margin-top: 3rem;
+}
+.table-wrap:focus-visible {
+  outline: 2px solid var(--rw-focus);
+  outline-offset: 2px;
+}
+table.matrix {
+  min-width: 56rem;
+}
+tbody th[scope="row"] {
+  font-weight: 600;
+}
+table.matrix td:nth-child(2) {
+  min-width: 15rem;
+}
+table.only-table .cmd {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+table.only-table code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+table.only-table .copy {
+  flex: none;
+  min-height: 40px;
+  padding: 0 0.9rem;
+  border: 1px solid var(--rw-line);
+  border-radius: 8px;
+  font: 600 0.9rem/1 var(--rw-font-body);
+  color: var(--rw-ink);
+  background: transparent;
+  cursor: pointer;
+}
+table.only-table .copy:hover,
+table.only-table .copy:focus-visible {
+  border-color: var(--rw-dawn);
+  color: var(--rw-dawn);
+}
+details.only {
+  margin-top: 2rem;
+  max-width: 52rem;
+}
+details.only summary {
+  cursor: pointer;
+  font: 600 1.05rem/1.4 var(--rw-font-body);
+  padding: 0.5rem 0;
+}
+details.only summary:focus-visible {
+  outline: 2px solid var(--rw-focus);
+  outline-offset: 2px;
+}
+
+/* "What Rewake will never do": one short card per line it keeps */
+.never-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+@media (max-width: 760px) {
+  .never-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.never-grid li {
+  background: var(--rw-surface);
+  border: 1px solid var(--rw-line);
+  border-radius: var(--rw-radius);
+  padding: 1.1rem 1.25rem;
+}
+.never-grid h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+.never-grid p {
+  margin: 0;
+  color: var(--rw-muted);
+  font-size: 0.9375rem;
+}

@@ -13,6 +13,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 ### Changed
 
 - **The README and docs say what the code does:** Cursor's own agent is named with the other places, the README says the data folder is shown by `doctor --details` (not plain `doctor`), the `/rewake cancel` command is described for the agents that have it, and the note about newer agent versions names which agents `doctor` compares.
+- **The website says more about what Rewake does and doesn't do.** The landing page has a table of what works where, with each place's status and what must stay open; a list of what Rewake will never do; safety questions in the comparison; the commands to install one place only, with their real `--only` names; the night-to-morning story in words; and answers to more questions (Claude Code's own continue, sleeping computers, how to tell it worked, missing a limit). There is a page for [privacy and security](https://codizelabs.github.io/agent-rewake/docs/privacy-and-security/), a [changelog](https://codizelabs.github.io/agent-rewake/changelog/) built from this file (released versions only), and a section on how to report a limit Rewake missed. Each page now has its own title and description when you share its link.
 
 ### Fixed
 

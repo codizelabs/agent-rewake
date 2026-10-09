@@ -126,6 +126,8 @@ In Zed, Rewake works the same way in front of every external agent: **Claude Age
 
 ## Privacy
 
+The whole picture, with what Rewake never does and how to undo it, is on the [privacy and security page](https://codizelabs.github.io/agent-rewake/docs/privacy-and-security/). In short:
+
 - Runs locally. Rewake sends nothing about you anywhere, and never sees your credentials: sign-in goes through each agent's own flow. Its only network use is fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it.
 - Sends only what you scheduled, approved, or turned on.
 - Stores scheduled messages and per-thread settings in a private folder on your machine; logs hold metadata only (events, codes and program names), never message text.
@@ -141,7 +143,7 @@ This takes Rewake out of every place it's set up in, after showing every change 
 
 ## Status
 
-Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. What changed in each release is in the [changelog](https://codizelabs.github.io/agent-rewake/changelog/). Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose). If Rewake missed a usage limit, [say how](https://codizelabs.github.io/agent-rewake/docs/#report-a-limit-rewake-missed).
 
 ## Contributing
 

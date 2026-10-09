@@ -22,25 +22,28 @@ export default defineConfig({
   base: BASE,
   trailingSlash: "always",
   // The site used to have one page per topic; old links land on the matching section.
-  redirects: Object.fromEntries(
-    [
-      ["overview", ""],
-      ["start", "install"],
-      ["guides/resume-after-limit", "resume-after-a-usage-limit"],
-      ["usage-limits-in-zed", "resume-after-a-usage-limit"],
-      ["guides/schedule-message", "schedule-a-message"],
-      ["guides/manage-schedules", "see-and-change-scheduled-messages"],
-      ["guides/uninstall", "uninstall"],
-      ["agents", "agents"],
-      ["how-it-works", ""],
-      ["architecture", ""],
-      ["security", "privacy-and-security"],
-      ["faq", "troubleshooting"],
-      ["status", "status"],
-      ["accessibility", "status"],
-      ["reference", "reference"],
-    ].map(([from, to]) => [`/${from}/`, `${BASE}/docs/${to ? `#${to}` : ""}`]),
-  ),
+  redirects: {
+    ...Object.fromEntries(
+      [
+        ["overview", ""],
+        ["start", "install"],
+        ["guides/resume-after-limit", "resume-after-a-usage-limit"],
+        ["usage-limits-in-zed", "resume-after-a-usage-limit"],
+        ["guides/schedule-message", "schedule-a-message"],
+        ["guides/manage-schedules", "see-and-change-scheduled-messages"],
+        ["guides/uninstall", "uninstall"],
+        ["agents", "agents"],
+        ["how-it-works", ""],
+        ["architecture", ""],
+        ["faq", "troubleshooting"],
+        ["status", "status"],
+        ["accessibility", "status"],
+        ["reference", "reference"],
+      ].map(([from, to]) => [`/${from}/`, `${BASE}/docs/${to ? `#${to}` : ""}`]),
+    ),
+    // Security and privacy has a page of its own now.
+    "/security/": `${BASE}/docs/privacy-and-security/`,
+  },
   integrations: [
     starlight({
       title: "Agent Rewake",
@@ -68,6 +71,8 @@ export default defineConfig({
       // One docs page (owner, 2026-10-05: the landing page covers the rest).
       sidebar: [
         "docs",
+        "docs/privacy-and-security",
+        { label: "Changelog", link: "/changelog/" },
         { label: "Contributing", link: "https://github.com/codizelabs/agent-rewake/blob/main/CONTRIBUTING.md" },
       ],
     }),
