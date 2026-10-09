@@ -3328,7 +3328,13 @@ export class SchedulingAddon {
         limited.resetAt,
       );
       const delay = this.threads.get(session.sessionId)?.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS;
-      const started = session.limit?.startedAt ?? schedule.createdAt;
+      // A scheduled message counts its day from its first try, not from when it was scheduled.
+      const started =
+        schedule.kind === "user"
+          ? (schedule.attempts[0]?.startedAt ?? now)
+          : (session.limit?.startedAt ?? schedule.createdAt);
+      // A message the person scheduled is automation: it waits for the reset without asking.
+      const scheduled = schedule.kind === "user";
       const dueAt = resetAt === undefined ? undefined : this.resumeAt(resetAt);
       const farAway = resetAt !== undefined && resetAt - now > 24 * 3_600_000;
       if (
@@ -3353,22 +3359,28 @@ export class SchedulingAddon {
       ) {
         this.store.update(scheduleId, (x) => ({ ...x, status: "scheduled", dueAt }), now);
         if (session.limit) session.limit.resetAt = resetAt;
+        const until = formatWhen(resetAt, now, this.opts.locale);
         this.status(
           session,
-          `Rewake: Paused again. ${capitalize(this.agentName)} is still at its usage limit, now until ${formatWhen(resetAt, now, this.opts.locale)}. Rewake will try again when it resets.`,
+          scheduled
+            ? `Rewake: ${capitalize(this.agentName)} is at its usage limit until ${until}. Your scheduled message goes when it resets.`
+            : `Rewake: Paused again. ${capitalize(this.agentName)} is still at its usage limit, now until ${until}. Rewake will try again when it resets.`,
         );
       } else if (
         resetAt === undefined &&
-        schedule.kind === "auto_limit_resume" &&
+        (schedule.kind === "auto_limit_resume" || scheduled) &&
         delay &&
         now + delay - started <= 24 * 3_600_000
       ) {
         // The agent never says when it resets: wait the chosen time again, for up to a day (C2).
         const next = now + delay;
         this.store.update(scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: next }), now);
+        const at = formatWhen(next, now, this.opts.locale);
         this.status(
           session,
-          `Rewake: Paused again. ${capitalize(this.agentName)} is still at its usage limit. Rewake will try again at ${formatWhen(next, now, this.opts.locale)}.`,
+          scheduled
+            ? `Rewake: ${capitalize(this.agentName)} is at its usage limit and didn't say when it resets. Your scheduled message will be tried again at ${at}.`
+            : `Rewake: Paused again. ${capitalize(this.agentName)} is still at its usage limit. Rewake will try again at ${at}.`,
         );
       } else {
         this.store.update(
