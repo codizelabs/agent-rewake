@@ -138,6 +138,97 @@ export function expired(ep, now) {
   return false;
 }
 
+/**
+ * Set by Rewake's `fire` on the Claude Code it starts to continue a closed session: that run is
+ * Rewake's own, so the plugin stays out of it (it is not a person at a prompt, and it must not
+ * touch the session's record while it works).
+ */
+export const FIRE_ENV = "AGENT_REWAKE_FIRE";
+
+/**
+ * The settings variables a continue of a closed session needs as the session had them, and the key
+ * variables of which only the names that were set are copied. Kept in step with Rewake's lists
+ * (src/hosts/claude-code/host.ts); a test in Rewake's repository fails if they drift apart.
+ * A name that looks secret is never copied, whatever this list says.
+ */
+export const SETTINGS_VARS = [
+  "CLAUDE_CONFIG_DIR",
+  "CLAUDE_CODE_PROJECT_DIR_NAME",
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_MODEL",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "CLAUDE_CODE_USE_FOUNDRY",
+];
+export const KEY_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
+const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
+
+/**
+ * What to copy from the session's environment, read with `get(name)`: `env` (a name to its value)
+ * and `keysSet` (the key variables that were set, by name only).
+ */
+export function sessionVars(get) {
+  const env = {};
+  for (const name of SETTINGS_VARS) {
+    const v = get(name);
+    if (typeof v === "string" && v !== "" && !SECRET_NAME.test(name)) env[name] = v;
+  }
+  const keysSet = KEY_VARS.filter((k) => {
+    const v = get(k);
+    return typeof v === "string" && v !== "";
+  });
+  return {
+    ...(Object.keys(env).length > 0 && { env }),
+    ...(keysSet.length > 0 && { keysSet }),
+  };
+}
+
+/** States in which this plugin hasn't answered the limit: if Claude Code closes, it stays so. */
+const UNANSWERED = new Set(["armed", "offered", "native"]);
+
+/**
+ * The limit as Rewake's session records keep it (src/hosts/sessions.ts `SessionLimit`), for the
+ * states nobody has answered and with a reset time. Undefined once continued, declined, cancelled,
+ * or answered by the person typing: then nothing is left for Rewake to continue.
+ */
+export function limitOf(ep) {
+  if (!ep || !UNANSWERED.has(ep.state)) return undefined;
+  if (typeof ep.resetAt !== "number" || typeof ep.createdAt !== "number") return undefined;
+  const kind = ep.kind === "five_hour" ? "session" : isWeekly(ep.kind) ? "weekly" : "other";
+  return {
+    kind,
+    billing: false,
+    resetsAt: ep.resetAt,
+    seenAt: ep.createdAt,
+    confidence: "structured",
+  };
+}
+
+const isWeekly = (kind) => typeof kind === "string" && kind.startsWith("seven_day");
+
+/**
+ * The Claude Code process, from the output of
+ * `echo "$PPID"; ps -o comm= -p "$PPID"; command -v claude` run in a shell Claude Code started:
+ * its id and program name as Rewake's own check reads them (src/util/proc.ts). Undefined when
+ * either is missing.
+ */
+export function parseProcess(stdout) {
+  const [first, comm = ""] = String(stdout).split("\n");
+  const pid = Number(first?.trim());
+  if (!Number.isInteger(pid) || pid <= 1 || comm.trim() === "") return undefined;
+  const name = (comm.trim().split(/[\\/]/).pop() ?? "").replace(/^-/, "");
+  return name === "" ? undefined : { pid, name };
+}
+
+/**
+ * Where `claude` is on the session's own PATH (a timer's PATH is minimal): the third line of the
+ * output above. Undefined unless it is an absolute path.
+ */
+export function parseProgram(stdout) {
+  const line = String(stdout).split("\n")[2]?.trim() ?? "";
+  return line.startsWith("/") ? line : undefined;
+}
+
 /** "3:05 PM" or "15:05", in the person's clock ("12h" by default, as in Rewake's settings). */
 function clockTime(d, clock) {
   const h = d.getHours();

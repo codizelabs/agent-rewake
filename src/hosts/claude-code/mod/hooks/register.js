@@ -14,8 +14,11 @@
 //                 claim: { by, at }, the process sending the armed continue right now
 //   sched:<id>    [{ at, text }]
 // A copy of each limit record (no message text) goes to Rewake's shared state folder, so
-// `agent-rewake doctor` and the schedules page can show it. Installed by `agent-rewake install`,
-// which writes that folder's path into rewake.json beside this plugin.
+// `agent-rewake doctor` and the schedules page can show it, and so Rewake can continue the session
+// headless if Claude Code closes before the limit is answered (it adds `open`, the Claude Code
+// process, the limit and the session's settings variables: src/hosts/sessions.ts SessionRecord).
+// Installed by `agent-rewake install`, which writes that folder's path into rewake.json beside this
+// plugin.
 
 import {
   AFTER_RESET_MS,
@@ -29,6 +32,7 @@ import {
   featureOf,
   HOUR,
   helpText,
+  limitOf,
   MAX_REARMS,
   MAX_REHITS,
   MINUTE,
@@ -36,11 +40,14 @@ import {
   nativeLikely,
   notHere,
   parseCommand,
+  parseProcess,
+  parseProgram,
   parseWhen,
   personAtPrompt,
   REHIT_WINDOW_MS,
   STALE_MS,
   safeId,
+  sessionVars,
   splitWhen,
   surfaceOf,
   WAITING_EXPIRES_MS,
@@ -79,6 +86,12 @@ let mirrorDir;
 let sharedAuto;
 /** The session's folder, for where Rewake's CLI names it ("in the shop folder"). */
 let sessionCwd;
+/** This Claude Code process ({ pid, name }) and the session's settings variables, for the copy. */
+let claudeProcess;
+let claudeProgram;
+let claudeVars = {};
+/** Rewake's own headless continue (AGENT_REWAKE_FIRE): the plugin does nothing in it. */
+let inert = false;
 /** This process, in a send's claim: two Claude Code processes can have one session open. */
 const ME = Math.random().toString(36).slice(2);
 /** A claim older than this was left by a process that stopped mid-send. */
@@ -118,17 +131,59 @@ async function loadConfig($) {
   }
 }
 
+/** This process and the session's settings variables, for Rewake's copy of the record. */
+async function loadSessionInfo($) {
+  if (!mirrorDir) return;
+  // $.env.get takes a literal name, so every variable the plugin reads can be listed (logic.js
+  // SETTINGS_VARS and KEY_VARS; a test in Rewake's repository compares them with these).
+  const read = (get) => get.catch(() => undefined);
+  const values = {
+    CLAUDE_CONFIG_DIR: await read($.env.get("CLAUDE_CONFIG_DIR")),
+    CLAUDE_CODE_PROJECT_DIR_NAME: await read($.env.get("CLAUDE_CODE_PROJECT_DIR_NAME")),
+    ANTHROPIC_BASE_URL: await read($.env.get("ANTHROPIC_BASE_URL")),
+    ANTHROPIC_MODEL: await read($.env.get("ANTHROPIC_MODEL")),
+    CLAUDE_CODE_USE_BEDROCK: await read($.env.get("CLAUDE_CODE_USE_BEDROCK")),
+    CLAUDE_CODE_USE_VERTEX: await read($.env.get("CLAUDE_CODE_USE_VERTEX")),
+    CLAUDE_CODE_USE_FOUNDRY: await read($.env.get("CLAUDE_CODE_USE_FOUNDRY")),
+    ANTHROPIC_API_KEY: await read($.env.get("ANTHROPIC_API_KEY")),
+    ANTHROPIC_AUTH_TOKEN: await read($.env.get("ANTHROPIC_AUTH_TOKEN")),
+    CLAUDE_CODE_OAUTH_TOKEN: await read($.env.get("CLAUDE_CODE_OAUTH_TOKEN")),
+  };
+  claudeVars = sessionVars((name) => values[name]);
+  try {
+    // The shell's parent is Claude Code; no /bin/sh or ps (Windows) means no process to watch.
+    const r = await $.process.run([
+      "/bin/sh",
+      "-c",
+      'echo "$PPID"; ps -o comm= -p "$PPID"; command -v claude',
+    ]);
+    claudeProcess = r.exitCode === 0 ? parseProcess(r.stdout) : undefined;
+    claudeProgram = r.exitCode === 0 ? parseProgram(r.stdout) : undefined;
+  } catch {
+    claudeProcess = undefined;
+    claudeProgram = undefined;
+  }
+}
+
 /** Write the record's metadata (never text) where Rewake's CLI reads it. Best effort. */
-async function mirror($, id, ep) {
+async function mirror($, id, ep, lastPromptAt) {
   if (!mirrorDir || !safeId(id)) return;
   const { state, kind, resetAt, fireAt, createdAt, sentAt, rehits, attempts } = ep ?? {
     state: "none",
   };
+  const limit = limitOf(ep);
   const record = {
     schemaVersion: 1,
     host: "claude-code",
     sessionId: id,
-    ...(typeof sessionCwd === "string" && { cwd: sessionCwd }),
+    cwd: typeof sessionCwd === "string" ? sessionCwd : "",
+    // Rewake's SessionRecord: open while this process runs (it finds out when the process is gone).
+    open: true,
+    ...(claudeProcess && { agents: [claudeProcess] }),
+    ...(claudeProgram && { program: claudeProgram }),
+    ...(limit && { limit }),
+    ...(lastPromptAt !== undefined && { lastPromptAt }),
+    ...claudeVars,
     state,
     kind,
     resetAt,
@@ -151,10 +206,10 @@ async function save($, id, ep) {
   await mirror($, id, ep);
 }
 
-async function drop($, id) {
+async function drop($, id, lastPromptAt) {
   disarm(id);
   await $.store.delete(limitKey(id));
-  await mirror($, id, undefined);
+  await mirror($, id, undefined, lastPromptAt);
 }
 
 function disarm(id) {
@@ -408,7 +463,9 @@ async function onNotification($, e) {
 async function standDown($) {
   const id = await $.session.id();
   const ep = await $.store.get(limitKey(id));
-  if (ep && ep.state !== "sent") await drop($, id);
+  // The person (or Claude Code itself) moved on: also tells Rewake, in case it planned to continue
+  // this session after Claude Code was closed.
+  if (ep && ep.state !== "sent") await drop($, id, await $.clock.now());
   await refreshStatus($, id, await $.clock.now());
 }
 
@@ -528,6 +585,9 @@ async function reopen($) {
       return;
     }
   }
+  // This process has the session open now: Rewake must not continue it headless meanwhile.
+  const open = await $.store.get(limitKey(id));
+  if (open) await mirror($, id, open);
   await refreshStatus($, id, now);
 }
 
@@ -748,6 +808,8 @@ export function register(on) {
     isInteractive = e.isInteractive;
     sessionCwd = e.cwd;
     entrypoint = await $.env.get("CLAUDE_CODE_ENTRYPOINT").catch(() => undefined);
+    inert = Boolean(await $.env.get("AGENT_REWAKE_FIRE").catch(() => undefined));
+    if (inert) return next(e);
     surface = surfaceOf({ surface: e.surface, entrypoint });
     try {
       nativeSetting = { value: (await $.settings.read()).autoContinueAtUsageLimit };
@@ -755,6 +817,7 @@ export function register(on) {
       nativeSetting = undefined;
     }
     await loadConfig($);
+    await loadSessionInfo($);
     $.clock.every(TICK_MS, () => void tick($));
     void reopen($);
     for (const entry of [
@@ -774,6 +837,7 @@ export function register(on) {
   });
 
   on("classic.SessionStart", ($, e, next) => {
+    if (inert) return next(e);
     // An in-process switch (/resume, /clear, /branch): the armed timer belongs to the old one.
     if (e.source === "resume" || e.source === "clear" || e.source === "fork") {
       disarm();
@@ -784,23 +848,24 @@ export function register(on) {
 
   on("classic.StopFailure", ($, e, next) => {
     // Main conversation only: helper and subagent failures carry agent_id.
-    if (e.error === "rate_limit" && e.agent_id === undefined) void onLimit($, e.session_id);
+    if (!inert && e.error === "rate_limit" && e.agent_id === undefined)
+      void onLimit($, e.session_id);
     return next(e);
   }).catch(passOn);
 
   on("session.measure", ($, e, next) => {
-    if (e.changed.includes("rateLimits")) void onMeasure($, e.rateLimits);
+    if (!inert && e.changed.includes("rateLimits")) void onMeasure($, e.rateLimits);
     return next(e);
   }).catch(passOn);
 
   on("classic.Notification", ($, e, next) => {
-    if (e.notification_type.startsWith("quota_auto_resume_")) void onNotification($, e);
+    if (!inert && e.notification_type.startsWith("quota_auto_resume_")) void onNotification($, e);
     return next(e);
   }).catch(passOn);
 
   on("prompt.submit", ($, e, next) => {
     // Observe only: the person typed, or Claude Code's own auto-continue fired.
-    if (MOVED_ON.has(e.origin.kind)) void standDown($);
+    if (!inert && MOVED_ON.has(e.origin.kind)) void standDown($);
     return next(e);
   }).catch(passOn);
 
