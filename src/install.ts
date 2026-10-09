@@ -50,7 +50,8 @@ export interface LaunchCommand {
  * How Zed should start Rewake. Run from npx's temporary cache, a fixed path would vanish when the
  * cache is cleaned, so Zed gets a pinned npx command instead, run as `node npx-cli.js` so it's the
  * same on every OS (no `npx.cmd` on Windows). Otherwise the absolute Node binary and the real path
- * of this script (Zed doesn't read your shell's PATH).
+ * of this script (Zed doesn't read your shell's PATH). This is the start Windows keeps, and what a
+ * run from source uses; on macOS and Linux Zed gets Rewake's own stable files instead (zedLaunch).
  */
 export function launchCommand(
   execPath: string = stableNode(),
@@ -361,8 +362,14 @@ export function planInstall(opts: InstallOptions): Plan {
           after = edit(after, ["agent_servers", id], want);
           const from = pinnedVersion(entry);
           const to = pinnedVersion(want);
+          // Moving an entry onto Rewake's own copy in its state folder (see zedLaunch).
+          const toOwnCopy =
+            /[\\/]bin[\\/]agent-rewake\.mjs$/.test(opts.launch.args[0] ?? "") &&
+            entry.command !== opts.launch.command;
           summary.push(
-            `Update Rewake in ${agentLabel(id, env)}${from && to && from !== to ? ` (from ${from} to ${to})` : ""}`,
+            toOwnCopy && !to
+              ? `Update Rewake in ${agentLabel(id, env)} to start from Rewake's own folder, so upgrading Node.js or having no network can't stop it`
+              : `Update Rewake in ${agentLabel(id, env)}${from && to && from !== to ? ` (from ${from} to ${to})` : ""}`,
           );
         }
         continue;
@@ -649,6 +656,10 @@ async function confirm(question: string): Promise<boolean> {
 
 export interface RunInstallOptions {
   uninstall: boolean;
+  /** How Zed starts Rewake (default: this Node.js and script, or a pinned npx command). */
+  launch?: LaunchCommand;
+  /** Runs just before Zed's files are written, to create the files `launch` names. */
+  prepare?: () => void;
   /** Only wrap these agent ids. */
   only?: string[];
   yes: boolean;
@@ -672,7 +683,7 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
     ? planUninstall(dir)
     : planInstall({
         dir,
-        launch: launchCommand(),
+        launch: opts.launch ?? launchCommand(),
         keybinding: opts.keybinding,
         env: opts.env,
         stateDir: stateDir(opts.env),
@@ -714,6 +725,13 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
     }
   }
 
+  try {
+    // Only install makes the files; uninstall must work (and write nothing there) whatever their state.
+    if (!opts.uninstall) opts.prepare?.();
+  } catch (e) {
+    out(`\n${e instanceof Error ? e.message : String(e)} Nothing was changed.\n`);
+    return 1;
+  }
   const backups = applyPlan(plan);
   out("\nDone.\n");
   for (const b of backups) out(`  Backup: ${b}\n`);

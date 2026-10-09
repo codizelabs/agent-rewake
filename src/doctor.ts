@@ -19,6 +19,8 @@ import {
   unwrappedEntry,
 } from "./install.js";
 import { agentName, detectSetup } from "./setup.js";
+import { launcherVersion } from "./timers/launcher.js";
+import { nodeShimPath } from "./timers/node-shim.js";
 import { rewake } from "./util/command.js";
 import { readText } from "./util/fs.js";
 import { stateDir, zedConfigDir, zedDataDir } from "./util/paths.js";
@@ -384,15 +386,31 @@ export function diagnose(ctx: DoctorContext): Finding[] {
     add({
       area: "Rewake",
       level: "problem",
-      text: "Zed would start Rewake with a Node.js or a Rewake copy that has moved or been removed (after a Node.js upgrade, for example), so those agents won't start.",
+      text: "Zed would start Rewake with a Node.js or a Rewake copy that has moved or been removed (a Node.js upgrade or a cleaned-up Rewake folder, for example), so those agents won't start.",
       fix: `Run the install command again to update Zed's settings: ${update}`,
     });
 
-  // Which version Zed starts, from the pinned `@codizelabs/agent-rewake@<version>` argument.
+  // Entries from earlier versions start Rewake through npm or one Node.js folder; this version can
+  // start it from Rewake's own folder instead (macOS and Linux).
+  const stable = ctx.launch?.command === nodeShimPath(state) ? ctx.launch.command : undefined;
+  const wrappedEntries = Object.values(servers).filter(
+    (e): e is Record<string, unknown> => isRecord(e) && unwrappedEntry(e) !== undefined,
+  );
+  if (stable && wrappedEntries.some((e) => e.command !== stable))
+    add({
+      area: "Rewake",
+      level: "todo",
+      text: "Zed starts Rewake through npm or one Node.js folder. An upgrade of that Node.js, or no network, can stop those agents from starting.",
+      fix: `Run the install command again, then quit Zed completely and open it again: ${update}`,
+    });
+
+  // Which version Zed starts: the pinned `@codizelabs/agent-rewake@<version>` argument of an earlier
+  // entry, or the version of the copy in Rewake's own folder.
   const pins = new Set<string>();
-  for (const entry of Object.values(servers)) {
-    if (!isRecord(entry) || unwrappedEntry(entry) === undefined) continue;
-    const pin = pinnedVersion(entry);
+  for (const entry of wrappedEntries) {
+    const pin =
+      pinnedVersion(entry) ??
+      (entry.command === nodeShimPath(state) ? launcherVersion(state) : undefined);
     if (pin) pins.add(pin);
   }
   for (const pin of pins) {
