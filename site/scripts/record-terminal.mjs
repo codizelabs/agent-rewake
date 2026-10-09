@@ -215,12 +215,14 @@ try {
 
   await until(/ClaudeCodev\d/, 30_000);
   await sleep(1500);
+  // The model takes a few seconds, as a real one does, so Claude Code shows real durations.
   mock.set({
+    think: 6000,
     reply:
       "I'll split the scheduler in two: a store that owns the schedule file, and a delivery loop that sends each message when it's due. Starting with the store, then the tests.",
   });
   await type("Split the scheduler into a store and a delivery loop, then run the tests");
-  await until(/thenthetests\./, 30_000);
+  await until(/thenthetests\./, 60_000);
   await sleep(2500);
 
   // The limit: the next request is refused until 3:00 AM in this zone.
@@ -244,7 +246,7 @@ try {
   });
   await until(/SentautomaticallybyAgentRewake/, reset.at - Date.now() + 5 * 60_000);
   marks.continued = Date.now() - start;
-  await until(/Pickingupwhere/, 60_000);
+  await until(/Pickingupwhere/, 90_000);
   await sleep(4000);
   marks.end = Date.now() - start;
   capture();

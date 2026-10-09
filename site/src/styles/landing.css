@@ -1196,6 +1196,7 @@ details.only summary:focus-visible {
   accent-color: var(--rw-dawn);
 }
 .term-demo figcaption {
-  font-size: 0.85rem;
-  color: var(--rw-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--rw-ink);
 }

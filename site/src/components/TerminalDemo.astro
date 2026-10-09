@@ -116,7 +116,8 @@ const claudeVersion = demo.version.replace(/\s*\(.*\)\s*$/, "");
   </div>
   <figcaption>
     A real session, recorded offline with Claude Code {claudeVersion} and Agent Rewake {rewakeVersion}: the limit,
-    Rewake's question and the continue are exactly what they print. The wait until {clock(demo.reset)} is shortened.
+    Rewake's question and the continue are exactly what they print. The limit resets at {clock(demo.reset)}, and Rewake
+    continues a minute later; the wait is shortened here.
   </figcaption>
   <script type="application/json" data-term-data set:html={payload} />
 </figure>
