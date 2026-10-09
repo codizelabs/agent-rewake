@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensurePrivateDir } from "../util/paths.js";
+import { SECRET_NAME } from "../util/secrets.js";
 
 /**
  * One-shot OS timers: at a resume's time, the operating system runs `<node> <cli> fire <id>` once.
@@ -64,6 +65,27 @@ export interface TimerHost {
   waiterRunning?: (pid: number) => boolean;
 }
 
+/** Names a timer's own commands may keep; everything else is dropped (see `timerEnv`). */
+const KEEP_ENV =
+  /^(PATH|HOME|USER|LOGNAME|TMPDIR|LANG|LC_[A-Z_]+|XDG_[A-Z_]+|DBUS_SESSION_BUS_ADDRESS|AGENT_REWAKE_[A-Z0-9_]+)$/;
+
+/**
+ * The environment `at`, `systemd-run` and the background waiter get. `at` writes every variable
+ * of its caller into a job file on disk, and a long-lived waiter would pass its first caller's
+ * variables to every later resume, so keys an agent's hook happened to hold must not come along:
+ * a timer runs without the shell's keys, which is what the missing-key check relies on.
+ */
+export function timerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [name, v] of Object.entries(env)) {
+    if (v !== undefined && KEEP_ENV.test(name) && !SECRET_NAME.test(name)) out[name] = v;
+  }
+  return out;
+}
+
+/** Commands that store or hand on their environment. */
+const SCRUBBED = new Set(["at", "systemd-run"]);
+
 export function defaultTimerHost(stateDir: string, node: string, cli: string): TimerHost {
   return {
     platform: process.platform,
@@ -75,13 +97,19 @@ export function defaultTimerHost(stateDir: string, node: string, cli: string): T
         encoding: "utf8",
         timeout: 5000,
         windowsHide: true,
+        ...(SCRUBBED.has(command) && { env: timerEnv(process.env) }),
         ...(input !== undefined && { input }),
       });
       return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
     },
     detached: (command, args) => {
       try {
-        spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
+        spawn(command, args, {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+          ...(process.platform !== "win32" && { env: timerEnv(process.env) }),
+        }).unref();
       } catch {
         // Best effort: the next sweep tidies up.
       }
