@@ -130,7 +130,7 @@ describe("the agents matrix", () => {
 describe("the install commands", () => {
   const places = new Set(
     [
-      ...(/const INSTALL_PLACES = new Set\(\[([^\]]+)\]/.exec(cli)?.[1] ?? "").matchAll(
+      ...(/export const PLACES = \[([^\]]+)\]/.exec(read("src/help.ts"))?.[1] ?? "").matchAll(
         /"([a-z-]+)"/g,
       ),
     ].map((m) => m[1]),
@@ -174,7 +174,9 @@ describe("the trust claims", () => {
 
   it("send nothing about the person over the network (only an agent's own program is fetched, in wrap.ts)", () => {
     const net = /node:(http|https|http2|dgram|tls|dns)|\bfetch\(|XMLHttpRequest/;
-    for (const file of src) for (const line of codeLines(file)) expect(line, file).not.toMatch(net);
+    // wrap.ts fetches an agent's own program (through the person's proxy); nothing else may.
+    for (const file of src.filter((f) => !f.replaceAll("\\", "/").endsWith("/src/wrap.ts")))
+      for (const line of codeLines(file)) expect(line, file).not.toMatch(net);
   });
 
   it("claim nothing the repository doesn't establish", () => {

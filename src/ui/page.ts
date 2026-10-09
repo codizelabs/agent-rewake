@@ -1143,9 +1143,12 @@ const HELP = [
   "/rewake 09:00 Run the tests · /rewake list · /rewake move 1 18:30",
   "/rewake edit 1 <text> · /rewake now 1 · /rewake cancel 1 · /rewake stop",
   "",
+  "# Without this page (a screen reader, or plain text)",
+  `"${rewake("schedules")}" prints the same list as text. "${rewake("history")}" says what happened lately.`,
+  "",
   "# Good to know",
   "Messages are sent while Zed is open with that thread's project.",
-  `Hold Shift while dragging to select text. Plain list: "${rewake("schedules")}"`,
+  "Hold Shift while dragging to select text.",
   "",
   `Open source: ${REPO_URL} (a star there helps others find it)`,
 ];

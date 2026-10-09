@@ -410,6 +410,8 @@ The full picture, with what Rewake never does, what each place runs and stores, 
 
 Start with `agent-rewake doctor`. It checks Zed (installed, version, AI features on), your agents and which have Rewake, whether Zed has started it, the version and Node.js Zed uses, settings that override Rewake's, sign-in, your scheduled messages and recent start failures, and gives the fix for each. It works offline and prints no folders, accounts or keys (`--details` adds versions and folders for bug reports). In Zed, `dev: open acp logs` shows the agent connection. Then [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
+For a bug report, run `agent-rewake doctor --report`. It writes one text file in Rewake's own folder and prints where it is, with the issue link to open yourself. The file has `doctor`'s findings, versions, the warnings and errors from the last 14 days, the timers Rewake has set against the resumes it has on file, the state of each agent's sessions and what Rewake decided the last times a timer fired. Your home folder is shown as `~`, session ids are replaced by short hashes, and message text, thread titles and folder names are left out. Rewake sends nothing, checks nothing online and doesn't open a browser: read the file, then attach it to the issue if you want to. `agent-rewake history` shows in plain words what happened to your messages and resumes lately.
+
 - **Installed, but nothing happens (`doctor` says "Not used yet"):** Zed starts Rewake only when you open or start a thread with a Rewake agent in the **Agent Panel**; restarting Zed isn't enough. If you chat with Claude in the Claude desktop app, claude.ai or a terminal, Rewake can't reach it there: see [Is it for you?](#is-it-for-you). To remove it: `agent-rewake uninstall`.
 - **No Rewake menu, or `/rewake` goes to the agent:** quit Zed completely and reopen it after `install`. Check that `install` listed the agent you use. For agents without their own toolbar options, type `/rewake`: it opens the same forms.
 - **Will it send while Zed is closed?** No: Rewake runs inside Zed. After a restart, open the thread once. Late messages ask before sending.
@@ -418,6 +420,7 @@ Start with `agent-rewake doctor`. It checks Zed (installed, version, AI features
 - **"Another Zed window owns this thread":** the thread is open in two windows; only one sends.
 - **"Rewake hit a problem and switched itself off for now":** something went wrong inside Rewake. Your agent isn't affected: Rewake passes everything through untouched and keeps your scheduled messages, but sends none until you restart Zed. If it happens again, [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose) with what `agent-rewake doctor --details` shows.
 - **"…because the project folder is gone (moved, renamed or deleted)":** the folder the session was started in no longer exists. Open the session from its new folder to continue. This applies to Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions.
+- **Behind a proxy:** Rewake downloads an agent itself only when Zed has no copy of it at all. An agent that runs through npm is installed with npm, started with your environment, so npm uses your `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` and your own npm settings. An agent that is a downloaded program is fetched by Rewake itself, which uses the same variables on Node.js 24.14 or newer; on Node.js 22.21 or newer, start Zed with `NODE_USE_ENV_PROXY=1` set. If the download fails, Rewake says it couldn't download the agent (and whether a proxy was involved): open that agent once in Zed without Rewake (`agent-rewake uninstall`), so Zed downloads it, then reopen the thread. Tried against a local proxy on Node.js 24.14; not tried behind a company proxy or on a managed computer.
 
 ### Report a limit Rewake missed
 
@@ -445,7 +448,7 @@ The same two steps for every version, from any earlier one:
 
 Your threads, scheduled messages, automatic-resume choices and settings stay as they are: they live in Rewake's own folder, which an update doesn't touch. A message due while Zed is closed for the restart is sent when you reopen its thread, or, if it's more than 15 minutes late, Rewake asks first (a repeating message skips to its next run).
 
-Check it with `npx @codizelabs/agent-rewake@latest doctor`. It says if Zed still starts an older version, and what to do.
+Check it with `npx @codizelabs/agent-rewake@latest doctor`. It says if Zed still starts an older version, and what to do. `doctor` also says how long ago the installed version was installed and how to update, from a note Rewake keeps in its own folder when you run `install`: it never looks online for a newer version.
 
 To see which version a thread runs, hover over the **Rewake** menu. Picking **Rewake** in it (About) and **Settings…** show it too, and so does the schedules page, in its title line or its help (press **?**). In a terminal, `agent-rewake --version` prints it.
 
@@ -509,12 +512,15 @@ Everything here is also in the Rewake menu.
 | `agent-rewake install` (in a terminal) | Shows what's on your computer and lets you tick the places to set up; then shows every change and asks once |
 | `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`, `jetbrains`, `devin-desktop`, `cursor`. With `--yes` and no place named, `install` sets up Zed and `uninstall` removes every place |
 | `agent-rewake continue [--always \| --ask \| --cancel]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit, or a stopped Cursor chat. `--always` does it from now on, `--ask` asks again, `--cancel` cancels all planned resumes |
-| `agent-rewake doctor [--details]` | Checks your setup: Zed, each agent preview, sleep settings, and what to do next; `--details` adds versions and folders for bug reports |
-| `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |
-| `agent-rewake schedules [--all] [--json]` | List scheduled messages |
+| `agent-rewake doctor [--details] [--json] [--report]` | Whether Rewake can work in your Zed, and what to do next, each finding as `Problem:`, `To do:`, `Note:` or `OK:`. `--details` adds versions and folders for bug reports; `--json` prints the findings as JSON for scripts; `--report` writes one text file for a bug report (see [Troubleshooting](#troubleshooting)). It also says how long ago this version was installed and how to update |
+| `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread. For a screen reader or plain text, use `schedules` |
+| `agent-rewake schedules [--all] [--json]` | List scheduled messages as plain text. `--all` includes finished ones, newest first, with the year and what happened to each |
 | `agent-rewake schedules --explain <id>` | Say in plain words what Rewake will do for one scheduled message or resume (`<id>` is the eight characters in square brackets in the list), and what could stop it. Sends nothing and changes nothing |
+| `agent-rewake history [--days <n>]` | What Rewake did in the last days (7 by default), newest first: the agent and folder, and what happened and why (sent, cancelled because you typed, too late, still limited, failed and the reason) |
 | `agent-rewake setup zed` | Print the Zed entries, to add by hand |
-| `agent-rewake --version`, `--help` | |
+| `agent-rewake completion <bash\|zsh\|fish>` | Print a script that completes Rewake's commands and options in your shell. Nothing is installed for you: `source <(agent-rewake completion bash)` in `~/.bashrc`, the same with `zsh` in `~/.zshrc`, or `agent-rewake completion fish > ~/.config/fish/completions/agent-rewake.fish` |
+| `agent-rewake help [<command>]`, `agent-rewake <command> --help` | The commands you run, or one command's options. `agent-rewake --help --all` also lists the ones Rewake runs itself |
+| `agent-rewake --version` | |
 | `agent-rewake --wrap-registry <id>`, `--wrap-command <json>`, `-- <cmd>`, `mcp`, `hook <agent> <event>`, `fire <id>`, `wait`, `sweep` | Started by Zed, an agent, a timer or the login item, not by you |
 
 </details>
@@ -554,6 +560,7 @@ Everything here is also in the Rewake menu.
 | `AGENT_REWAKE_LINK` | Internal: links the agent's tool server to its thread |
 | `AGENT_REWAKE_OWNER` | Internal: set by Rewake on the agents it runs in Zed, so they're never resumed twice |
 | `AGENT_REWAKE_TEST_TIMING` | Internal, for Rewake's own tests: shorter waits (`margin=0,jitter=0,heartbeat=1000`), only together with `AGENT_REWAKE_STATE_DIR`; `doctor` says when it's set |
+| `AGENT_REWAKE_TEST_ALLOW_HTTP` | Internal, for Rewake's own tests: lets a test serve a fake agent download over plain http. Real downloads must be https |
 | `AGENT_REWAKE_FIRE` | Internal: set by Rewake on an agent it starts to continue a session, so that run isn't taken for you typing |
 
 </details>

@@ -11,6 +11,7 @@ import {
   findZedApps,
   recentLogs,
   render,
+  renderJson,
   type ZedApp,
 } from "../src/doctor.js";
 import type { Found } from "../src/install/detect.js";
@@ -407,7 +408,7 @@ describe("doctor: output", () => {
   it("summarises and points at the first fix; plain marks for old consoles", () => {
     settings({ disable_ai: true });
     const out = render(run(), { version: "0.1.2", ascii: true });
-    expect(out).toContain("XX Zed's AI features are turned off");
+    expect(out).toContain("  Problem: Zed's AI features are turned off");
     expect(out).toContain("-> Remove");
     expect(out).toContain("1 problem and 1 thing to do. Start here: Remove");
     expect(out).toContain("agent-rewake doctor --details");
@@ -454,6 +455,77 @@ describe("--details with two copies of an agent", () => {
     expect(lines).toContain(
       `Claude Code is installed 2 times; Rewake uses the first one on your PATH: ~${sep}nvm${sep}bin${sep}claude 2.1.282 (used); /elsewhere/claude 2.1.292`,
     );
+  });
+});
+
+describe("doctor: levels in words (G65)", () => {
+  it("says each level in words as well as a symbol, in both mark styles", () => {
+    settings({ disable_ai: true });
+    const f = run();
+    const fancy = render(f, { version: "0.1.2", ascii: false });
+    expect(fancy).toContain("✗ Problem: Zed's AI features are turned off");
+    expect(fancy).toContain("! To do: Rewake isn't set up yet");
+    expect(fancy).toContain("✓ OK: Found Zed 1.22.0.");
+    const plain = render([{ area: "Rewake", level: "info", text: "A note." }], {
+      version: "0.1.2",
+      ascii: true,
+    });
+    expect(plain).toContain("  Note: A note.");
+  });
+
+  it("--json gives the same findings for scripts, without folders or message text", () => {
+    settings({ disable_ai: true });
+    schedule(1, "scheduled", NOW + 3_600_000);
+    const out = JSON.parse(renderJson(run(), { version: "0.1.2" })) as {
+      version: string;
+      problems: number;
+      todos: number;
+      findings: { area: string; level: string; text: string; fix?: string }[];
+      details?: string[];
+    };
+    expect(out.version).toBe("0.1.2");
+    expect(out.problems).toBe(1);
+    expect(out.todos).toBe(1);
+    expect(out.findings[0]).toMatchObject({ area: "Zed", level: "ok" });
+    expect(out.findings.find((x) => x.level === "problem")?.fix).toContain("disable_ai");
+    expect(out.details).toBeUndefined();
+    expect(JSON.stringify(out)).not.toContain("PRIVATE");
+    expect(renderJson([], { version: "1", details: ["x"] })).toContain('"details"');
+  });
+});
+
+describe("doctor: how old the installed version is (G70)", () => {
+  const day = 86_400_000;
+  const say = (installed?: { version: string; at: number }) =>
+    run(zed, { installed: () => installed }).filter((f) => f.text.includes("nstalled"));
+
+  it("says the version, its age and how to update, from the local record", () => {
+    const f = run(zed, { installed: () => ({ version: "0.1.2", at: NOW - 94 * day - 3600_000 }) });
+    const line = f.find((x) => x.text.startsWith("Rewake 0.1.2, installed"));
+    expect(line?.text).toBe("Rewake 0.1.2, installed 94 days ago.");
+    expect(line?.fix).toBe("To update: npx @codizelabs/agent-rewake@latest install");
+    expect(line?.level).toBe("info");
+    const out = render(f, { version: "0.1.2", ascii: false });
+    expect(out).toContain("To update: npx @codizelabs/agent-rewake@latest install");
+  });
+
+  it("says today and 1 day in plain words", () => {
+    expect(say({ version: "0.1.2", at: NOW - 1000 })[0]?.text).toBe(
+      "Rewake 0.1.2, installed today.",
+    );
+    expect(say({ version: "0.1.2", at: NOW - day })[0]?.text).toBe(
+      "Rewake 0.1.2, installed 1 day ago.",
+    );
+  });
+
+  it("names both versions when this copy isn't the installed one", () => {
+    expect(say({ version: "0.1.0", at: NOW - 5 * day })[0]?.text).toBe(
+      "Rewake 0.1.0 was installed 5 days ago; this copy is 0.1.2.",
+    );
+  });
+
+  it("says nothing when no install time was recorded", () => {
+    expect(say(undefined).filter((f) => /^Rewake \d/.test(f.text))).toEqual([]);
   });
 });
 

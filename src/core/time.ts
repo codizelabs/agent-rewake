@@ -142,6 +142,22 @@ export function formatWhen(at: number, now: number, locale?: string): string {
   return `${weekday} ${date} at ${time}`;
 }
 
+/**
+ * A past or future time with its year, for lists that reach back: "Thursday January 1, 2026 at
+ * 3:00 PM". `formatWhen` leaves the year out because it describes the coming days.
+ */
+export function formatWhenFull(at: number, locale?: string): string {
+  const date = new Intl.DateTimeFormat(locale ?? TEXT_LOCALE, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  })
+    .format(at)
+    .replace(",", "");
+  return `${date} at ${formatClock(at)}`;
+}
+
 /** `formatWhen` with its preposition: "at 3:00 PM today", "on Saturday at 3:00 PM". */
 export function formatAt(at: number, now: number, locale?: string): string {
   const s = formatWhen(at, now, locale);

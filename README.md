@@ -82,6 +82,8 @@ Check the setup at any time. `doctor` looks at every place you set up (Zed and i
 npx @codizelabs/agent-rewake doctor
 ```
 
+`doctor --json` prints the same findings for scripts, and `doctor --report` writes one redacted text file for a bug report (your home folder as `~`, session ids hashed, no message text; nothing is sent). `agent-rewake history` says what happened to your messages and resumes lately, `agent-rewake <command> --help` shows a command's options, and `agent-rewake completion <bash|zsh|fish>` prints a shell completion script. `doctor` also says how long ago this version was installed and how to update, without going online.
+
 ### Updating
 
 From any version: run `npx @codizelabs/agent-rewake@latest install`. Previews use the new version from their next session; in Zed, quit Zed completely and open it again. Your sessions, scheduled messages and settings stay. Details, and any version-specific steps (none so far), are in the [docs](https://codizelabs.github.io/agent-rewake/docs/#update). To see which version you run: `agent-rewake --version` (in Zed also the **Rewake** menu).
