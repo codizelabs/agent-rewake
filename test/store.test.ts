@@ -1,8 +1,8 @@
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SessionLock } from "../src/core/lock.js";
+import { linuxStartTime, processStartTime, SessionLock } from "../src/core/lock.js";
 import { MAX_TEXT_BYTES, registerHost, ScheduleStore } from "../src/core/store.js";
 
 let dir: string;
@@ -147,5 +147,75 @@ describe("SessionLock", () => {
     expect(dead.acquire("s-1")).toBe(true);
     const next = new SessionLock(dir, () => false); // every other PID looks dead
     expect(next.acquire("s-1")).toBe(true);
+  });
+
+  it("takes over when the owner's PID was reused by another process (a different start time)", () => {
+    const first = new SessionLock(
+      dir,
+      () => true,
+      () => "Thu Oct  8 09:00:00 2026",
+    );
+    expect(first.acquire("s-1")).toBe(true);
+    // The same PID is alive, but it started at another time: a different process.
+    const next = new SessionLock(
+      dir,
+      () => true,
+      () => "Thu Oct  8 11:30:00 2026",
+    );
+    expect(next.acquire("s-1")).toBe(true);
+  });
+
+  it("keeps a lock whose owner is the same process, even after the computer's name changed", () => {
+    const owner = new SessionLock(dir);
+    expect(owner.acquire("s-1")).toBe(true);
+    const lockDir = join(dir, "locks");
+    const [file] = readdirSync(lockDir);
+    const path = join(lockDir, file as string);
+    const held = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    // macOS renames the computer when the network changes.
+    writeFileSync(path, JSON.stringify({ ...held, hostname: "Kashans-MacBook-Pro-2.local" }));
+    expect(new SessionLock(dir).acquire("s-1")).toBe(false);
+  });
+
+  it("keeps a lock when the system can't give the start time now or before", () => {
+    const owner = new SessionLock(
+      dir,
+      () => true,
+      () => undefined,
+    );
+    expect(owner.acquire("s-1")).toBe(true);
+    expect(
+      new SessionLock(
+        dir,
+        () => true,
+        () => "any",
+      ).acquire("s-1"),
+    ).toBe(false);
+    const named = new SessionLock(
+      dir,
+      () => true,
+      () => "t1",
+    );
+    expect(named.acquire("s-2")).toBe(true);
+    expect(
+      new SessionLock(
+        dir,
+        () => true,
+        () => undefined,
+      ).acquire("s-2"),
+    ).toBe(false);
+  });
+
+  it("reads Linux's start time after a program name with spaces and brackets", () => {
+    const stat = `4242 (my (odd) prog) S 1 4242 4242 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 987654 1000 200 18446744073709551615`;
+    expect(linuxStartTime(stat)).toBe("987654");
+    expect(linuxStartTime("garbage")).toBeUndefined();
+  });
+
+  it("gives this process's own start time where the system can say", () => {
+    if (process.platform === "win32") return;
+    const a = processStartTime(process.pid);
+    expect(a).toBeTruthy();
+    expect(processStartTime(process.pid)).toBe(a);
   });
 });

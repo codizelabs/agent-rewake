@@ -100,7 +100,7 @@ export function cursorHooks(deps: CursorHookDeps): HookHandler {
         ctx.now,
       );
       if (!limit) return "{}";
-      onLimit(cursorHost, id, cwd, limit, d);
+      onLimit(cursorHost, id, cwd, limit, d, ctx.input.transcript_path);
       // The chat is "closed" for Rewake now: it's offered by `agent-rewake continue`, or armed.
       onSessionEnd(cursorHost, id, cwd, d);
       if (limit.billing) {

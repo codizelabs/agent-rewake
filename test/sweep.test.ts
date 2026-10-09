@@ -92,6 +92,16 @@ describe("sweep", () => {
     expect(armed).toEqual([lost]);
   });
 
+  it("arms again a resume whose timer ran early and was spent (nothing else re-arms it)", () => {
+    // `fire` ran at the wrong time, stopped at its own bound and left no timer: the sweep (any
+    // hook, `doctor`, a login) arms the right moment.
+    const id = add(NOW + 5 * 60_000, { host: "test", earlyRearms: 3 });
+    const { d, fired, armed } = deps();
+    expect(sweep(d)).toEqual({ fired: 0, armed: 1 });
+    expect(armed).toEqual([id]);
+    expect(fired).toEqual([]);
+  });
+
   it("hands a send cut off long ago to fire, which settles it (never re-sends)", () => {
     const attempts = [{ n: 1, idempotencyKey: "k", startedAt: NOW - SENDING_STALE_MS - 1 }];
     const stale = add(NOW - 3_600_000, { host: "test", status: "sending", attempts });

@@ -7,6 +7,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 ### Added
 
 - **A Claude Code session you closed at its usage limit can now be continued (macOS, Linux; preview):** if you close Claude Code (or it quits, or the computer restarts) before Rewake's question was answered, `agent-rewake continue` lists the session, and at the reset a system timer continues that same session in the background with Claude Code's own `claude --resume <session id> -p`, with your message on standard input. It never skips permission prompts (a step that would need your approval is denied), never uses `--continue`, and runs in the session's folder with the settings it had (`CLAUDE_CONFIG_DIR`, a gateway address; never an API key). It doesn't continue if you typed in the session after the limit, if the session is open again, or if its transcript changed after the limit: in that last case a notification says so. This was tried only against a stand-in `claude` program, not yet against a real usage limit; the docs say so.
+- **`agent-rewake schedules --explain <id>` says what will happen:** for one planned resume or message, in plain words, what Rewake will do at its time and what could stop it (you typing in the session, the agent continuing by itself, the session being open, a later usage limit, the computer being off). It sends nothing and changes nothing. The id is the eight characters in square brackets in `agent-rewake schedules`.
+- **`agent-rewake continue` tells you when a session is large:** where the agent gives Rewake the path of its history file (Gemini CLI and Cursor), a history of 5 MB or more adds "This session is large (about N MB of history); continuing it re-reads that and uses your plan." Only the file's size is looked at, never what's in it, and nothing is paused.
 
 ### Changed
 
@@ -36,6 +38,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **Rewake's folder no longer grows without end:** finished resumes and old session records older than 30 days, and leftover temporary files, are cleared. Anything pending or recent is never touched.
 - **A clear message for Node.js older than 22:** instead of an error, Rewake says which Node.js it needs and what to do.
 - **First-run advice starts from the places that are set up,** not from Zed.
+- **A timer that ran too early no longer leaves a resume waiting for someone to open an agent:** after a time-zone change, or in the repeated hour when daylight saving ends, a timer could run before its time, do nothing, and be gone. It now sets a new one for the right moment (up to three times for one resume), and leaves it alone if the one that's there is still right.
+- **Two Rewake processes no longer lose track of who owns a session when the computer's name changes, or when a process number is reused:** ownership was decided by the process number and the computer's name. macOS renames the computer with the network, so a running owner could look gone and a second process could take over (a message sent twice); a process number reused after a crash could keep a dead owner's lock alive. Ownership now follows the process's start time (where the system reports it) and ignores the computer's name.
 
 ## [0.3.1] - 2026-10-08
 

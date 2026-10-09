@@ -72,7 +72,7 @@ import { pruneState } from "./timers/prune.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
 import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
 import { isWsl, runWaiter, waiterNote } from "./timers/waiter.js";
-import { overview, overviewText } from "./ui/overview.js";
+import { explainSchedule, overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { rewake } from "./util/command.js";
 import { Wakefulness } from "./util/keep-awake.js";
@@ -128,6 +128,8 @@ Usage:
                                    Schedules page: a table you can click, for every thread
                                    (Zed's terminal panel; --inline draws it inside a thread)
   agent-rewake schedules [--all] [--json]   List scheduled messages
+  agent-rewake schedules --explain <id>     Say what Rewake will do for one of them, and what
+                                   could stop it (sends nothing)
   agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]...
                                    Add Rewake to the agents you already use in Zed, keeping
                                    their threads (shows the changes and asks first)
@@ -214,6 +216,23 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     });
   }
   if (first === "schedules") {
+    const e = argv.indexOf("--explain");
+    if (e !== -1) {
+      const wanted = argv[e + 1];
+      if (!wanted || wanted.startsWith("--")) {
+        process.stderr.write("agent-rewake: usage: agent-rewake schedules --explain <id>\n");
+        return 2;
+      }
+      const { node, state } = timerDeps(env);
+      const hosts = hostAdapters(env, node, state);
+      const r = explainSchedule(stateDir(env), wanted, Date.now(), (h) => hosts.get(h));
+      if (!r.ok) {
+        process.stderr.write(`agent-rewake: ${r.error}\n`);
+        return 1;
+      }
+      process.stdout.write(`${r.text}\n`);
+      return 0;
+    }
     const groups = overview(stateDir(env), argv.includes("--all"));
     process.stdout.write(
       argv.includes("--json")

@@ -17,7 +17,15 @@ import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
 import type { Notifier } from "./notify.js";
 import { type SlotOptions, takeSlot } from "./slots.js";
-import { armTimer, cancelTimer, nextGen, type TimerHost, timerName } from "./timers.js";
+import {
+  armTimer,
+  cancelTimer,
+  nextGen,
+  type TimerHost,
+  timerArmed,
+  timerName,
+  timerStale,
+} from "./timers.js";
 
 /**
  * `agent-rewake fire <id>`: what an OS timer runs at a resume's time, for integrations outside Zed.
@@ -30,6 +38,8 @@ import { armTimer, cancelTimer, nextGen, type TimerHost, timerName } from "./tim
 const EARLY_MS = 30_000;
 /** Never arm a timer closer than this: systemd never fires a time in the past. */
 const MIN_ARM_MS = 60_000;
+/** How many times an early run sets a new timer for one resume before leaving it to the sweep. */
+const MAX_EARLY_REARMS = 3;
 /**
  * A send still marked "sending" after this long was cut off (a crash, a reboot): longer than any
  * host's resume run (RESUME_TIMEOUT_MS). Rewake can't tell whether the message got through, so it
@@ -170,6 +180,29 @@ export function notice(
   }
 }
 
+/**
+ * A timer ran before its resume's time (the time zone changed, the clock went back, or a repeated
+ * daylight-saving hour made a wall-clock timer fire early). Nothing is sent. If no timer is left
+ * for the right moment, one is armed again for the resume's absolute time, a new name so this
+ * run's own timer is untouched. A timer that is still armed and correct (launchd runs a new job
+ * once when it is loaded) is left alone, and the number of re-arms is bounded; a resume past
+ * the bound waits for the next sweep, as before.
+ */
+function rearmEarly(id: string, store: ScheduleStore, deps: FireDeps, now: number): FireOutcome {
+  const s = store.get(id);
+  if (s?.status !== "scheduled" || !deps.timers) return "early";
+  if ((s.earlyRearms ?? 0) >= MAX_EARLY_REARMS) return "early";
+  if (timerArmed(id, deps.timers) && !timerStale(id, s.dueAt, deps.timers)) return "early";
+  const gen = nextGen(id, deps.timerGen ?? 0, deps.timers);
+  const armed = armTimer(id, Math.max(s.dueAt, now + MIN_ARM_MS), deps.timers, gen);
+  if (armed.ok) {
+    store.update(id, (x) => ({ ...x, earlyRearms: (x.earlyRearms ?? 0) + 1 }), now);
+    cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
+  }
+  deps.log?.("fire.early", { armed: armed.ok });
+  return "early";
+}
+
 export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
   const store = new ScheduleStore(deps.stateDir);
   const log = deps.log ?? (() => {});
@@ -194,10 +227,17 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
     removeTimer();
     return "gone";
   }
-  if (first.status !== "cancelled" && now < first.dueAt - EARLY_MS) return "early";
-
   const lock = new SessionLock(deps.stateDir);
   const lockKey = `fire:${id}`;
+  if (first.status !== "cancelled" && now < first.dueAt - EARLY_MS) {
+    // Under the lock, so two early runs don't both arm.
+    if (!lock.acquire(lockKey)) return "early";
+    try {
+      return rearmEarly(id, store, deps, now);
+    } finally {
+      lock.release(lockKey);
+    }
+  }
   if (!lock.acquire(lockKey)) return "busy";
   const slot: { release?: () => void } = {};
   const giveBack = (): void => {
@@ -210,7 +250,8 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       removeTimer();
       return "gone";
     }
-    if (s.status !== "cancelled" && now < s.dueAt - EARLY_MS) return "early";
+    if (s.status !== "cancelled" && now < s.dueAt - EARLY_MS)
+      return rearmEarly(id, store, deps, now);
     // Tried again later: at `until` (at least a minute on), with a new timer name because this
     // run's own timer can't be replaced from inside it (see timers.ts). Waiting for a free place
     // (`count` false) isn't the agent's doing, so it doesn't use up the bounded re-arms.
