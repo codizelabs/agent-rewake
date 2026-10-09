@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { emitKeypressEvents } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
 import { SchedulingAddon } from "./addon.js";
@@ -55,7 +56,17 @@ import {
   qwenPrograms,
   terminalAgents,
 } from "./install/detect.js";
-import { choosePlaces, defaultPlaceText, type Place, placesFrom } from "./install/select.js";
+import {
+  choosePlaces,
+  defaultChoice,
+  defaultPlaceText,
+  type Keypress,
+  type Place,
+  PREVIEW_NOTE,
+  placesFrom,
+  quickSetupPrompt,
+  UNREACHABLE,
+} from "./install/select.js";
 import { zedLaunch } from "./install/zed-launch.js";
 import {
   keyChord,
@@ -992,39 +1003,70 @@ function pickablePlaces(env: NodeJS.ProcessEnv, uninstall: boolean): string[] {
   return places.filter((p) => p.state !== "too-old").map((p) => p.id);
 }
 
-/** The selection screen, in this terminal; undefined when the person quits. */
+/**
+ * The selection screen, in this terminal; undefined when the person quits.
+ *
+ * Key presses go through Node's own `readline.emitKeypressEvents`, not a match on the raw bytes:
+ * a terminal can split an escape sequence (`ESC [ A`) across more than one `data` event (common
+ * over SSH, in tmux/screen, some terminal emulators), and some terminals send arrow keys as
+ * `ESC O A` (application cursor mode) instead of `ESC [ A`. Matching whole chunks got a lone ESC
+ * byte read as "quit" and the `O` form not recognised at all — arrow keys could do nothing, or
+ * exit the screen. `emitKeypressEvents` buffers and decodes both forms the way every well-behaved
+ * terminal program does.
+ */
 async function pickPlaces(env: NodeJS.ProcessEnv): Promise<string[] | undefined> {
   const { places, missing } = placesHere(env);
-  process.stdout.write(`Agent Rewake ${VERSION} found these on your computer:\n\n`);
+  // The common path is one question, not a checklist to read through (plan §4.1 revised, F3): set
+  // up everywhere Rewake found, or say no and pick. Nothing is asked when there's only one place
+  // and nothing to explain about it (F4) — `quickSetupPrompt` returns undefined then.
+  const prompt = quickSetupPrompt(places);
+  if (prompt === undefined) return [...defaultChoice(places)];
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    let answer: string;
+    try {
+      answer = (await rl.question(prompt)).trim();
+    } finally {
+      rl.close();
+    }
+    if (/^(y(es)?)?$/i.test(answer)) return [...defaultChoice(places)];
+  }
+  process.stdout.write(
+    `\n${PREVIEW_NOTE} ${UNREACHABLE}\n\n` +
+      `Agent Rewake ${VERSION} found these on your computer:\n\n`,
+  );
   const stdin = process.stdin;
+  emitKeypressEvents(stdin);
   // Key presses through a listener that's removed afterwards: iterating stdin would close it, and
   // the question that follows needs it.
-  const queue: string[] = [];
+  const queue: Keypress[] = [];
   let wake: (() => void) | undefined;
-  const onData = (d: Buffer | string) => {
-    queue.push(String(d));
+  const onKeypress = (_str: string, key: Keypress | undefined) => {
+    if (!key) return;
+    queue.push(key);
     wake?.();
   };
-  async function* keys(): AsyncIterable<string> {
+  async function* keys(): AsyncIterable<Keypress> {
     for (;;) {
-      while (queue.length > 0) yield queue.shift() as string;
+      while (queue.length > 0) yield queue.shift() as Keypress;
       await new Promise<void>((r) => {
         wake = r;
       });
     }
   }
-  stdin.setRawMode(true);
-  stdin.setEncoding("utf8");
-  stdin.on("data", onData);
+  if (stdin.isTTY) stdin.setRawMode(true);
+  stdin.on("keypress", onKeypress);
   stdin.resume();
   try {
     return await choosePlaces(places, missing, {
       keys: keys(),
       write: (t) => process.stdout.write(t),
+      noColor: Boolean(env.NO_COLOR) || env.TERM === "dumb",
+      columns: () => process.stdout.columns || 80,
     });
   } finally {
-    stdin.off("data", onData);
-    stdin.setRawMode(false);
+    stdin.off("keypress", onKeypress);
+    if (stdin.isTTY) stdin.setRawMode(false);
     stdin.pause();
   }
 }
