@@ -224,6 +224,32 @@ describe("Codex hooks: when a session ends at a limit", () => {
     expect(resumes()[0]?.dueAt).toBe(RESETS + 60_000);
   });
 
+  it("still asks, with automatic resume on, when the reset is a spent plan window behind a workspace limit", async () => {
+    saveSettings(state, { ...DEFAULT_SETTINGS, newThreads: "on" });
+    writeFileSync(
+      rollout,
+      `${[
+        LIMIT_LINES[0],
+        ev({
+          type: "token_count",
+          rate_limits: {
+            primary: { used_percent: 100, window_minutes: 300, resets_at: sec(RESETS) },
+            rate_limit_reached_type: "workspace_owner_credits_depleted",
+          },
+        }),
+        LIMIT_LINES[2],
+      ].join("\n")}\n`,
+    );
+    const h = hooks();
+    await h.run("SessionEnd", { reason: "other" });
+    expect(resumes()).toEqual([]);
+    expect(h.notes).toEqual([
+      expect.stringMatching(
+        /^Codex in the "shop" folder hit its usage limit\. Resume the thread in Codex and type "rewake", and Rewake continues it /,
+      ),
+    ]);
+  });
+
   it("says so, and keeps nothing planned, when no timer can be set", async () => {
     const h = hooks(true);
     const r = blocked(await h.run("UserPromptSubmit", { prompt: "rewake" }));

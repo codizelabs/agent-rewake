@@ -100,14 +100,88 @@ describe("findCodexLimit", () => {
   });
 
   it("treats credits and spending caps as billing: never resumed", () => {
+    // The plan windows here are not spent (a spent one is read separately, below).
+    const notSpent = { ...session, used_percent: 60 };
     for (const rl of [
-      { primary: session, rate_limit_reached_type: "workspace_owner_credits_depleted" },
+      { primary: notSpent, rate_limit_reached_type: "workspace_owner_credits_depleted" },
       { primary: session, spend_control_reached: true },
     ]) {
       const v = findCodexLimit([tokens(rl), limited].join("\n"), NOW);
       expect(v).toMatchObject({ limited: true, billing: true });
       expect(v.resetsAt).toBeUndefined();
     }
+  });
+
+  // Business and Team workspaces. Source: unsnooze 1.19.1 and 1.19.2 (community project,
+  // src/watchers/codex.js "workspaceWall" and test/watchers-codex.test.js): a workspace stop whose
+  // plan window is spent as well comes back at that window's reset. No capture from Codex itself.
+  describe("a workspace limit with a spent plan window", () => {
+    const withMessage = (message: string) =>
+      line({
+        type: "task_complete",
+        turn_id: "t1",
+        error: { message, codex_error_info: "usage_limit_exceeded" },
+        completed_at: sec(NOW - 60_000),
+      });
+    const SPEND_CAP = "You hit your spend cap set in your workspace.";
+    const cases: [string, string][] = [
+      ["workspace_owner_credits_depleted", "Your workspace is out of credits."],
+      ["workspace_member_credits_depleted", "Your workspace is out of credits."],
+      ["workspace_owner_usage_limit_reached", SPEND_CAP],
+      ["workspace_member_usage_limit_reached", SPEND_CAP],
+    ];
+    it.each(cases)("%s resumes at the spent window's reset, and asks first", (reason, message) => {
+      const v = findCodexLimit(
+        [
+          tokens({ primary: session, secondary: weekly, rate_limit_reached_type: reason }),
+          withMessage(message),
+        ].join("\n"),
+        NOW,
+      );
+      expect(v).toEqual({
+        limited: true,
+        at: sec(NOW - 60_000) * 1000,
+        resetsAt: session.resets_at * 1000,
+        window: "session",
+        askFirst: true,
+      });
+    });
+
+    it("counts a window at 99% as spent, and takes the latest of several spent windows", () => {
+      const v = findCodexLimit(
+        [
+          tokens({
+            primary: { ...session, used_percent: 99.5 },
+            secondary: { ...weekly, used_percent: 100 },
+            rate_limit_reached_type: "workspace_member_usage_limit_reached",
+          }),
+          withMessage(SPEND_CAP),
+        ].join("\n"),
+        NOW,
+      );
+      expect(v).toMatchObject({
+        resetsAt: weekly.resets_at * 1000,
+        window: "weekly",
+        askFirst: true,
+      });
+    });
+
+    it("stays billing when the spent window's reset has passed, or a spend cap is on", () => {
+      const past = { ...session, resets_at: sec(NOW - 3_600_000) };
+      for (const rl of [
+        { primary: past, rate_limit_reached_type: "workspace_owner_credits_depleted" },
+        {
+          primary: session,
+          spend_control_reached: true,
+          rate_limit_reached_type: "workspace_owner_credits_depleted",
+        },
+      ]) {
+        const v = findCodexLimit([tokens(rl), limited].join("\n"), NOW);
+        expect(v).toMatchObject({ limited: true, billing: true });
+        expect(v.resetsAt).toBeUndefined();
+        expect(v.askFirst).toBeUndefined();
+      }
+    });
   });
 
   it("reads spend_control_reached as the yes/no flag Codex sends: false is an ordinary limit", () => {

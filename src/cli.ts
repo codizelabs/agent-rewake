@@ -65,6 +65,7 @@ import {
   wrappedEntry,
   zedConfigDir,
 } from "./install.js";
+import { renderSample } from "./limit-sample.js";
 import { runMcp } from "./mcp.js";
 import { runProxy } from "./proxy.js";
 import { agentName } from "./setup.js";
@@ -175,6 +176,22 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   if (first === "mcp")
     // The agent's tool server, started by the agent. stdout carries MCP.
     return runMcp({ stateDir: stateDir(env), link: env.AGENT_REWAKE_LINK });
+  if (first === "doctor" && argv.includes("--limit-sample")) {
+    // The words after the flag, so an unquoted message works too. Reads no Rewake state.
+    const text = argv
+      .slice(argv.indexOf("--limit-sample") + 1)
+      .join(" ")
+      .trim();
+    const report = text === "" ? "" : renderSample(text);
+    if (report === "") {
+      process.stderr.write(
+        `Give the limit message after the flag, in quotes: ${rewake('doctor --limit-sample "<the message your agent showed>"')}\n`,
+      );
+      return 2;
+    }
+    process.stdout.write(report);
+    return 0;
+  }
   if (first === "doctor" || first === "schedules" || first === "history") {
     const bad = unknownOption(first, argv.slice(1));
     if (bad) {

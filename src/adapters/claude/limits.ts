@@ -25,6 +25,21 @@ const NOT_FIXED_BY_WAITING =
   /out of usage credits|out of extra usage|spend limit|org is out of usage|seat type|allocation has been disabled|usage limit is set to \$0|requires usage credits|monthly|team's shared budget|individual usage limit/i;
 
 /**
+ * "You've hit your monthly limit · resets Sep 1 at 12:00am" (unsnooze test/claude-real-banners.test.js:27,
+ * a banner it captured) does reset: a reset more than a day away is asked about, not dropped as
+ * billing. An org's or channel's monthly usage limit, which an admin sets, stays billing, and so
+ * does a monthly limit that gives no reset.
+ */
+const MONTHLY_WITH_RESET = /^You've hit your monthly limit\b[^\n]*\bresets?\b/i;
+
+/**
+ * An older Claude Code banner, not in the SDK's list: "Claude usage limit reached. Your limit will
+ * reset at 3pm (UTC)." Only unsnooze's tests (test/model-limit.test.js, v1.20.0) carry it; no
+ * Claude Code capture of it is known.
+ */
+const OLDER_LIMIT_BANNER = /^Claude usage limit reached\./;
+
+/**
  * The plan's own window, appended by Claude Code to a spend, budget or credit message only when the
  * plan limit is used up too: "You've hit your individual spend limit · run /usage-credits … · your
  * session limit resets 7:50pm (Asia/Karachi)". The plan allowance comes back at that time, so
@@ -158,7 +173,8 @@ export function classifyPromptError(
       : { kind: "other", text };
   }
 
-  const isLimitText = USAGE_LIMIT_ERROR_PREFIXES.some((p) => text.startsWith(p));
+  const isLimitText =
+    USAGE_LIMIT_ERROR_PREFIXES.some((p) => text.startsWith(p)) || OLDER_LIMIT_BANNER.test(text);
   if (
     isLimitText &&
     !planResets &&
@@ -175,7 +191,7 @@ export function classifyPromptError(
     };
 
   if (errorKind === "rate_limit" && isLimitText) {
-    if (NOT_FIXED_BY_WAITING.test(text) && !planResets)
+    if (NOT_FIXED_BY_WAITING.test(text) && !planResets && !MONTHLY_WITH_RESET.test(text))
       return { kind: "not_recoverable", text, reason: "billing" };
     return { kind: "usage_limit", text, limitType: limitTypeOf(undefined, text) };
   }
