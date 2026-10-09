@@ -1,8 +1,19 @@
 // Fails if the npm tarball would contain anything beyond Agent Rewake's own files. In particular,
-// Anthropic's SDK and Claude Code binaries must never be bundled or shipped.
+// Anthropic's SDK and Claude Code binaries must never be bundled or shipped. Also fails if the
+// package would make npm download any runtime dependency beyond the pinned Claude adapter.
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { runtimeDependencyProblems } from "./runtime-deps.mjs";
+
+// What npm installs with the package: only the pinned Claude adapter (scripts/runtime-deps.mjs).
+const problems = runtimeDependencyProblems(
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")),
+);
+if (problems.length) {
+  console.error("Runtime dependencies the npm package may not have:", problems);
+  process.exit(1);
+}
 
 // npm as `node npm-cli.js`: on Windows npm is npm.cmd, which Node won't start without a shell.
 const bin = dirname(process.execPath);
@@ -40,6 +51,7 @@ if (bundle > BUDGET.bundle || mod > BUDGET.mod) {
   process.exit(1);
 }
 console.log(`npm package contents OK (${files.length} files): ${files.join(", ")}`);
+console.log("Runtime dependencies OK: only the pinned Claude adapter.");
 console.log(
   `Size: bundle ${Math.round(bundle / 1024)} KB, Claude Code mod ${Math.round(mod / 1024)} KB.`,
 );
