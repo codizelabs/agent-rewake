@@ -1,4 +1,5 @@
 import { classifyLimit, classifyText, classifyTurnEnd, grokText } from "../../adapters/profiles.js";
+import { parseResetHint } from "../../adapters/reset.js";
 import { normalize } from "../../adapters/text.js";
 import type { HostLimit } from "./types.js";
 
@@ -265,6 +266,55 @@ export function classifyGrokFailure(
   if (!cap && !billing.seen && /weekly limit/i.test(text))
     return { kind: "weekly", billing: false };
   return { kind: "billing", billing: true };
+}
+
+// ---- Qwen Code ----------------------------------------------------------------------------------
+
+/**
+ * A usage limit in a Qwen Code `StopFailure` (hooks.md at QwenLM/qwen-code 6788c03): `error` is
+ * `rate_limit` for an HTTP 429, and `error_details` is the error's message. A plan quota that ran
+ * out reads, from the OpenAI SDK, "429 Your token-plan 1-week quota has been exhausted. The quota
+ * will reset at 07-27 09:25:00 UTC." (packages/core/src/utils/quotaErrorDetection.ts:161-165); Qwen
+ * itself recognises it (isQuotaExhaustedError, 168-178) by "quota", "exhausted" or "exceeded", and "will reset" or "reset at", and
+ * puts "Quota exhausted: " before the message it shows. The text carries no year: the reset is the
+ * next such time. One within the last RESET_GRACE_MS counts as now; an impossible date (29 February
+ * in a year without one) is unknown, never rolled into March. Any other 429 is a short throttle Qwen retries itself.
+ * `billing_error` (HTTP 402 or 403, or "billing" or "quota" with another status) is money: never resumed.
+ */
+export function classifyQwenFailure(
+  input: { error?: unknown; errorDetails?: unknown },
+  now: number,
+): SessionLimit | undefined {
+  if (input.error === "billing_error") return { kind: "billing", billing: true };
+  if (input.error !== "rate_limit") return undefined;
+  const text = normalize(str(input.errorDetails)).slice(0, 4096);
+  const spent = /\bquota\b/i.test(text) && /\b(?:exhausted|exceeded)\b/i.test(text);
+  if (!spent || !(/will reset|reset at/i.test(text) || /^Quota exhausted: /m.test(text)))
+    return undefined;
+  const at = qwenReset(text, now);
+  return {
+    kind: /\b1-week\b|weekly/i.test(text) ? "weekly" : "other",
+    billing: false,
+    ...(at !== undefined && { resetsAt: at }),
+  };
+}
+
+/** A reset this far in the past is the one just now passed, not next year's. */
+const RESET_GRACE_MS = 10 * 60_000;
+
+/** "reset at MM-DD HH:MM:SS UTC" as the next such time; unknown if the date doesn't exist. */
+function qwenReset(text: string, now: number): number | undefined {
+  const m = /reset at (\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) UTC/i.exec(text);
+  if (!m) return parseResetHint(text, now);
+  const [mo, d, h, mi, s] = m.slice(1).map(Number) as [number, number, number, number, number];
+  const year = new Date(now).getUTCFullYear();
+  for (const y of [year, year + 1]) {
+    const at = Date.UTC(y, mo - 1, d, h, mi, s);
+    const t = new Date(at);
+    if (t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d || h > 23 || mi > 59 || s > 59) continue;
+    if (at >= now - RESET_GRACE_MS) return Math.max(at, now);
+  }
+  return undefined;
 }
 
 // ---- Cursor's own agent (its hooks and transcript) -------------------------------------------

@@ -15,6 +15,7 @@ export const PLACES = [
   "copilot-cli",
   "grok",
   "gemini-cli",
+  "qwen-code",
   "antigravity",
   "jetbrains",
   "devin-desktop",

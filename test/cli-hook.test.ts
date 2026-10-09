@@ -103,7 +103,15 @@ describe("agent-rewake hook", () => {
       },
       program: () => undefined,
     };
-    for (const id of ["codex", "copilot-cli", "grok", "gemini-cli", "cursor", "antigravity"])
+    for (const id of [
+      "codex",
+      "copilot-cli",
+      "grok",
+      "gemini-cli",
+      "qwen-code",
+      "cursor",
+      "antigravity",
+    ])
       expect(hookHandler(id, deps), id).toBeDefined();
   });
 });

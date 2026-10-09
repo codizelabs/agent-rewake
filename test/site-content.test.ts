@@ -159,7 +159,7 @@ describe("the trust claims", () => {
       }
   });
 
-  it("pass an approval flag only as Gemini CLI's own default mode, which never widens yours", () => {
+  it("pass an approval flag only as the own default mode of Gemini CLI and Qwen Code, which never widens yours", () => {
     const withFlag = src.flatMap((file) =>
       codeLines(file)
         .filter((l) => /--approval-mode|--permission-mode|--sandbox/.test(l))
@@ -167,7 +167,7 @@ describe("the trust claims", () => {
     );
     expect(withFlag.length).toBeGreaterThan(0);
     for (const { file, l } of withFlag) {
-      expect(file.replaceAll("\\", "/")).toContain("hosts/gemini/host.ts");
+      expect(file.replaceAll("\\", "/")).toMatch(/hosts\/(gemini|qwen)\/host\.ts$/);
       expect(l).toContain('"default"');
     }
   });

@@ -6,6 +6,7 @@ import { claudeConfigDir } from "./claude-code/install.js";
 import { copilotHome } from "./copilot/install.js";
 import { geminiHooksOn } from "./gemini/install.js";
 import { grokHome } from "./grok/host.js";
+import { qwenHooksOff } from "./qwen/install.js";
 
 /**
  * Whether an agent's own settings turn Rewake's hooks off, read from files only (no agent is run):
@@ -14,6 +15,7 @@ import { grokHome } from "./grok/host.js";
  *     copilot B.5; a repository's own setting is seen only when its sessions record nothing).
  *   - Grok Build: Rewake's hooks named in `$GROK_HOME/disabled-hooks` (research §2.2, trust.rs).
  *   - Gemini CLI: `"hooksConfig": { "enabled": false }` (on by default, DG-X9).
+ *   - Qwen Code: `"disableAllHooks": true` in its user settings (hooks.md).
  *
  * Returns where it's turned off, in words for the person, or undefined.
  */
@@ -45,6 +47,8 @@ export function hooksTurnedOff(
     return geminiHooksOn(env, home)
       ? undefined
       : `"hooksConfig": { "enabled": false } in Gemini CLI's settings`;
+  if (place === "qwen-code")
+    return qwenHooksOff(env, home) ? `"disableAllHooks": true in Qwen Code's settings` : undefined;
   return undefined;
 }
 

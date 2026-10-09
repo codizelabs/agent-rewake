@@ -24,7 +24,14 @@ export interface HealthFacts {
 }
 
 /** Agents whose sessions Rewake records itself (the others keep their records elsewhere). */
-const RECORDED = new Set<PlaceId>(["copilot-cli", "grok", "gemini-cli", "antigravity", "cursor"]);
+const RECORDED = new Set<PlaceId>([
+  "copilot-cli",
+  "grok",
+  "gemini-cli",
+  "qwen-code",
+  "antigravity",
+  "cursor",
+]);
 
 function recordsOf(stateDir: string, id: string): number {
   try {

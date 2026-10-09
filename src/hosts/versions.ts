@@ -37,6 +37,11 @@ export const AGENT_VERSIONS: Partial<Record<PlaceId, AgentVersions>> = {
     tested: "0.63.0",
     update: "npm install -g @google/gemini-cli@latest",
   },
+  "qwen-code": {
+    name: "Qwen Code",
+    min: "0.25.0",
+    update: "npm install -g @qwen-code/qwen-code@latest (or brew upgrade qwen-code)",
+  },
   grok: { name: "Grok Build", min: "1.0.46", tested: "1.0.46", update: "grok update" },
 };
 

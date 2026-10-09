@@ -269,7 +269,7 @@ describe("agent-rewake continue", () => {
       await run(deps, true, [], "ask"),
     ]).toMatchInlineSnapshot(`
       [
-        "From now on, when an agent stops at a usage limit that resets within a day, Rewake continues it by itself, without asking: in new Zed threads, in Claude Code, and in closed Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions. To be asked again, everywhere: agent-rewake continue --ask
+        "From now on, when an agent stops at a usage limit that resets within a day, Rewake continues it by itself, without asking: in new Zed threads, in Claude Code, and in closed Copilot CLI, Gemini CLI, Grok Build, Qwen Code and Antigravity CLI sessions. To be asked again, everywhere: agent-rewake continue --ask
 
       exit 0",
         "Rewake will ask again, in every agent: after a usage limit, run "agent-rewake continue" to continue a closed session.
