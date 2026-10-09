@@ -234,15 +234,20 @@ describe("agent-rewake bundle", () => {
           agent_servers: Record<string, { command: string; args: string[] }>;
         }
       ).agent_servers["claude-acp"];
-      expect(entry?.command).toBe(join(bin, "rewake-node"));
-      expect(entry?.args).toEqual([join(bin, "agent-rewake.mjs"), "--wrap-registry", "claude-acp"]);
-      expect(settings).not.toContain("npx");
-      expect(settings).not.toContain(asJson(bundle));
-      // And it starts: the same command Zed runs, in a bare environment.
-      const started = spawnSync(entry?.command ?? "", [entry?.args[0] ?? "", "--version"], {
-        encoding: "utf8",
-        env: { HOME: home },
-      });
+      // The Claude adapter is found next to the package, not next to Rewake's one-file copy: its
+      // entry starts from the package.
+      expect(entry?.command).not.toBe(join(bin, "rewake-node"));
+      expect(entry?.args.slice(-2)).toEqual(["--wrap-registry", "claude-acp"]);
+      expect(entry?.args).not.toContain(join(bin, "agent-rewake.mjs"));
+      // Rewake's own stable files exist for hooks, timers and the other agents, and start.
+      const started = spawnSync(
+        join(bin, "rewake-node"),
+        [join(bin, "agent-rewake.mjs"), "--version"],
+        {
+          encoding: "utf8",
+          env: { HOME: home },
+        },
+      );
       expect(started.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
     }
     expect(readFileSync(join(zed, "tasks.json"), "utf8")).toContain("Agent Rewake: schedules");
