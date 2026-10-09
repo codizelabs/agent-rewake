@@ -1,12 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as nodeHttp from "node:http";
+import { createServer } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type BinaryTarget,
   downloadBinaryAgent,
+  enableProxy,
   findBinaryAgent,
   packageExecutable,
   parseWrapArgs,
@@ -263,4 +267,136 @@ describe("launching any registry agent", () => {
       downloadBinaryAgent("agent", "1", target({ cmd: "/abs/escape" }), join(dir, "state"), never),
     ).rejects.toThrow(/isn't inside the download/);
   });
+});
+
+describe("Rewake's own agent download and proxy settings (G71)", () => {
+  it("passes the proxy variables to Node's fetch, and only those", () => {
+    const seen: Record<string, string>[] = [];
+    const http = { setGlobalProxyFromEnv: (e: Record<string, string>) => void seen.push(e) };
+    expect(enableProxy({ PATH: "/bin" }, http)).toBe("none");
+    expect(seen).toEqual([]);
+    expect(
+      enableProxy(
+        { HTTPS_PROXY: "http://p:3128", no_proxy: "localhost", SECRET_TOKEN: "x", PATH: "/bin" },
+        http,
+      ),
+    ).toBe("used");
+    expect(seen).toEqual([{ HTTPS_PROXY: "http://p:3128", no_proxy: "localhost" }]);
+  });
+
+  it("a proxy variable on a Node.js that can't switch it on at run time is said, not hidden", () => {
+    expect(enableProxy({ HTTP_PROXY: "http://p:3128" }, {})).toBe("unsupported");
+    // Started with NODE_USE_ENV_PROXY=1 (Node.js 22.21+, 24+): already in use.
+    expect(enableProxy({ HTTP_PROXY: "http://p:3128", NODE_USE_ENV_PROXY: "1" }, {})).toBe("used");
+    // A NO_PROXY alone names no proxy.
+    expect(enableProxy({ NO_PROXY: "localhost" }, {})).toBe("none");
+  });
+
+  it("a failed download says Rewake couldn't download it, what the proxy did, and what to do", async () => {
+    const refuse = (async () => {
+      throw new Error("connect ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    const target: BinaryTarget = {
+      archive: "https://example.test/a.tar.gz",
+      cmd: "./a",
+      args: [],
+      env: {},
+    };
+    const fail = (proxy: "none" | "used" | "unsupported") =>
+      downloadBinaryAgent("a", "1", target, join(dir, "state"), refuse, proxy).catch(
+        (e: Error) => e.message,
+      );
+    const none = await fail("none");
+    expect(none).toContain("Rewake couldn't download it.");
+    expect(none).toContain("A proxy or firewall may be blocking it.");
+    expect(none).toContain("open the agent once in Zed without Rewake");
+    expect(await fail("used")).toContain("Rewake used your proxy settings.");
+    const unsupported = await fail("unsupported");
+    expect(unsupported).toContain("can't send Rewake's download through it");
+    expect(unsupported).toContain("NODE_USE_ENV_PROXY=1");
+    expect(unsupported).not.toContain("Check your network");
+  });
+
+  // Node.js 24.14 and newer can be switched to a proxy at run time; older ones only at start.
+  it.skipIf(typeof nodeHttp.setGlobalProxyFromEnv !== "function")(
+    "downloads through the proxy the environment names",
+    async () => {
+      const src = join(dir, "src");
+      mkdirSync(src);
+      writeFileSync(join(src, "agent"), "#!/bin/sh\necho via-proxy\n");
+      const tarFile = join(dir, "a.tar.gz");
+      const tar =
+        process.platform === "win32"
+          ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+          : "tar";
+      expect(spawnSync(tar, ["-czf", tarFile, "-C", src, "agent"]).status).toBe(0);
+      const bytes = readFileSync(tarFile);
+
+      // Node tunnels through the proxy with CONNECT (also for http: URLs); this proxy sends the
+      // tunnel to a local server holding the archive, whatever host was asked for.
+      const requested: string[] = [];
+      const origin = createServer((_req, res) => res.end(bytes));
+      await new Promise<void>((r) => origin.listen(0, "127.0.0.1", r));
+      const proxy = createServer();
+      proxy.on("connect", (req, socket, head) => {
+        requested.push(req.url ?? "");
+        const up = connect((origin.address() as { port: number }).port, "127.0.0.1", () => {
+          socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+          up.write(head);
+          up.pipe(socket);
+          socket.pipe(up);
+        });
+        up.on("error", () => socket.destroy());
+        socket.on("error", () => up.destroy());
+      });
+      await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
+      const port = (proxy.address() as { port: number }).port;
+      try {
+        const reg = join(dir, "external_agents", "registry");
+        mkdirSync(reg, { recursive: true });
+        writeFileSync(
+          join(reg, "registry.json"),
+          JSON.stringify({
+            agents: [
+              {
+                id: "viaproxy",
+                name: "Via proxy",
+                version: "1.0.0",
+                distribution: {
+                  binary: {
+                    "linux-x86_64": {
+                      archive: "http://downloads.invalid/agent.tar.gz",
+                      cmd: "./agent",
+                      args: [],
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+        );
+        const cmd = await wrappedAgentCommand(
+          { kind: "registry", id: "viaproxy" },
+          [],
+          {
+            AGENT_REWAKE_ZED_DATA_DIR: dir,
+            AGENT_REWAKE_PLATFORM: "linux-x86_64",
+            HTTP_PROXY: `http://127.0.0.1:${port}`,
+            // The fake download is plain http; real ones must be https.
+            AGENT_REWAKE_TEST_ALLOW_HTTP: "1",
+          },
+          join(dir, "state"),
+        );
+        expect(requested).toEqual(["downloads.invalid:80"]);
+        expect(readFileSync(cmd.command, "utf8")).toContain("via-proxy");
+      } finally {
+        proxy.close();
+        origin.close();
+        proxy.closeAllConnections();
+        origin.closeAllConnections();
+        // Back to no proxy for the rest of this file.
+        nodeHttp.setGlobalProxyFromEnv?.({});
+      }
+    },
+  );
 });

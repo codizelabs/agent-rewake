@@ -14,8 +14,12 @@ import {
   diagnose,
   when as doctorWhen,
   findZedApps,
+  recentLogs,
   render,
+  renderJson,
 } from "./doctor.js";
+import { buildReport, ISSUE_URL, REPORT_DAYS, writeReport } from "./doctor-report.js";
+import { commandHelp, completionScript, PLACES, SHELLS, usageText } from "./help.js";
 import { runAntigravityInstall } from "./hosts/antigravity/install.js";
 import { refreshMod, runClaudeInstall } from "./hosts/claude-code/install.js";
 import { type ClosedDeps, reapClosed } from "./hosts/closed.js";
@@ -30,6 +34,7 @@ import { readStdin, runHook } from "./hosts/hook.js";
 import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
 import { jetbrainsFound, runJetbrainsInstall } from "./hosts/jetbrains/install.js";
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
+import { SessionRecords } from "./hosts/sessions.js";
 import { AGENT_VERSIONS } from "./hosts/versions.js";
 import { finishUninstall } from "./install/cleanup.js";
 import {
@@ -70,11 +75,19 @@ import { rewakeNode } from "./timers/node-shim.js";
 import { osNotifier } from "./timers/notify.js";
 import { pruneState } from "./timers/prune.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
-import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
+import {
+  cancelTimer,
+  defaultTimerHost,
+  parseTimerName,
+  timerArmed,
+  timerKind,
+} from "./timers/timers.js";
 import { isWsl, runWaiter, waiterNote } from "./timers/waiter.js";
+import { history, historyText } from "./ui/history.js";
 import { explainSchedule, overview, overviewText } from "./ui/overview.js";
 import { runTui } from "./ui/tui.js";
 import { rewake } from "./util/command.js";
+import { readInstalled, recordInstall } from "./util/installed.js";
 import { Wakefulness } from "./util/keep-awake.js";
 import { Logger } from "./util/log.js";
 import { ensurePrivateDir, stateDir } from "./util/paths.js";
@@ -103,60 +116,30 @@ function agentIdentity(
 }
 
 /** Places `install --only` takes: Zed (the default) and the previews being tested. */
-const INSTALL_PLACES = new Set([
-  "zed",
-  "claude-code",
-  "codex",
-  "copilot-cli",
-  "grok",
-  "gemini-cli",
-  "antigravity",
-  "jetbrains",
-  "devin-desktop",
-  "cursor",
-]);
+const INSTALL_PLACES: ReadonlySet<string> = new Set(PLACES);
 
-const USAGE = `agent-rewake ${VERSION}
+/** Options each of these commands takes; anything else is a mistake worth saying so. */
+const KNOWN_OPTIONS: Record<string, string[]> = {
+  doctor: ["--details", "--json", "--report"],
+  schedules: ["--all", "--json"],
+  history: ["--days"],
+};
 
-Usage:
-  agent-rewake --wrap-registry <id>   Run in front of a registry agent, e.g. claude-acp, codex-acp (Zed launches this)
-  agent-rewake --wrap-command <json> Run in front of a custom agent: {"command": "...", "args": [...]}
-  agent-rewake                     Run in front of the Claude adapter
-  agent-rewake -- <cmd> [args...]  Run in front of another ACP agent command
-  agent-rewake doctor [--details]  Check where Rewake is set up and what to do next (no network access)
-  agent-rewake ui [--inline] [--thread <id>]
-                                   Schedules page: a table you can click, for every thread
-                                   (Zed's terminal panel; --inline draws it inside a thread)
-  agent-rewake schedules [--all] [--json]   List scheduled messages
-  agent-rewake schedules --explain <id>     Say what Rewake will do for one of them, and what
-                                   could stop it (sends nothing)
-  agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]...
-                                   Add Rewake to the agents you already use in Zed, keeping
-                                   their threads (shows the changes and asks first)
-  agent-rewake install            In a terminal: pick the places to set up from what's found
-  agent-rewake install --only <place>[,<place>...] | --all | --skip <place>[,<place>...]
-                                   Places: zed, claude-code, codex, copilot-cli, grok, gemini-cli,
-                                   antigravity, jetbrains, devin-desktop. Without a terminal or
-                                   with --yes: Zed only
-  agent-rewake uninstall [--yes] [--dry-run]
-                                   Take Rewake out of every place it's set up in (shows the
-                                   changes and asks once)
-  agent-rewake uninstall --only <place>[,<place>...] | --skip <place>[,<place>...]
-                                   Take Rewake out of only the places you name, or all but some
-  agent-rewake setup zed           Print the Zed settings, task and keybinding (to add by hand)
-  agent-rewake continue [--always | --ask | --cancel]
-                                   Continue a closed agent session after its usage limit resets.
-                                   --always: continue sessions by itself from now on.
-                                   --ask: go back to asking each time.
-                                   --cancel: cancel every planned resume.
-  agent-rewake fire <id>           Run by Rewake's timers at a resume's time (safe to run any time)
-  agent-rewake sweep               Run at login by Rewake's login item: sets planned resumes again
-  agent-rewake hook <agent> <event>
-                                   Run by an agent's hooks outside Zed, not by you
-  agent-rewake --version
-  agent-rewake --help
+/** An agent outside Zed as people know it ("Codex"), from its host id, without starting anything. */
+function hostLabel(host: string): string | undefined {
+  return (
+    CLOSED_HOSTS.find((x) => x.id === host)?.name ??
+    Object.entries(PREVIEW_NAMES).find(([id]) => id === host)?.[1]
+  );
+}
 
-In add-on mode, stdout carries the Agent Client Protocol: nothing else is printed there.`;
+/** The first option `command` doesn't take (a value after `--days` is skipped), if any. */
+function unknownOption(command: string, rest: string[]): string | undefined {
+  const known = KNOWN_OPTIONS[command] ?? [];
+  const at = command === "history" ? rest.indexOf("--days") : -1;
+  const value = at === -1 ? -1 : at + 1;
+  return rest.find((a, i) => i !== value && !known.includes(a));
+}
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const wrap = parseWrapArgs(argv);
@@ -164,6 +147,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     process.stderr.write(`agent-rewake: ${wrap.error}\n`);
     return 2;
   }
+
+  // Help changes nothing and starts nothing: answered before anything else is touched.
+  const helpCode = helpFor(argv);
+  if (helpCode !== undefined) return helpCode;
 
   // Terminal-auth relaunch: the client re-runs our command with the adapter's
   // `--cli …` args. Hand straight to the adapter with inherited stdio; Rewake never sees the login.
@@ -185,16 +172,48 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     process.stdout.write(`${VERSION}\n`);
     return 0;
   }
-  if (first === "--help" || first === "-h") {
-    process.stdout.write(`${USAGE}\n`);
-    return 0;
-  }
   if (first === "mcp")
     // The agent's tool server, started by the agent. stdout carries MCP.
     return runMcp({ stateDir: stateDir(env), link: env.AGENT_REWAKE_LINK });
+  if (first === "doctor" || first === "schedules" || first === "history") {
+    const bad = unknownOption(first, argv.slice(1));
+    if (bad) {
+      process.stderr.write(
+        `agent-rewake: unknown option for ${first}: ${bad}. Run ${rewake(`${first} --help`)} for the options.\n`,
+      );
+      return 2;
+    }
+  }
+  if (first === "completion") {
+    const shell = argv[1];
+    if (!shell || !(SHELLS as readonly string[]).includes(shell)) {
+      process.stderr.write(`agent-rewake: usage: agent-rewake completion <${SHELLS.join("|")}>\n`);
+      return 2;
+    }
+    process.stdout.write(completionScript(shell as (typeof SHELLS)[number]));
+    return 0;
+  }
+  if (first === "history") {
+    const at = argv.indexOf("--days");
+    const days = at === -1 ? 7 : Number(argv[at + 1]);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      process.stderr.write("agent-rewake: --days takes a whole number of days, from 1 to 3650.\n");
+      return 2;
+    }
+    process.stdout.write(
+      `${historyText(history(stateDir(env), Date.now(), days, hostLabel), days)}\n`,
+    );
+    return 0;
+  }
   if (first === "doctor") {
+    const json = argv.includes("--json");
+    const report = argv.includes("--report");
+    if (json && report) {
+      process.stderr.write("agent-rewake: use --json or --report, not both.\n");
+      return 2;
+    }
     sweepQuietly(env);
-    return doctor(env, argv.includes("--details"));
+    return doctor(env, { details: argv.includes("--details"), json, report });
   }
   if (first === "ui") {
     sweepQuietly(env);
@@ -233,11 +252,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       process.stdout.write(`${r.text}\n`);
       return 0;
     }
-    const groups = overview(stateDir(env), argv.includes("--all"));
+    const all = argv.includes("--all");
+    const groups = overview(stateDir(env), all, hostLabel);
     process.stdout.write(
       argv.includes("--json")
         ? `${JSON.stringify(groups, null, 2)}\n`
-        : `${overviewText(groups, Date.now())}\n`,
+        : `${overviewText(groups, Date.now(), undefined, all)}\n`,
     );
     return 0;
   }
@@ -423,6 +443,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         code = Math.max(code, await runPlace(id, { yes, dryRun, out: print }));
     }
     if (uninstall && !dryRun) cancelResumesOf(chosen, env);
+    // Noted for `doctor`'s "installed N days ago": local only, nothing is checked online.
+    if (!dryRun && !uninstall && code === 0) recordInstall(stateDir(env), VERSION, Date.now());
     if (!dryRun) {
       const change = syncLogin(env);
       if (change !== "unchanged") print(loginItemText(change, process.platform));
@@ -527,7 +549,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   } else if (argv.length === 0) {
     agent = claudeAdapterCommand([], env);
   } else {
-    process.stderr.write(`agent-rewake: unknown arguments: ${argv.join(" ")}\n${USAGE}\n`);
+    process.stderr.write(`agent-rewake: unknown arguments: ${argv.join(" ")}\n${usageText()}\n`);
     return 2;
   }
 
@@ -565,8 +587,14 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   return code;
 }
 
-/** `agent-rewake doctor [--details]`: see src/doctor.ts. Exit status 1 when something is broken. */
-function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
+/**
+ * `agent-rewake doctor [--details] [--json | --report]`: see src/doctor.ts and
+ * src/doctor-report.ts. Exit status 1 when something is broken.
+ */
+function doctor(
+  env: NodeJS.ProcessEnv,
+  mode: { details: boolean; json: boolean; report: boolean },
+): number {
   const ctx: DoctorContext = {
     env,
     now: Date.now(),
@@ -588,6 +616,7 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
         hold: new Wakefulness().supported && keepAwake !== "never" ? keepAwake : "none",
       };
     },
+    installed: () => readInstalled(stateDir(env)),
     launch: zedLaunch(stateDir(env), process.argv[1] ?? "").launch,
     version: VERSION,
     nodeVersion: process.versions.node,
@@ -629,11 +658,86 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
       level: "info",
       text: `${agentName(id, env)} didn't accept Rewake's tools, so it can't suggest schedules. The Rewake menu and /rewake still work.`,
     });
+  const code = findings.some((f) => f.level === "problem") ? 1 : 0;
+  if (mode.json) {
+    process.stdout.write(
+      renderJson(findings, {
+        version: VERSION,
+        ...(mode.details && { details: detailLines(ctx) }),
+      }),
+    );
+    return code;
+  }
+  if (mode.report) {
+    const logs = recentLogs(state, ctx.now, REPORT_DAYS);
+    const store = new ScheduleStore(state);
+    const text = buildReport({
+      version: VERSION,
+      nodeVersion: process.versions.node,
+      platform: `${process.platform} ${process.arch}`,
+      now: ctx.now,
+      home: homedir(),
+      findings,
+      details: detailLines(ctx),
+      logs,
+      schedules: store.list(),
+      timerKind: timerKind(timers),
+      timerArmed: (id) => {
+        try {
+          return timerKind(timers) ? timerArmed(id, timers) : undefined;
+        } catch {
+          return undefined;
+        }
+      },
+      sessions: CLOSED_HOSTS.map((h) => ({
+        host: h.id,
+        name: h.name,
+        records: new SessionRecords(state, h.id).list(),
+      })),
+    });
+    const file = writeReport(state, ctx.now, text);
+    const shown = file.startsWith(homedir()) ? `~${file.slice(homedir().length)}` : file;
+    process.stdout.write(
+      [
+        `Wrote your bug report to ${shown}`,
+        "It shows your home folder as ~, hides session ids and leaves out message text. Read it before you share it: nothing has been sent.",
+        `To report the problem, open ${ISSUE_URL} and attach the file.`,
+        "",
+      ].join("\n"),
+    );
+    return code;
+  }
   const ascii = (process.platform === "win32" && !env.WT_SESSION) || env.TERM === "dumb";
   process.stdout.write(
-    render(findings, { version: VERSION, ascii, ...(details && { details: detailLines(ctx) }) }),
+    render(findings, {
+      version: VERSION,
+      ascii,
+      ...(mode.details && { details: detailLines(ctx) }),
+    }),
   );
-  return findings.some((f) => f.level === "problem") ? 1 : 0;
+  return code;
+}
+
+/** `--help`, `help [command]` and `<command> --help`: the exit code, or undefined if it's neither. */
+function helpFor(argv: string[]): number | undefined {
+  const [first, second] = argv;
+  const say = (text: string) => {
+    process.stdout.write(`${text}\n`);
+    return 0;
+  };
+  if (first === "--help" || first === "-h") return say(usageText(argv.includes("--all")));
+  if (first === "help") {
+    if (second === undefined) return say(usageText());
+    const text = commandHelp(second === "--help" || second === "-h" ? "help" : second);
+    if (text) return say(text);
+    process.stderr.write(`agent-rewake: no command named "${second}".\n${usageText()}\n`);
+    return 2;
+  }
+  if (first && argv.slice(1).some((a) => a === "--help" || a === "-h")) {
+    const text = commandHelp(first);
+    if (text) return say(text);
+  }
+  return undefined;
 }
 
 /** Agents that refused Rewake's tool server, from the logs. */

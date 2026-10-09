@@ -2,10 +2,11 @@ import { basename } from "node:path";
 import { explainResume } from "../core/explain.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { ThreadStore } from "../core/threads.js";
-import { formatWhen, TEXT_LOCALE } from "../core/time.js";
+import { formatWhen, formatWhenFull, TEXT_LOCALE } from "../core/time.js";
 import { rewake } from "../util/command.js";
 import { printable } from "../util/printable.js";
 import { VERSION } from "../version.js";
+import { outcomeText } from "./outcome.js";
 
 /** User-facing status words. */
 export const STATUS_WORDS: Record<Schedule["status"], string> = {
@@ -40,8 +41,16 @@ export interface ProjectGroup {
   threads: ThreadGroup[];
 }
 
-/** All schedules, grouped by project then thread. Finished ones only with `all`. */
-export function overview(stateDir: string, all = false): ProjectGroup[] {
+/**
+ * All schedules, grouped by project then thread. Finished ones only with `all`, which also lists
+ * everything newest first (a long history is read from the top). `hostName` names the agent of a
+ * session outside Zed ("Codex"), which has no thread settings of its own.
+ */
+export function overview(
+  stateDir: string,
+  all = false,
+  hostName?: (host: string) => string | undefined,
+): ProjectGroup[] {
   const store = new ScheduleStore(stateDir);
   const threads = new ThreadStore(stateDir);
   const schedules = store.list().filter((s) => all || !TERMINAL_STATUSES.has(s.status));
@@ -54,7 +63,11 @@ export function overview(stateDir: string, all = false): ProjectGroup[] {
         sessionId: s.sessionId,
         title: printable(settings?.title ?? `Thread ${s.sessionId.slice(0, 8)}`),
         agentId: settings?.agentId,
-        agent: settings?.agentName ?? settings?.agentId ?? "—",
+        agent:
+          settings?.agentName ??
+          settings?.agentId ??
+          (s.host ? (hostName?.(s.host) ?? s.host) : undefined) ??
+          "—",
         cwd: printable(s.cwd || settings?.cwd || ""),
         autoResume: settings?.autoResume ?? false,
         schedules: [],
@@ -77,7 +90,20 @@ export function overview(stateDir: string, all = false): ProjectGroup[] {
     }
     p.threads.push(t);
   }
-  return [...byProject.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const projects = [...byProject.values()].sort((a, b) => a.name.localeCompare(b.name));
+  if (all) {
+    // Newest first at every level: schedules, threads, then projects by their newest message.
+    const newest = (xs: Schedule[]) => Math.max(...xs.map((s) => s.dueAt));
+    for (const p of projects)
+      for (const t of p.threads) t.schedules.sort((a, b) => b.dueAt - a.dueAt);
+    for (const p of projects) p.threads.sort((a, b) => newest(b.schedules) - newest(a.schedules));
+    projects.sort(
+      (a, b) =>
+        Math.max(...b.threads.map((t) => newest(t.schedules))) -
+        Math.max(...a.threads.map((t) => newest(t.schedules))),
+    );
+  }
+  return projects;
 }
 
 /**
@@ -94,17 +120,26 @@ export function oneLine(text: string, max = 70): string {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
-/** Plain-text listing for `agent-rewake schedules`. */
-export function overviewText(groups: ProjectGroup[], now: number, locale?: string): string {
+/**
+ * Plain-text listing for `agent-rewake schedules`. With `years` every time carries its year (a
+ * listing of finished messages reaches back months), and a finished one says how it ended.
+ */
+export function overviewText(
+  groups: ProjectGroup[],
+  now: number,
+  locale?: string,
+  years = false,
+): string {
   if (groups.length === 0) return "No scheduled messages.";
   const out: string[] = [];
   for (const p of groups) {
     out.push(`${p.name}  (${p.cwd})`);
     for (const t of p.threads) {
-      out.push(`  ${t.title}${t.autoResume ? "  [automatic resume on]" : ""}`);
+      const who = t.agent === "—" ? "" : `${t.agent} · `;
+      out.push(`  ${who}${t.title}${t.autoResume ? "  [automatic resume on]" : ""}`);
       for (const s of t.schedules) {
         out.push(
-          `    ${formatWhen(s.dueAt, now, locale)} · ${STATUS_WORDS[s.status]} · ${oneLine(s.text)}  [${s.scheduleId.slice(0, 8)}]`,
+          `    ${years ? formatWhenFull(s.dueAt, locale) : formatWhen(s.dueAt, now, locale)} · ${years ? outcomeText(s) : STATUS_WORDS[s.status]} · ${oneLine(s.text)}  [${s.scheduleId.slice(0, 8)}]`,
         );
       }
     }
