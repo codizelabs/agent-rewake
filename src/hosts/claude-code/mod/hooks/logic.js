@@ -229,6 +229,76 @@ export function parseProgram(stdout) {
   return line.startsWith("/") ? line : undefined;
 }
 
+// Keeping the computer awake: the same commands as Rewake's src/util/keep-awake.ts (holdCommand,
+// onMains), copied because the plugin is plain files that import nothing from Rewake.
+
+/**
+ * Run through the shell (macOS, Linux): Claude Code's PID (the shell's parent), the system name
+ * and the hold program, when the computer has one.
+ */
+export const WAKE_PROBE =
+  'echo "$PPID"; uname -s; for p in /usr/bin/caffeinate /usr/bin/systemd-inhibit /bin/systemd-inhibit; do [ -x "$p" ] && { echo "$p"; break; }; done';
+
+/** Windows has no shell here: PowerShell, whose parent is Claude Code. */
+export const WINDOWS_POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+export const WINDOWS_PROBE =
+  '(Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId';
+
+/** Linux: "mains" unless there is a battery and no mains supply online (keep-awake.ts onMains). */
+export const LINUX_MAINS =
+  'b=0; m=0; for d in /sys/class/power_supply/*; do t=$(cat "$d/type" 2>/dev/null); [ "$t" = Battery ] && b=1; [ "$t" = Mains ] && [ "$(cat "$d/online" 2>/dev/null)" = 1 ] && m=1; done; if [ $b = 0 ] || [ $m = 1 ]; then echo mains; else echo battery; fi';
+
+/** Windows: Win32_Battery.BatteryStatus, or "none" for a desktop (the query in keep-awake.ts). */
+export const WINDOWS_MAINS =
+  "$b = Get-CimInstance Win32_Battery; if ($b) { $b.BatteryStatus } else { 'none' }";
+
+/** The shell probe's answer: { kind: "darwin" | "linux", pid, program }, or undefined. */
+export function parseWake(stdout) {
+  const [pid = "", system, program = ""] = String(stdout)
+    .split("\n")
+    .map((l) => l.trim());
+  if (!/^\d+$/.test(pid)) return undefined;
+  if (system === "Darwin" && program === "/usr/bin/caffeinate")
+    return { kind: "darwin", pid, program };
+  if (system === "Linux" && program.endsWith("/systemd-inhibit"))
+    return { kind: "linux", pid, program };
+  return undefined;
+}
+
+/** Whether a mains check's answer means mains power; unknown counts as mains, as in keep-awake.ts. */
+export function mainsFrom(kind, stdout) {
+  const text = String(stdout).trim();
+  if (kind === "linux") return text !== "battery";
+  if (text === "" || text === "none") return true;
+  return text.split(/\s+/).some((n) => ["2", "6", "7", "8", "9"].includes(n));
+}
+
+/** The program and arguments that hold the computer awake until process `pid` ends. */
+export function holdArgv(kind, mode, pid, program) {
+  if (kind === "darwin") return [program, mode === "always" ? "-i" : "-s", "-w", pid];
+  if (kind === "linux")
+    return [
+      program,
+      "--what=idle",
+      "--who=Agent Rewake",
+      "--why=A planned resume is due",
+      "--mode=block",
+      "sh",
+      "-c",
+      'while kill -0 "$0" 2>/dev/null; do sleep 5; done',
+      pid,
+    ];
+  return [
+    WINDOWS_POWERSHELL,
+    "-NoProfile",
+    "-NonInteractive",
+    "-WindowStyle",
+    "Hidden",
+    "-Command",
+    `$t = Add-Type -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);' -Name W -Namespace R -PassThru; $null = $t::SetThreadExecutionState(0x80000001); while (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 5 }`,
+  ];
+}
+
 /** "3:05 PM" or "15:05", in the person's clock ("12h" by default, as in Rewake's settings). */
 function clockTime(d, clock) {
   const h = d.getHours();
