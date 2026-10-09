@@ -11,6 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import * as nodeHttp from "node:http";
 import { platform } from "node:os";
 import { basename, join, win32 } from "node:path";
 import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
@@ -261,7 +262,7 @@ export function ensureNpxAgent(
   });
   if (installedVersion(ownDir, pkg)) return ownDir;
   throw new Error(
-    `couldn't install ${npx.package} for "${id}" (npm exit ${r.status ?? "?"}). Check your network, then reopen the thread.`,
+    `couldn't install ${npx.package} for "${id}" (npm exit ${r.status ?? "?"}). Rewake runs npm with your environment, so npm uses your proxy variables (HTTPS_PROXY, NO_PROXY) and npm settings: check them and your network, then reopen the thread. npm's output is in npm-install.log in Rewake's logs folder (${rewake("doctor --details")} shows where).`,
   );
 }
 
@@ -327,6 +328,57 @@ export function findBinaryAgent(
   return undefined;
 }
 
+const PROXY_VARS = [
+  "HTTP_PROXY",
+  "http_proxy",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "NO_PROXY",
+  "no_proxy",
+] as const;
+
+/**
+ * Whether Rewake's own download will go through the proxy the environment names:
+ * - "none": no proxy variable is set;
+ * - "used": the proxy is used (Node.js 24.14 or newer, where Rewake turns it on itself, or any
+ *   Node.js started with NODE_USE_ENV_PROXY=1, which 22.21 and 24.0 and newer support);
+ * - "unsupported": a proxy is set but this Node.js can't be told to use it at run time, so the
+ *   download goes direct and may fail behind a firewall.
+ * npm, used for npx agents, reads the same variables itself (the whole environment is passed on).
+ * Node's `fetch` ignores proxy variables unless this is on (nodejs.org/api/http.html,
+ * `http.setGlobalProxyFromEnv`, added v24.14.0 and v25.4.0; `NODE_USE_ENV_PROXY`, v22.21.0 and
+ * v24.0.0; read 2026-10-08).
+ */
+export type ProxyState = "none" | "used" | "unsupported";
+
+export function enableProxy(
+  env: NodeJS.ProcessEnv,
+  http: { setGlobalProxyFromEnv?: (proxyEnv: Record<string, string>) => unknown } = nodeHttp,
+): ProxyState {
+  const proxyEnv: Record<string, string> = {};
+  for (const k of PROXY_VARS) {
+    const v = env[k];
+    if (v) proxyEnv[k] = v;
+  }
+  if (!PROXY_VARS.slice(0, 4).some((k) => proxyEnv[k])) return "none";
+  if (env.NODE_USE_ENV_PROXY === "1") return "used";
+  if (typeof http.setGlobalProxyFromEnv !== "function") return "unsupported";
+  try {
+    http.setGlobalProxyFromEnv(proxyEnv);
+    return "used";
+  } catch {
+    return "unsupported";
+  }
+}
+
+/** What to add to a failed download's message, so the person knows whether a proxy was involved. */
+function proxyHint(proxy: ProxyState): string {
+  if (proxy === "used") return " Rewake used your proxy settings.";
+  if (proxy === "unsupported")
+    return " Your environment names a proxy, but this Node.js can't send Rewake's download through it: use Node.js 24.14 or newer, or start Zed with NODE_USE_ENV_PROXY=1 (Node.js 22.21 or newer).";
+  return " A proxy or firewall may be blocking it.";
+}
+
 /**
  * Download and unpack a binary agent the way Zed would, into Rewake's own directory: verify the
  * SHA-256 when the registry gives one, unpack .zip, .tar.gz or .tar.bz2 with the system's tools
@@ -338,6 +390,9 @@ export async function downloadBinaryAgent(
   target: BinaryTarget,
   stateDir: string,
   fetchImpl: typeof fetch = fetch,
+  proxy: ProxyState = "none",
+  /** Rewake's own tests serve their fake downloads over plain http (AGENT_REWAKE_TEST_ALLOW_HTTP). */
+  allowHttp = false,
 ): Promise<string> {
   const base = ensurePrivateDir(join(stateDir, "agents", "bin", safeName(id)));
   const dest = join(base, `v_${safeName(version)}`);
@@ -346,7 +401,7 @@ export async function downloadBinaryAgent(
   mkdirSync(tmp, { recursive: true });
   try {
     // Over http the download could be swapped on the way, and the registry's checksum is optional.
-    if (new URL(target.archive).protocol !== "https:")
+    if (!allowHttp && new URL(target.archive).protocol !== "https:")
       throw new Error("the registry's download address isn't https, so Rewake won't use it");
     // Where a raw binary is put comes from the registry too: it stays inside the folder.
     if (!/^\.[\\/]/.test(target.cmd) || target.cmd.includes(".."))
@@ -385,7 +440,7 @@ export async function downloadBinaryAgent(
   } catch (err) {
     rmSync(tmp, { recursive: true, force: true });
     throw new Error(
-      `couldn't set up "${id}" ${version} (${(err as Error).message}). Check your network, or open the agent once without Rewake (${rewake("uninstall")}), then reopen the thread.`,
+      `couldn't set up "${id}" ${version} (${(err as Error).message}). Rewake couldn't download it.${proxyHint(proxy)} To get going now, open the agent once in Zed without Rewake (${rewake("uninstall")}), then reopen the thread.`,
     );
   }
 }
@@ -448,7 +503,16 @@ export async function wrappedAgentCommand(
   if (agent.kind === "binary") {
     const cmd =
       findBinaryAgent(target.id, agent.version, agent.binary, stateDir, env) ??
-      (await downloadBinaryAgent(target.id, agent.version, agent.binary, stateDir, fetchImpl));
+      (await downloadBinaryAgent(
+        target.id,
+        agent.version,
+        agent.binary,
+        stateDir,
+        fetchImpl,
+        // Only Node's own fetch needs telling about the proxy; a test's fetch is its own.
+        fetchImpl ? "none" : enableProxy(env),
+        env.AGENT_REWAKE_TEST_ALLOW_HTTP === "1",
+      ));
     return {
       command: cmd,
       args: [...agent.binary.args, ...extra],

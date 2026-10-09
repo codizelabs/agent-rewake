@@ -88,6 +88,8 @@ export interface DoctorContext {
   copies?: () => { name: string; copies: Program[]; chosen: Program }[];
   /** Names of the previews set up here (src/hosts/previews.ts); none when not given. */
   previews?: () => string[];
+  /** When Rewake was last installed here, from its own folder (src/util/installed.ts). */
+  installed?: () => { version: string; at: number } | undefined;
   /** This computer's sleep settings, and how Rewake can hold it awake itself; not checked when absent. */
   sleep?: () => { settings: SleepSettings; hold: "plugged-in" | "always" | "none" };
 }
@@ -157,7 +159,7 @@ function readTextSafe(file: string): string {
   }
 }
 
-interface LogRecord {
+export interface LogRecord {
   t: number;
   event: string;
   pid?: number;
@@ -741,6 +743,22 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   // ---- Other coding agents here: say plainly that Rewake doesn't reach them on their own ------
   if (reach && !reachShown && !noZed) add({ area: "Rewake", level: "info", text: reach });
 
+  // ---- How old the installed version is: from the install time kept here, never the network -----
+  const installed = ctx.installed?.();
+  if (installed) {
+    const days = Math.max(0, Math.floor((now - installed.at) / DAY));
+    const age = days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`;
+    add({
+      area: "Rewake",
+      level: "info",
+      text:
+        installed.version === ctx.version
+          ? `Rewake ${installed.version}, installed ${age}.`
+          : `Rewake ${installed.version} was installed ${age}; this copy is ${ctx.version}.`,
+      fix: `To update: ${update}`,
+    });
+  }
+
   if (ctx.sleep) for (const f of sleepFindings(ctx.sleep())) add(f);
   return findings;
 }
@@ -825,20 +843,29 @@ const AREAS: Area[] = [
 ];
 
 /** The report people read. ASCII marks where the terminal may not show symbols. */
+/** Each level in words as well as a symbol, for screen readers and terminals without colour. */
+export const LEVEL_WORDS: Record<Level, string> = {
+  ok: "OK:",
+  info: "Note:",
+  todo: "To do:",
+  problem: "Problem:",
+};
+
 export function render(
   findings: Finding[],
   opts: { version: string; ascii: boolean; details?: string[] },
 ): string {
+  // Where symbols may not show, the words alone say each level.
   const mark: Record<Level, string> = opts.ascii
-    ? { ok: "ok", info: "--", todo: "!!", problem: "XX" }
-    : { ok: "✓", info: "•", todo: "!", problem: "✗" };
+    ? { ok: "", info: "", todo: "", problem: "" }
+    : { ok: "✓ ", info: "• ", todo: "! ", problem: "✗ " };
   const lines = [`Agent Rewake ${opts.version}: checking your setup`];
   for (const area of AREAS) {
     const items = findings.filter((f) => f.area === area);
     if (items.length === 0) continue;
     lines.push("", area);
     for (const f of items) {
-      lines.push(`  ${mark[f.level]} ${f.text}`);
+      lines.push(`  ${mark[f.level]}${LEVEL_WORDS[f.level]} ${f.text}`);
       if (f.fix) lines.push(`    ${opts.ascii ? "->" : "→"} ${f.fix}`);
     }
   }
@@ -860,6 +887,35 @@ export function render(
   }
   if (!opts.details) lines.push(`More detail for a bug report: ${rewake("doctor --details")}`);
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * `doctor --json`: the same findings for scripts. Levels are "ok", "info", "todo" and "problem";
+ * the text is the same plain words. Names no folders, accounts or keys (`details`, with `--details`,
+ * has versions and folders, the home folder as ~).
+ */
+export function renderJson(
+  findings: Finding[],
+  opts: { version: string; details?: string[] },
+): string {
+  const problems = findings.filter((f) => f.level === "problem").length;
+  const todos = findings.filter((f) => f.level === "todo").length;
+  return `${JSON.stringify(
+    {
+      version: opts.version,
+      problems,
+      todos,
+      findings: findings.map(({ area, level, text, fix }) => ({
+        area,
+        level,
+        text,
+        ...(fix && { fix }),
+      })),
+      ...(opts.details && { details: opts.details }),
+    },
+    null,
+    2,
+  )}\n`;
 }
 
 /** Versions and folders for `--details`, the home folder shortened to ~. No values of settings. */
