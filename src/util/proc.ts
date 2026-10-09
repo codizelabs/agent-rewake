@@ -5,8 +5,9 @@ import { isProcessAlive } from "../core/lock.js";
 /**
  * The agent process that ran a hook, so Rewake can later tell whether the session is still open
  * when the agent never ran its session-end hook (a crash, a killed terminal). Agents start hooks
- * directly or through a shell; the first ancestor that isn't a shell is the agent. POSIX only (`ps`);
- * elsewhere unknown, and then Rewake relies on the session-end hook alone, as before.
+ * directly or through a shell; the first ancestor that isn't a shell is the agent. POSIX uses `ps`,
+ * Windows one PowerShell call per step (`Get-CimInstance Win32_Process`); where neither answers,
+ * Rewake relies on the session-end hook alone, as before.
  */
 
 export interface AgentProcess {
@@ -15,7 +16,22 @@ export interface AgentProcess {
   name: string;
 }
 
-const SHELLS = new Set(["sh", "bash", "zsh", "dash", "fish", "ksh", "env", "timeout"]);
+const SHELLS = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "dash",
+  "fish",
+  "ksh",
+  "env",
+  "timeout",
+  // Windows: the shells and wrappers an agent's hooks run through.
+  "cmd",
+  "powershell",
+  "pwsh",
+  "conhost",
+  "wsl",
+]);
 
 export type PsRun = (pid: number) => { ppid: number; name: string } | undefined;
 
@@ -28,12 +44,41 @@ const ps: PsRun = (pid) => {
   return m ? { ppid: Number(m[1]), name: basename(m[2] as string).replace(/^-/, "") } : undefined;
 };
 
+/** "node.exe" and "Node.EXE" are both "node": the name a recorded process is compared by. */
+const windowsName = (file: string): string =>
+  basename(file.trim())
+    .replace(/\.exe$/i, "")
+    .toLowerCase();
+
+/**
+ * One process on Windows from the line `<parent id> <name>` that the PowerShell query prints, or
+ * undefined for no line (the process isn't there).
+ */
+export function parseWindowsProcess(stdout: string): { ppid: number; name: string } | undefined {
+  const m = /^\s*(\d+)\s+(.+?)\s*$/m.exec(stdout);
+  return m ? { ppid: Number(m[1]), name: windowsName(m[2] as string) } : undefined;
+}
+
+export const psWindows: PsRun = (pid) => {
+  if (!Number.isInteger(pid) || pid <= 0) return undefined;
+  const r = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if ($p) { '{0} {1}' -f $p.ParentProcessId, $p.Name }`,
+    ],
+    { encoding: "utf8", timeout: 8000, windowsHide: true },
+  );
+  return parseWindowsProcess(r.stdout ?? "");
+};
+
 export function agentProcess(
   start: number = process.ppid,
   platform: NodeJS.Platform = process.platform,
-  run: PsRun = ps,
+  run: PsRun = platform === "win32" ? psWindows : ps,
 ): AgentProcess | undefined {
-  if (platform === "win32") return undefined;
   let pid = start;
   for (let i = 0; i < 4 && pid > 1; i++) {
     const p = run(pid);
@@ -48,7 +93,7 @@ export function agentProcess(
 export function stillRunning(
   p: AgentProcess,
   alive: (pid: number) => boolean = isProcessAlive,
-  run: PsRun = ps,
+  run: PsRun = process.platform === "win32" ? psWindows : ps,
 ): boolean {
   if (!alive(p.pid)) return false;
   const now = run(p.pid);

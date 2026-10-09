@@ -510,12 +510,55 @@ describe("agentProcess", () => {
     };
     const ps = (pid: number) => tree[pid];
     expect(agentProcess(300, "darwin", ps)).toEqual({ pid: 200, name: "copilot" });
-    expect(agentProcess(300, "win32", ps)).toBeUndefined();
+    // Windows walks the tree too, through cmd.exe and PowerShell.
+    expect(agentProcess(300, "win32", ps)).toEqual({ pid: 200, name: "copilot" });
     expect(stillRunning({ pid: 200, name: "copilot" }, () => true, ps)).toBe(true);
     // The PID now belongs to another program.
     expect(stillRunning({ pid: 200, name: "node" }, () => true, ps)).toBe(false);
     expect(stillRunning({ pid: 200, name: "copilot" }, () => false, ps)).toBe(false);
   });
+});
+
+describe("processes on Windows", () => {
+  it("reads the parent and the name from the PowerShell line, whatever the case or .exe", async () => {
+    const { parseWindowsProcess } = await import("../src/util/proc.js");
+    expect(parseWindowsProcess("4120 Node.EXE\r\n")).toEqual({ ppid: 4120, name: "node" });
+    expect(parseWindowsProcess("\n 88   cmd.exe  \n")).toEqual({ ppid: 88, name: "cmd" });
+    expect(parseWindowsProcess("")).toBeUndefined();
+    expect(parseWindowsProcess("not a process line")).toBeUndefined();
+  });
+
+  it("walks up through cmd.exe and PowerShell to the agent", async () => {
+    const { agentProcess } = await import("../src/util/proc.js");
+    const tree: Record<number, { ppid: number; name: string }> = {
+      900: { ppid: 800, name: "powershell" },
+      800: { ppid: 700, name: "cmd" },
+      700: { ppid: 600, name: "copilot" },
+    };
+    expect(agentProcess(900, "win32", (pid) => tree[pid])).toEqual({ pid: 700, name: "copilot" });
+  });
+
+  // The real thing, on the Windows job: a child process answers to the PowerShell query.
+  it.skipIf(process.platform !== "win32")(
+    "finds a real child process by its id",
+    async () => {
+      const { psWindows, stillRunning } = await import("../src/util/proc.js");
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"], {
+        stdio: "ignore",
+      });
+      try {
+        const found = psWindows(child.pid ?? 0);
+        expect(found?.name).toBe("node");
+        expect(found?.ppid).toBe(process.pid);
+        expect(stillRunning({ pid: child.pid ?? 0, name: "node" })).toBe(true);
+      } finally {
+        child.kill();
+      }
+      await new Promise((r) => child.once("exit", r));
+      expect(stillRunning({ pid: child.pid ?? 0, name: "node" })).toBe(false);
+    },
+    60_000,
+  );
 });
 
 describe("fire from a timer", () => {
