@@ -1,3 +1,4 @@
+import { rewake } from "../util/command.js";
 import type { Found, PlaceId } from "./detect.js";
 
 /**
@@ -148,6 +149,17 @@ export function placesFrom(
     });
   }
   return out;
+}
+
+/**
+ * What `install --yes` (or a run with no terminal) says when no place was named: it sets up Zed.
+ * With no Zed here but agents found, it names them first, and how to set them up instead.
+ */
+export function defaultPlaceText(places: readonly Place[]): string {
+  const others = places.filter((p) => p.id !== "zed" && p.state === "ready");
+  if (!places.some((p) => p.id === "zed") && others.length > 0)
+    return `Zed wasn't found on this computer, but these were: ${others.map((p) => p.name).join(", ")}. Setting up Zed (the default) anyway. To set up what was found instead, run: ${rewake(`install --only ${others.map((p) => p.id).join(",")}`)}\n`;
+  return "Setting up Zed (the default). To choose other places, run install in a terminal without --yes, or name them: --only claude-code,codex\n";
 }
 
 export interface ChoiceIO {
