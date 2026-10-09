@@ -1,3 +1,4 @@
+import { SETTING_NAMES } from "./settings-command.js";
 import { VERSION } from "./version.js";
 
 /**
@@ -59,6 +60,7 @@ export const COMMAND_WORDS = [
   "schedules",
   "history",
   "continue",
+  "settings",
   "setup",
   "help",
   "completion",
@@ -189,7 +191,7 @@ export const COMMANDS: CommandInfo[] = [
   {
     name: "continue",
     summary: "Continue a closed agent session after its usage limit",
-    usage: ["continue [--always | --ask | --cancel]"],
+    usage: ["continue [--always | --ask | --cancel [<id>]]"],
     about: [
       "Continues a session you closed at its usage limit, when the limit resets. Run alone, it asks",
       "which session and when.",
@@ -197,8 +199,35 @@ export const COMMANDS: CommandInfo[] = [
     options: [
       { flag: "--always", text: "Continue sessions by itself from now on" },
       { flag: "--ask", text: "Go back to asking each time" },
-      { flag: "--cancel", text: "Cancel every planned resume" },
+      {
+        flag: "--cancel",
+        text: "Cancel a planned resume: pick it, or give its id",
+      },
     ],
+    footer: [
+      "With several planned and a terminal, --cancel lists them to pick one, or all. The ids are",
+      "in square brackets in `agent-rewake schedules`.",
+    ],
+  },
+  {
+    name: "settings",
+    summary: "See and change Rewake's settings",
+    usage: ["settings [<name> [<value>]]", "settings change", "settings --reset <name>"],
+    about: [
+      "Lists Rewake's settings with their values and what each does: the same settings as Zed's",
+      "Rewake menu → Settings…, shared by every agent Rewake is set up in. `settings <name>`",
+      "shows the values one takes; `settings change` lets you pick one by its number.",
+    ],
+    options: [
+      {
+        flag: "--reset",
+        arg: "<name>",
+        values: SETTING_NAMES,
+        text: "Go back to the default",
+      },
+    ],
+    words: ["change", ...SETTING_NAMES],
+    footer: [`Settings: ${SETTING_NAMES.join(", ")}.`],
   },
   {
     name: "setup",
@@ -359,7 +388,8 @@ export function completionScript(shell: (typeof SHELLS)[number]): string {
     const specs = COMMANDS.map((c) => {
       const args = c.options.map((o) => {
         const forms = o.alias ? `{${o.alias},${o.flag}}` : o.flag;
-        const tail = o.values ? `:place:(${o.values.join(" ")})` : o.arg ? ":value:" : "";
+        const what = o.values === PLACES ? "place" : "name";
+        const tail = o.values ? `:${what}:(${o.values.join(" ")})` : o.arg ? ":value:" : "";
         return `        '${forms}[${plain(o.text)}]${tail}'`;
       });
       if (c.words) args.push(`        '1:word:(${c.words.join(" ")})'`);

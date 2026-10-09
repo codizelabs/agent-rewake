@@ -9,7 +9,7 @@ import { rewake } from "../util/command.js";
 import { ensurePrivateDir } from "../util/paths.js";
 import { REPO_URL, VERSION } from "../version.js";
 import type { InputEvent } from "./input.js";
-import { oneLine, STATUS_WORDS } from "./overview.js";
+import { capital, oneLine, STATUS_WORDS } from "./overview.js";
 
 /**
  * The schedules page: a table of every scheduled message with clickable rows,
@@ -51,6 +51,8 @@ interface Row {
   n: number;
   /** For a resume of an agent outside Zed: that agent's name ("Codex"). */
   host?: string;
+  /** What its agent calls it: "thread" (Zed, Codex), "session", "chat". */
+  noun: string;
 }
 
 type Dialog =
@@ -87,7 +89,7 @@ export const TIPS = [
   "Type /rewake in a thread to open the scheduling form, or /rewake 09:00 Run the tests to skip it.",
   "When Claude hits its usage limit, Rewake asks in the thread whether to resume after the reset.",
   "Hold Shift while dragging to select text on this page.",
-  "Messages are sent while Zed is open with that thread's project. Missed ones wait for you here.",
+  "Messages in Zed threads are sent while Zed is open with that thread's project. Missed ones wait for you here.",
   `The command "${rewake("schedules")}" prints this list as plain text, which works well with screen readers.`,
 ];
 
@@ -175,6 +177,8 @@ export interface PageOptions {
   noColor?: boolean;
   /** The name of an agent outside Zed whose resume a row is ("Codex"), by its host id. */
   hostName?: (host: string) => string | undefined;
+  /** What that agent calls a conversation ("thread" in Codex); "session" when it doesn't say. */
+  hostNoun?: (host: string) => string | undefined;
   /**
    * Called after a resume of an agent outside Zed changes, so its OS timer follows (re-armed at
    * the new time, removed when paused or deleted). Zed's add-on needs no timer.
@@ -233,6 +237,7 @@ export class SchedulesPage {
       schedule: s,
       thread: this.threads.get(s.sessionId),
       ...(s.host !== undefined && { host: this.opts.hostName?.(s.host) ?? s.host }),
+      noun: s.host === undefined ? "thread" : (this.opts.hostNoun?.(s.host) ?? "session"),
       n: (pendingByThread.get(s.sessionId) ?? []).indexOf(s) + 1,
     }));
     const again = this.rows.findIndex((r) => r.schedule.scheduleId === selectedId);
@@ -505,7 +510,7 @@ export class SchedulesPage {
         this.store.update(s.scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: now }), now);
         this.touched(s);
         this.toast = s.host
-          ? `Resuming the ${this.hostName(s)} session within a few seconds. If it's open in ${this.hostName(s)}, Rewake won't send it and tells you in a desktop notification.`
+          ? `Resuming the ${this.hostName(s)} ${row.noun} within a few seconds. If it's open in ${this.hostName(s)}, Rewake won't send it and tells you in a desktop notification.`
           : "Sending within a few seconds, if its thread is open in Zed.";
         break;
       case "pause":
@@ -531,7 +536,7 @@ export class SchedulesPage {
           title: "Delete this scheduled message?",
           body: [
             `"${oneLine(s.text, 60)}"`,
-            `${formatWhen(s.dueAt, now, this.opts.locale)} · ${threadLabel(row.thread, s)}`,
+            `${formatWhen(s.dueAt, now, this.opts.locale)} · ${rowLabel(row)}`,
           ],
           yes: "Delete",
           onYes: () => {
@@ -868,7 +873,7 @@ export class SchedulesPage {
     out.push([{ text: "─".repeat(w), style: "dim" }]);
 
     // Table.
-    const cols = columns(w);
+    const cols = columns(w, new Set(this.rows.map((r) => r.noun)));
     const header: Segment[] = [{ text: "  " }];
     for (const c of cols) header.push({ text: pad(c.title, c.width), style: "bold" });
     out.push(header);
@@ -899,7 +904,7 @@ export class SchedulesPage {
                   ? "underline"
                   : "plain",
             hit: `row:${i}`,
-            hint: `${oneLine(r.schedule.text, 200)} · ${threadLabel(r.thread, r.schedule)}${r.thread?.cwd ? ` · ${r.thread.cwd}` : ""}`,
+            hint: `${oneLine(r.schedule.text, 200)} · ${rowLabel(r)}${(r.thread?.cwd ?? r.schedule.cwd) ? ` · ${r.thread?.cwd ?? r.schedule.cwd}` : ""}`,
           },
         ]);
       }
@@ -914,7 +919,7 @@ export class SchedulesPage {
       this.toast ??
       hoverHint ??
       (row
-        ? `${oneLine(row.schedule.text, 200)} · ${threadLabel(row.thread, row.schedule)}`
+        ? `${oneLine(row.schedule.text, 200)} · ${rowLabel(row)}`
         : "Press n or click New to schedule a message.");
     out.push([{ text: ` ${hint}`, style: this.toast ? "bold" : "dim" }]);
     if (this.showTips)
@@ -1126,7 +1131,7 @@ export class SchedulesPage {
 const HELP = [
   "# What this is",
   "Agent Rewake sends messages to your agent threads at the times you choose,",
-  "and can resume a thread after Claude's usage limit resets.",
+  "and can resume a thread or session after its agent's usage limit resets.",
   "",
   "# Schedule a message",
   "Here: [n] New, pick the thread, type the message, pick a time.",
@@ -1147,11 +1152,18 @@ const HELP = [
   `"${rewake("schedules")}" prints the same list as text. "${rewake("history")}" says what happened lately.`,
   "",
   "# Good to know",
-  "Messages are sent while Zed is open with that thread's project.",
+  "Messages in Zed threads are sent while Zed is open with that thread's project.",
   "Hold Shift while dragging to select text.",
   "",
   `Open source: ${REPO_URL} (a star there helps others find it)`,
 ];
+
+/** A row's agent and its thread, session or chat: "Codex · Thread 019f2a7c". */
+function rowLabel(r: Row): string {
+  if (r.host === undefined) return threadLabel(r.thread, r.schedule);
+  const title = r.thread?.title ?? `${capital(r.noun)} ${r.schedule.sessionId.slice(0, 8)}`;
+  return `${r.host} · ${title}`;
+}
 
 function threadLabel(t: ThreadSettings | undefined, s?: Schedule): string {
   const title = t?.title ?? (s ? `Thread ${s.sessionId.slice(0, 8)}` : "Thread");
@@ -1165,8 +1177,11 @@ interface Column {
   value: (r: Row, now: number, locale?: string) => string;
 }
 
-/** Columns that fit the width; Thread and Agent go first when it's narrow. */
-function columns(w: number): Column[] {
+/**
+ * Columns that fit the width; Thread and Agent go first when it's narrow. The Thread column takes
+ * the rows' own word ("Session" when all are sessions), or "Conversation" when they differ.
+ */
+function columns(w: number, nouns: ReadonlySet<string> = new Set()): Column[] {
   const when: Column = {
     title: "When",
     width: 25,
@@ -1191,10 +1206,9 @@ function columns(w: number): Column[] {
     value: (r) => r.thread?.agentName ?? r.thread?.agentId ?? r.host ?? "—",
   };
   const thread: Column = {
-    title: "Thread",
+    title: nouns.size > 1 ? "Conversation" : capital([...nouns][0] ?? "thread"),
     width: 22,
-    value: (r) =>
-      r.thread?.title ?? `${r.host ? "Session" : "Thread"} ${r.schedule.sessionId.slice(0, 8)}`,
+    value: (r) => r.thread?.title ?? `${capital(r.noun)} ${r.schedule.sessionId.slice(0, 8)}`,
   };
   const showRepeats = w >= 110;
   const fixed = [
