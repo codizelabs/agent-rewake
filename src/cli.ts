@@ -123,7 +123,7 @@ const INSTALL_PLACES: ReadonlySet<string> = new Set(PLACES);
 /** Options each of these commands takes; anything else is a mistake worth saying so. */
 const KNOWN_OPTIONS: Record<string, string[]> = {
   doctor: ["--details", "--json", "--report"],
-  schedules: ["--all", "--json"],
+  schedules: ["--all", "--json", "--explain"],
   history: ["--days"],
 };
 
