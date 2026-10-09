@@ -34,6 +34,7 @@ import { readStdin, runHook } from "./hosts/hook.js";
 import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
 import { jetbrainsFound, runJetbrainsInstall } from "./hosts/jetbrains/install.js";
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
+import { runQwenInstall } from "./hosts/qwen/install.js";
 import { SessionRecords } from "./hosts/sessions.js";
 import { AGENT_VERSIONS } from "./hosts/versions.js";
 import { finishUninstall } from "./install/cleanup.js";
@@ -49,6 +50,7 @@ import {
   geminiPrograms,
   grokPrograms,
   type PlaceId,
+  qwenPrograms,
   terminalAgents,
 } from "./install/detect.js";
 import { choosePlaces, defaultPlaceText, type Place, placesFrom } from "./install/select.js";
@@ -387,6 +389,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       if (id === "copilot-cli") return runCopilotInstall(common);
       if (id === "grok") return runGrokInstall(common);
       if (id === "gemini-cli") return runGeminiInstall(common);
+      if (id === "qwen-code") return runQwenInstall(common);
       if (id === "devin-desktop")
         return runDevinInstall({
           uninstall,
@@ -911,6 +914,7 @@ function placesHere(env: NodeJS.ProcessEnv): { places: Place[]; missing: string[
     "copilot-cli": "GitHub Copilot CLI",
     grok: "Grok Build",
     "gemini-cli": "Gemini CLI",
+    "qwen-code": "Qwen Code",
     antigravity: "Antigravity",
   };
   const ids = new Set(places.map((p) => p.id));
@@ -928,6 +932,7 @@ function placeName(id: string): string {
     "copilot-cli": "GitHub Copilot CLI",
     grok: "Grok Build",
     "gemini-cli": "Gemini CLI",
+    "qwen-code": "Qwen Code",
     antigravity: "Antigravity",
     jetbrains: "JetBrains IDEs",
     "devin-desktop": "Devin Desktop",
@@ -1062,6 +1067,7 @@ const TIMER_PLACES = new Set([
   "codex",
   "copilot-cli",
   "gemini-cli",
+  "qwen-code",
   "grok",
   "antigravity",
   "cursor",
@@ -1232,6 +1238,7 @@ async function runHookCommand(
         if (h === "copilot-cli") return copilotPrograms(host)[0]?.path;
         if (h === "grok") return grokPrograms(host)[0]?.path;
         if (h === "gemini-cli") return geminiPrograms(host)[0]?.path;
+        if (h === "qwen-code") return qwenPrograms(host)[0]?.path;
         if (h === "antigravity") return agyPrograms(host)[0]?.path;
         return undefined;
       },

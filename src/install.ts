@@ -240,7 +240,7 @@ function read(file: string): { text: string; existed: boolean } {
   return existsSync(file) ? { text: readText(file), existed: true } : { text: "", existed: false };
 }
 
-function parseJsonc(text: string): { value: unknown; error?: string } {
+export function parseJsonc(text: string): { value: unknown; error?: string } {
   const errors: ParseError[] = [];
   const value = parse(text, errors, { allowTrailingComma: true });
   const first = errors[0];
@@ -269,7 +269,12 @@ export function zedAgentSetting(
   return entry && typeof entry === "object" ? (entry as Record<string, unknown>)[key] : undefined;
 }
 
-function edit(text: string, path: (string | number)[], value: unknown, insert = false): string {
+export function edit(
+  text: string,
+  path: (string | number)[],
+  value: unknown,
+  insert = false,
+): string {
   return applyEdits(
     text,
     modify(text, path, value, { formattingOptions: FORMAT, isArrayInsertion: insert }),

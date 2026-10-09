@@ -92,6 +92,14 @@ describe("detectAgents", () => {
     ]);
   });
 
+  posixOnly("reads Qwen Code's version from its npm package", () => {
+    const a = join(root, "npm-q");
+    npmGlobal(a, "qwen", "@qwen-code/qwen-code", "0.25.0", "cli.js");
+    expect(detectAgents(host({ path: [join(a, "bin")] }))).toEqual([
+      { id: "qwen-code", name: "Qwen Code", version: "0.25.0", surfaces: ["terminal"] },
+    ]);
+  });
+
   it("finds a program by PATH even without a version file", () => {
     file(join(root, "bin", "copilot"));
     expect(detectAgents(host({ path: [join(root, "bin")] }))).toEqual([
