@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir, platform as osPlatform } from "node:os";
 import { posix, win32 } from "node:path";
 
@@ -122,7 +122,17 @@ export function zedDataDir(
 }
 
 /** Create a directory (and parents) with owner-only permissions. Returns the path. */
-export function ensurePrivateDir(path: string): string {
+export function ensurePrivateDir(path: string, o: { tighten?: boolean } = {}): string {
   mkdirSync(path, { recursive: true, mode: 0o700 });
+  // Rewake's own folders (its state) that were left more open, by an older version or by hand,
+  // are closed to other users. Never used on an agent's or the editor's folders.
+  if (o.tighten && osPlatform() !== "win32") {
+    try {
+      const st = statSync(path);
+      if ((st.mode & 0o077) !== 0 && st.uid === process.getuid?.()) chmodSync(path, 0o700);
+    } catch {
+      // Not ours to change, or gone: leave it.
+    }
+  }
   return path;
 }

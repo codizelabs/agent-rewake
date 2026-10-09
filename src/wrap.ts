@@ -345,6 +345,12 @@ export async function downloadBinaryAgent(
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
   try {
+    // Over http the download could be swapped on the way, and the registry's checksum is optional.
+    if (new URL(target.archive).protocol !== "https:")
+      throw new Error("the registry's download address isn't https, so Rewake won't use it");
+    // Where a raw binary is put comes from the registry too: it stays inside the folder.
+    if (!/^\.[\\/]/.test(target.cmd) || target.cmd.includes(".."))
+      throw new Error("the registry's command path isn't inside the download");
     const res = await fetchImpl(target.archive);
     if (!res.ok) throw new Error(`download failed (HTTP ${res.status})`);
     const bytes = Buffer.from(await res.arrayBuffer());

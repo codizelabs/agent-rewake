@@ -222,7 +222,7 @@ export class ScheduleStore {
   }
 
   private ensure(): string {
-    return ensurePrivateDir(this.dir);
+    return ensurePrivateDir(this.dir, { tighten: true });
   }
 
   create(input: {

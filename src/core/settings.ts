@@ -74,7 +74,7 @@ export function loadSettings(stateDir: string): Settings {
 
 export function saveSettings(stateDir: string, settings: Settings): void {
   writeFileAtomic(
-    ensurePrivateDir(stateDir),
+    ensurePrivateDir(stateDir, { tighten: true }),
     "settings.json",
     `${JSON.stringify(settings, null, 2)}\n`,
   );
