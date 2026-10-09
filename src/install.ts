@@ -286,9 +286,23 @@ function isOurKeyBlock(v: unknown): boolean {
   return Object.values(v.bindings).some((action) => same(action, KEY_ACTION));
 }
 
+/**
+ * Whether a wrapped Zed entry runs Rewake in front of the Claude adapter. That adapter is Rewake's
+ * own pinned dependency and sits in the node_modules next to the package Rewake starts from, so
+ * those entries keep starting Rewake from the package (npx or the installed copy). The copy in
+ * Rewake's own folder is one file with no node_modules beside it and can't find the adapter.
+ */
+export function wrapsClaudeAdapter(entry: Record<string, unknown>): boolean {
+  const args = Array.isArray(entry.args) ? entry.args : [];
+  const at = args.indexOf("--wrap-registry");
+  return at !== -1 && args[at + 1] === CLAUDE_REGISTRY_ID;
+}
+
 export interface InstallOptions {
   dir: string;
   launch: LaunchCommand;
+  /** How the entries for the Claude adapter start Rewake (default: the same as the others). */
+  claudeLaunch?: LaunchCommand;
   keybinding: boolean;
   /** Only wrap these agent ids (default: every agent Rewake can wrap). */
   only?: string[];
@@ -344,12 +358,16 @@ export function planInstall(opts: InstallOptions): Plan {
     const summary: string[] = [];
     const servers = isRecord(parsed.value.agent_servers) ? parsed.value.agent_servers : {};
     let wrappedAny = false;
+    const claudeLaunch = opts.claudeLaunch ?? opts.launch;
+    /** The start for one target: the package for the Claude adapter, else the caller's choice. */
+    const launchFor = (t: WrapTarget): LaunchCommand =>
+      t.kind === "registry" && t.id === CLAUDE_REGISTRY_ID ? claudeLaunch : opts.launch;
     for (const [id, entry] of Object.entries(servers)) {
       if (!isRecord(entry)) continue;
       if (id === AGENT_NAME) {
         // Kept: Zed ties the threads started with it to this id, and removing it leaves them
         // unopenable ("Custom agent server `Agent Rewake` is not registered").
-        const want = legacyEntry(opts.launch);
+        const want = legacyEntry(claudeLaunch);
         if (same(entry, want)) notes.push(legacyNote(settingsFile));
         else {
           after = edit(after, ["agent_servers", AGENT_NAME], want);
@@ -365,7 +383,9 @@ export function planInstall(opts: InstallOptions): Plan {
         wrappedAny = true;
         const target = wrapTargetFor(id, original, env);
         const want =
-          "target" in target ? wrappedEntry(original, target.target, opts.launch) : entry;
+          "target" in target
+            ? wrappedEntry(original, target.target, launchFor(target.target))
+            : entry;
         if (same(entry, want))
           notes.push(`${settingsFile}: ${agentLabel(id, env)} already has Rewake.`);
         else {
@@ -373,9 +393,10 @@ export function planInstall(opts: InstallOptions): Plan {
           const from = pinnedVersion(entry);
           const to = pinnedVersion(want);
           // Moving an entry onto Rewake's own copy in its state folder (see zedLaunch).
+          const own = "target" in target ? launchFor(target.target) : opts.launch;
           const toOwnCopy =
-            /[\\/]bin[\\/]agent-rewake\.mjs$/.test(opts.launch.args[0] ?? "") &&
-            entry.command !== opts.launch.command;
+            /[\\/]bin[\\/]agent-rewake\.mjs$/.test(own.args[0] ?? "") &&
+            entry.command !== own.command;
           summary.push(
             toOwnCopy && !to
               ? `Update Rewake in ${agentLabel(id, env)} to start from Rewake's own folder, so upgrading Node.js or having no network can't stop it`
@@ -390,14 +411,18 @@ export function planInstall(opts: InstallOptions): Plan {
         continue;
       }
       wrappedAny = true;
-      after = edit(after, ["agent_servers", id], wrappedEntry(entry, target.target, opts.launch));
+      after = edit(
+        after,
+        ["agent_servers", id],
+        wrappedEntry(entry, target.target, launchFor(target.target)),
+      );
       summary.push(
         `Add Rewake to ${agentLabel(id, env)}. Its threads, settings and login stay as they are`,
       );
     }
     if (!(AGENT_NAME in servers) && opts.stateDir && hasLegacyThreads(opts.stateDir)) {
       // An earlier install removed it, but threads started with it still need it to open.
-      after = edit(after, ["agent_servers", AGENT_NAME], legacyEntry(opts.launch));
+      after = edit(after, ["agent_servers", AGENT_NAME], legacyEntry(claudeLaunch));
       summary.push(
         `Restore "${AGENT_NAME}" from an earlier version (Claude Agent with Rewake): threads you started with it can't open without it`,
       );
@@ -407,7 +432,7 @@ export function planInstall(opts: InstallOptions): Plan {
       after = edit(
         after,
         ["agent_servers", CLAUDE_REGISTRY_ID],
-        wrappedEntry({}, { kind: "registry", id: CLAUDE_REGISTRY_ID }, opts.launch),
+        wrappedEntry({}, { kind: "registry", id: CLAUDE_REGISTRY_ID }, claudeLaunch),
       );
       summary.push(
         `Add Claude Agent ("${CLAUDE_REGISTRY_ID}") with Rewake. You have no external agents in Zed yet; Claude Agent is Claude in Zed's Agent Panel, and that's where Rewake works`,
@@ -719,6 +744,8 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
     : planInstall({
         dir,
         launch: opts.launch ?? launchCommand(),
+        // The Claude adapter's entries start from the package that holds the adapter.
+        claudeLaunch: launchCommand(),
         keybinding: opts.keybinding,
         env: opts.env,
         stateDir: stateDir(opts.env),
