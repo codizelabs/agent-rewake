@@ -22,6 +22,15 @@ export const MAX_REARMS = 4;
 export const REHIT_WINDOW_MS = 15 * MINUTE;
 /** Re-hits in a row before Rewake stops continuing this session (Claude Code's own cap is 2). */
 export const MAX_REHITS = 2;
+/** Waits when the limit is back and no new reset time is known: 2, 5, 10, then 20 minutes. */
+const BACKOFF_MS = [2, 5, 10, 20].map((m) => m * MINUTE);
+
+/** How long to wait before trying again after `rearms` tries (Rewake's backoffMs, src/core/resume.ts). */
+export function backoffMs(rearms) {
+  const i = Math.max(0, Math.min(BACKOFF_MS.length - 1, Math.floor(rearms)));
+  return BACKOFF_MS[i];
+}
+
 /**
  * Sent as the person's message, so it says who sent it (Rewake's AUTO_LABEL, src/addon.ts):
  * automation never speaks as the person (zed-launch A-5).

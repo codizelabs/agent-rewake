@@ -174,13 +174,17 @@ export function isCodexRollout(path: unknown): path is string {
  * The person's messages in a rollout's tail, oldest first. Codex 0.160.1 records each as an
  * `event_msg` / `item_completed` whose item is a `UserMessage` (text parts in `content`); earlier
  * versions as `event_msg` / `user_message`.
+ *
+ * With `since` (ms), only records Codex wrote at or after that time count; a record with no
+ * readable `timestamp` can't be placed, so it is left out.
  */
-export function userMessages(tail: string): string[] {
+export function userMessages(tail: string, since?: number): string[] {
   const out: string[] = [];
   for (const line of tail.split("\n")) {
     if (!line.includes('"user_message"') && !line.includes('"UserMessage"')) continue;
     try {
       const rec = JSON.parse(line) as {
+        timestamp?: unknown;
         type?: string;
         payload?: {
           type?: string;
@@ -190,6 +194,10 @@ export function userMessages(tail: string): string[] {
       };
       const p = rec.payload;
       if (rec.type !== "event_msg" || !p) continue;
+      if (since !== undefined) {
+        const at = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : Number.NaN;
+        if (!(at >= since)) continue;
+      }
       if (p.type === "user_message" && typeof p.message === "string") out.push(p.message);
       else if (
         p.type === "item_completed" &&

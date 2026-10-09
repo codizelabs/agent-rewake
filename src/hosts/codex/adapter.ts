@@ -95,7 +95,14 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
       const transcript = s.sessionRef?.transcript;
       if (!transcript) return undefined;
       try {
-        return userMessages(readTail(transcript, 512 * 1024)).includes(s.text) || undefined;
+        // Only records written since this resume's first attempt began: an earlier resume in the
+        // same thread sent the same words (a second limit) and must not count as this one.
+        const started =
+          s.attempts.length > 0 ? Math.min(...s.attempts.map((a) => a.startedAt)) : undefined;
+        if (started === undefined) return undefined;
+        return (
+          userMessages(readTail(transcript, 512 * 1024), started).includes(s.text) || undefined
+        );
       } catch {
         return undefined;
       }
