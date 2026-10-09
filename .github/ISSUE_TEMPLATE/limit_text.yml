@@ -1,0 +1,40 @@
+name: A limit message Rewake missed
+description: An agent hit a usage limit and Rewake didn't offer to continue, or read it wrongly.
+labels: ["area: usage limits", "status: needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `agent-rewake doctor --limit-sample "<message>"` fills in the fields below. Check them first: **don't keep credentials, tokens, email addresses or conversation content.**
+  - type: input
+    id: version
+    attributes:
+      label: Agent Rewake version
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent, its version and where you use it
+      placeholder: "Kimi CLI 1.2 in Zed; or Claude Code in a terminal"
+    validations:
+      required: true
+  - type: textarea
+    id: text
+    attributes:
+      label: The limit message
+      description: Exactly as the agent showed it.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: reading
+    attributes:
+      label: How Rewake read it
+      description: From `doctor --limit-sample`.
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+      description: For example "a wait until 3 PM", "a credit limit: no resume", or "not a limit".

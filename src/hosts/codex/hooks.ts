@@ -203,11 +203,13 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
         }
         if (!limit.limited) return undefined;
         const settings = loadSettings(ctx.stateDir);
+        const auto = autoFor(settings);
         const decision = decideArm({
           now: ctx.now,
           ...(limit.resetsAt !== undefined && { resetsAt: limit.resetsAt }),
           isBilling: limit.billing === true,
-          auto: autoFor(settings),
+          // A reset read past a workspace limit is asked about, never armed on its own.
+          auto: limit.askFirst && auto === "always" ? "ask" : auto,
         });
         const cwd = typeof ctx.input.cwd === "string" ? basename(ctx.input.cwd) : "";
         const where = cwd ? `Codex in the "${cwd}" folder` : "Codex";
