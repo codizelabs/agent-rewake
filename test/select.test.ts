@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   choosePlaces,
   defaultChoice,
+  defaultPlaceText,
   keyOf,
   type Place,
   PREVIEW_NOTE,
@@ -80,5 +81,36 @@ describe("the result lines after installing several places", async () => {
     ).toBe(
       "\nResult:\n  Zed    done: Quit Zed and open it again.\n  Codex  not changed: Codex couldn't add the plugin, so nothing was changed. Try it on its own: agent-rewake install --only codex\n",
     );
+  });
+});
+
+describe("install with no place named and no terminal (--yes)", () => {
+  it("starts from the places found when there is no Zed", () => {
+    const noZed = places.filter((p) => p.id !== "zed");
+    expect(defaultPlaceText(noZed)).toBe(
+      "Zed wasn't found on this computer, but these were: Claude Code. Setting up Zed (the default) anyway. To set up what was found instead, run: agent-rewake install --only claude-code\n",
+    );
+  });
+
+  it("names every agent that can be set up, not the ones too old or already set up", () => {
+    const more = placesFrom(
+      [
+        { id: "claude-code", name: "Claude Code", surfaces: ["terminal"] },
+        { id: "gemini-cli", name: "Gemini CLI", surfaces: ["terminal"] },
+      ],
+      { found: false },
+      new Set(),
+      () => undefined,
+      older,
+    );
+    expect(defaultPlaceText(more)).toContain("these were: Claude Code, Gemini CLI.");
+    expect(defaultPlaceText(more)).toContain("install --only claude-code,gemini-cli");
+  });
+
+  it("keeps the old line when Zed is here, or when nothing else was found", () => {
+    const old =
+      "Setting up Zed (the default). To choose other places, run install in a terminal without --yes, or name them: --only claude-code,codex\n";
+    expect(defaultPlaceText(places)).toBe(old);
+    expect(defaultPlaceText([])).toBe(old);
   });
 });

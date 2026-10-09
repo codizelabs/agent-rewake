@@ -13,6 +13,7 @@ import {
   render,
   type ZedApp,
 } from "../src/doctor.js";
+import type { Found } from "../src/install/detect.js";
 
 const NOW = Date.parse("2026-10-06T12:00:00Z");
 let dir: string;
@@ -128,7 +129,9 @@ describe("doctor: installed", () => {
     const f = run();
     expect(texts(f, "todo").join()).toContain("Zed hasn't started Rewake yet");
     expect(f.find((x) => x.text.includes("hasn't started"))?.fix).toContain("Agent Panel (Cmd+?)");
-    expect(texts(f, "info").join()).toContain("the Claude desktop app, claude.ai, or Claude Code");
+    expect(texts(f, "info").join()).toContain(
+      "the Claude desktop app or claude.ai. Claude Code, Codex and other agents you run in a terminal are set up separately",
+    );
   });
 
   it("working: names when Zed last started it, and nothing to do", () => {
@@ -258,7 +261,7 @@ describe("doctor: other coding agents", () => {
   });
 
   it("installed, never started: the specific line replaces the general one", () => {
-    const general = "Rewake works only in Zed's Agent Panel, with external agents";
+    const general = "Rewake works in Zed's Agent Panel, with external agents";
     settings({ agent_servers: { "claude-acp": wrapped() } });
     expect(texts(run()).join()).toContain(general);
     const f = texts(
@@ -268,6 +271,57 @@ describe("doctor: other coding agents", () => {
     ).join();
     expect(f).not.toContain(general);
     expect(f).toContain("It isn't set up for Codex used on its own");
+  });
+});
+
+describe("doctor: no Zed, agents in a terminal", () => {
+  const found: Found[] = [
+    { id: "claude-code", name: "Claude Code", version: "2.1.291", surfaces: ["terminal"] },
+    { id: "codex", name: "Codex", version: "0.170.0", surfaces: ["terminal"] },
+  ];
+
+  it("starts from the agents found, not from Zed", () => {
+    const f = run([], { agents: () => [...found], previews: () => [] });
+    const todo = f.find((x) => x.level === "todo");
+    expect(todo?.text).toBe("Rewake isn't set up yet. Found on this computer: Claude Code, Codex.");
+    expect(todo?.fix).toBe(
+      "Run: npx @codizelabs/agent-rewake install  (pick the ones you want), or name them: npx @codizelabs/agent-rewake install --only claude-code,codex",
+    );
+    // Not told to install Zed, or that Rewake works only there.
+    expect(f.filter((x) => x.level === "problem")).toEqual([]);
+    const all = texts(f).join("\n");
+    expect(all).not.toContain("Open Zed once");
+    expect(all).not.toContain("Install Zed");
+    expect(all).not.toContain("works only in Zed");
+    expect(all).not.toContain("Zed has no external agents");
+    expect(texts(f, "info").join()).toContain("Zed isn't installed on this computer");
+    const out = render(f, { version: "0.1.2", ascii: false });
+    expect(out).toContain("Start here: Run: npx @codizelabs/agent-rewake install  (pick");
+  });
+
+  it("with Rewake already set up in a terminal agent, doesn't say it isn't set up", () => {
+    const f = run([], { agents: () => [], previews: () => ["GitHub Copilot CLI"] });
+    expect(texts(f).join("\n")).not.toContain("isn't set up yet");
+    expect(f.filter((x) => x.level === "problem" || x.level === "todo")).toEqual([]);
+  });
+
+  it("names only the agents still to set up when another is set up", () => {
+    const f = run([], { agents: () => found.slice(1), previews: () => ["Claude Code (terminal)"] });
+    expect(f.find((x) => x.level === "todo")?.text).toBe("Rewake isn't set up yet for: Codex.");
+  });
+
+  it("with nothing found anywhere, still says what to install", () => {
+    const f = run([], { agents: () => [], previews: () => [] });
+    const problem = f.find((x) => x.level === "problem");
+    expect(problem?.text).toContain("Zed doesn't seem to be installed");
+    expect(problem?.fix).toContain("Install Zed from zed.dev");
+    expect(problem?.fix).toContain("Claude Code, Codex, Gemini CLI or GitHub Copilot CLI");
+  });
+
+  it("with Zed, the advice is unchanged", () => {
+    settings({ agent_servers: { "claude-acp": { type: "registry" } } });
+    const f = run(zed, { agents: () => [...found], previews: () => [] });
+    expect(f.find((x) => x.level === "todo")?.text).toContain("isn't added to your agents yet");
   });
 });
 

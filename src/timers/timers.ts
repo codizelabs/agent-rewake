@@ -169,6 +169,24 @@ export function timerNames(id: string, h: TimerHost): string[] {
   return [...names];
 }
 
+/** The ids of every resume that has a timer file in the state folder (for removing them all). */
+export function timerIds(h: TimerHost): string[] {
+  let files: string[] = [];
+  try {
+    files = readdirSync(join(h.stateDir, "timers"));
+  } catch {
+    return [];
+  }
+  const ids = new Set<string>();
+  for (const f of files) {
+    const name = f
+      .replace(/^codizelabs\.agent-rewake\./, "")
+      .replace(/\.(plist|systemd|task|at|at-time|wait)$/, "");
+    if (name !== f && ID.test(name)) ids.add(parseTimerName(name).id);
+  }
+  return [...ids];
+}
+
 // ---- macOS: launchd ------------------------------------------------------------------------------
 
 const xml = (s: string) =>

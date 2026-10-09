@@ -236,8 +236,12 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   const update = `npx ${"@codizelabs/agent-rewake"}@latest install`;
 
   // Other coding agents on this computer, and whether the line about them was shown yet.
-  const reach = otherAgentsNote(ctx.agents?.() ?? [], ctx.previews?.() ?? []);
+  const found = ctx.agents?.() ?? [];
+  const previewNames = ctx.previews?.() ?? [];
+  const reach = otherAgentsNote(found, previewNames);
   let reachShown = false;
+  // Agents to set up, or already set up, outside Zed: first-run advice starts from these when Zed isn't here.
+  const elsewhere = found.length > 0 || previewNames.length > 0;
 
   // ---- Zed ------------------------------------------------------------------------------------
   const apps = ctx.zedApps();
@@ -255,12 +259,20 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       });
     else add({ area: "Zed", level: "ok", text: `Found ${label}.` });
   } else if (settings.state === "missing") {
-    add({
-      area: "Zed",
-      level: "problem",
-      text: "Zed doesn't seem to be installed on this computer (no Zed app and no Zed settings).",
-      fix: "Install Zed from zed.dev, open it once, then run the install command again.",
-    });
+    if (elsewhere)
+      // Someone who runs their agents in a terminal doesn't need Zed: not a problem, and no advice to install it.
+      add({
+        area: "Zed",
+        level: "info",
+        text: "Zed isn't installed on this computer. Rewake doesn't need it for agents you use in a terminal.",
+      });
+    else
+      add({
+        area: "Zed",
+        level: "problem",
+        text: "Zed doesn't seem to be installed on this computer (no Zed app and no Zed settings), and no coding agent for a terminal was found either.",
+        fix: "Install Zed from zed.dev, open it once, then run the install command again. Or install Claude Code, Codex, Gemini CLI or GitHub Copilot CLI and run it.",
+      });
   }
   if (settings.state === "missing" && apps.length > 0)
     add({
@@ -334,7 +346,23 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       fix: `Run the install command again: ${install}`,
     });
   }
-  if (setup.withRewake.length === 0) {
+  const noZed = apps.length === 0 && settings.state === "missing";
+  if (setup.withRewake.length === 0 && noZed && elsewhere) {
+    // No Zed here: the places that were found, not "open Zed once". Nothing to do when set up already.
+    if (found.length > 0) {
+      const ids = [...new Set(found.map((f) => f.id))].join(",");
+      const here = [...new Set(found.map((f) => f.name))].join(", ");
+      add({
+        area: "Rewake",
+        level: "todo",
+        text:
+          previewNames.length > 0
+            ? `Rewake isn't set up yet for: ${here}.`
+            : `Rewake isn't set up yet. Found on this computer: ${here}.`,
+        fix: `Run: ${install}  (pick the ones you want), or name them: ${install} --only ${ids}`,
+      });
+    }
+  } else if (setup.withRewake.length === 0) {
     add({
       area: "Rewake",
       level: "todo",
@@ -530,7 +558,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
         add({
           area: "Rewake",
           level: "info",
-          text: `Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI. It can't reach Zed's own agent${setup.usesZedAgent ? " (your settings pick a model for it)" : ""}, the Claude desktop app, claude.ai, or Claude Code in a terminal; Claude Code and the desktop app have their own setting to continue after a usage limit.`,
+          text: `Rewake works in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI. It can't reach Zed's own agent${setup.usesZedAgent ? " (your settings pick a model for it)" : ""}, the Claude desktop app or claude.ai. Claude Code, Codex and other agents you run in a terminal are set up separately: install offers each one it finds. The Claude desktop app has its own setting to continue after a usage limit.`,
         });
       add({
         area: "Rewake",
@@ -711,7 +739,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
     });
 
   // ---- Other coding agents here: say plainly that Rewake doesn't reach them on their own ------
-  if (reach && !reachShown) add({ area: "Rewake", level: "info", text: reach });
+  if (reach && !reachShown && !noZed) add({ area: "Rewake", level: "info", text: reach });
 
   if (ctx.sleep) for (const f of sleepFindings(ctx.sleep())) add(f);
   return findings;

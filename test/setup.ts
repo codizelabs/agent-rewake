@@ -4,6 +4,7 @@
 import { beforeEach } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/core/settings.js";
 import { setClock } from "../src/core/time.js";
+import { setStagger } from "../src/timers/slots.js";
 import { setRewakeCommand } from "../src/util/command.js";
 
 beforeEach(() => {
@@ -11,4 +12,6 @@ beforeEach(() => {
   setClock("24h");
   // Texts name the command as installed globally; tests of the npx form set it themselves.
   setRewakeCommand("agent-rewake");
+  // Resumes that start one after another in a test don't wait for their turn (src/timers/slots.ts).
+  setStagger(0);
 });
