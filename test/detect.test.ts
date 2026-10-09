@@ -3,11 +3,14 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  agentCopies,
+  chooseProgram,
   claudeDesktopPrograms,
   type DetectHost,
   detectAgents,
   type Found,
   otherAgentsNote,
+  terminalAgents,
   withoutInstalled,
 } from "../src/install/detect.js";
 
@@ -63,20 +66,23 @@ describe("detectAgents", () => {
     ]);
   });
 
-  posixOnly("reads versions from npm global installs on PATH, and reports the highest", () => {
-    const a = join(root, "npm-a");
-    const b = join(root, "npm-b");
-    npmGlobal(a, "codex", "@openai/codex", "0.149.0", "bin/codex.js");
-    npmGlobal(b, "codex", "@openai/codex", "0.160.1", "bin/codex.js");
-    npmGlobal(a, "copilot", "@github/copilot", "1.0.92", "index.js");
-    npmGlobal(a, "gemini", "@google/gemini-cli", "0.62.0", "dist/index.js");
-    const found = detectAgents(host({ path: [join(a, "bin"), join(b, "bin")] }));
-    expect(found.map((f) => [f.id, f.version])).toEqual([
-      ["codex", "0.160.1"],
-      ["copilot-cli", "1.0.92"],
-      ["gemini-cli", "0.62.0"],
-    ]);
-  });
+  posixOnly(
+    "reads versions from npm global installs on PATH, and reports the first on PATH",
+    () => {
+      const a = join(root, "npm-a");
+      const b = join(root, "npm-b");
+      npmGlobal(a, "codex", "@openai/codex", "0.149.0", "bin/codex.js");
+      npmGlobal(b, "codex", "@openai/codex", "0.160.1", "bin/codex.js");
+      npmGlobal(a, "copilot", "@github/copilot", "1.0.92", "index.js");
+      npmGlobal(a, "gemini", "@google/gemini-cli", "0.62.0", "dist/index.js");
+      const found = detectAgents(host({ path: [join(a, "bin"), join(b, "bin")] }));
+      expect(found.map((f) => [f.id, f.version])).toEqual([
+        ["codex", "0.149.0"],
+        ["copilot-cli", "1.0.92"],
+        ["gemini-cli", "0.62.0"],
+      ]);
+    },
+  );
 
   posixOnly("finds Grok Build in its own folder, with the version in the file name", () => {
     const bin = file(join(home, ".grok", "bin", "grok-1.0.46"));
@@ -204,5 +210,38 @@ describe("the Claude desktop app's own Claude Code", () => {
       { path: bin("2.1.289", "ee67"), surface: "desktop app", version: "2.1.289" },
     ]);
     expect(claudeDesktopPrograms({ ...host(), platform: "linux" })).toEqual([]);
+  });
+});
+
+describe("two copies of one agent", () => {
+  /** An npm Claude Code (2.1.282) first on PATH, the native 2.1.292 in ~/.local/bin. */
+  const twoClaudes = () => {
+    const npm = join(root, "nvm");
+    npmGlobal(npm, "claude", "@anthropic-ai/claude-code", "2.1.282", "cli.js");
+    const native = file(join(home, ".local", "share", "claude", "versions", "2.1.292"));
+    link(native, join(home, ".local", "bin", "claude"));
+    return host({ path: [join(npm, "bin")] });
+  };
+
+  posixOnly("judges and reports the copy that runs first on PATH, not the newest", () => {
+    const h = twoClaudes();
+    expect(terminalAgents(h)).toEqual([{ id: "claude-code", version: "2.1.282" }]);
+    expect(detectAgents(h).find((f) => f.id === "claude-code")?.version).toBe("2.1.282");
+  });
+
+  posixOnly("lists every copy for doctor --details, marking the one in use", () => {
+    const [c] = agentCopies(twoClaudes());
+    expect(c?.name).toBe("Claude Code");
+    expect(c?.copies.map((p) => p.version)).toEqual(["2.1.282", "2.1.292"]);
+    expect(c?.chosen.version).toBe("2.1.282");
+    expect(agentCopies(host())).toEqual([]);
+  });
+
+  it("chooses the first terminal copy, else the newest app copy", () => {
+    const app = { path: "/app", surface: "ChatGPT app", version: "0.170.0" };
+    const cli = (path: string, version: string) => ({ path, surface: "terminal", version });
+    expect(chooseProgram([app, cli("/a", "1.0.0"), cli("/b", "2.0.0")])?.path).toBe("/a");
+    expect(chooseProgram([app])?.path).toBe("/app");
+    expect(chooseProgram([])).toBeUndefined();
   });
 });

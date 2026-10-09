@@ -21,7 +21,7 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult, withMessage } from "../host.js";
+import { FOLDER_GONE, folderGone, resumeDeadline, type SendResult, withMessage } from "../host.js";
 import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -185,6 +185,7 @@ export function resumeGrok(
 ): Promise<SendResult> {
   if (!r.program)
     return Promise.resolve({ ok: false, reason: "unsupported", detail: "no Grok found" });
+  if (folderGone(r.cwd)) return Promise.resolve(FOLDER_GONE);
   // npm's .cmd shim on Windows can't be spawned without a shell: run its script with Node.
   const program = nodeAware(r.program, process.execPath);
   // The message goes in a file, never as `-p <text>`: an argument is readable from `ps` by

@@ -7,7 +7,7 @@ import { resolveClaudeAdapter } from "./adapters/claude/spawn.js";
 import { loadSettings } from "./core/settings.js";
 import { ScheduleStore } from "./core/store.js";
 import { TEXT_LOCALE } from "./core/time.js";
-import { compareVersions, type Found, otherAgentsNote } from "./install/detect.js";
+import { compareVersions, type Found, otherAgentsNote, type Program } from "./install/detect.js";
 import {
   AGENT_NAME,
   agentPanelKey,
@@ -84,6 +84,8 @@ export interface DoctorContext {
   nodeVersion: string;
   /** Other coding agents on this computer (src/install/detect.ts); none when not given. */
   agents?: () => Found[];
+  /** Agents installed more than once, with their copies and the one Rewake goes by (src/install/detect.ts agentCopies). */
+  copies?: () => { name: string; copies: Program[]; chosen: Program }[];
   /** Names of the previews set up here (src/hosts/previews.ts); none when not given. */
   previews?: () => string[];
   /** This computer's sleep settings, and how Rewake can hold it awake itself; not checked when absent. */
@@ -866,6 +868,15 @@ export function detailLines(ctx: DoctorContext): string[] {
         .map((a) => `${a.name} ${a.version ?? "(version unknown)"} [${a.surfaces.join(", ")}]`)
         .join(", ") || "none found"
     }`,
+    ...(ctx.copies?.() ?? []).map(
+      (c) =>
+        `${c.name} is installed ${c.copies.length} times; Rewake uses the first one on your PATH: ${c.copies
+          .map(
+            (p) =>
+              `${tilde(p.path)} ${p.version ?? "(version unknown)"}${p === c.chosen ? " (used)" : ""}`,
+          )
+          .join("; ")}`,
+    ),
     `Last start: ${last ? `${new Date(last.t).toISOString()}, Rewake ${String(last.version ?? "?")}, Node.js ${String(last.node ?? "?")}` : "none in the last 14 days"}`,
   ];
   const set = Object.keys(env).filter((k) => k.startsWith("AGENT_REWAKE_"));

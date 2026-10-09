@@ -524,7 +524,7 @@ describe("Codex plugin and install", () => {
     expect(pluginInstalled({}, home)).toBe(true);
   });
 
-  it("picks the newest Codex CLI, else the ChatGPT app's copy", () => {
+  it("picks the first Codex CLI on PATH, else the ChatGPT app's copy", () => {
     const app = { path: "/A/codex", surface: "ChatGPT app", version: "0.170.0" };
     expect(
       pickCodex([
@@ -532,7 +532,7 @@ describe("Codex plugin and install", () => {
         { path: "/a", surface: "terminal", version: "0.150.0" },
         { path: "/b", surface: "terminal", version: "0.160.1" },
       ])?.path,
-    ).toBe("/b");
+    ).toBe("/a");
     expect(pickCodex([app])?.path).toBe("/A/codex");
   });
 

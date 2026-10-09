@@ -2,7 +2,12 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
-import { compareVersions, grokPrograms, type Program } from "../../install/detect.js";
+import {
+  chooseProgram,
+  compareVersions,
+  grokPrograms,
+  type Program,
+} from "../../install/detect.js";
 import {
   unknownVersionText,
   type VersionProbe,
@@ -74,9 +79,7 @@ export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? grokPrograms({ env: o.env, home, platform: process.platform });
   const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
-  const picked = [...programs].sort((a, b) =>
-    compareVersions(b.version ?? "0", a.version ?? "0"),
-  )[0];
+  const picked = chooseProgram(programs);
   const grok = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   const file = grokHooksFile(o.env, home);
   const installed = existsSync(file);

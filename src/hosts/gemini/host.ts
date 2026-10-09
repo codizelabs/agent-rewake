@@ -21,7 +21,14 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult, sendPromptOnStdin, withMessage } from "../host.js";
+import {
+  FOLDER_GONE,
+  folderGone,
+  resumeDeadline,
+  type SendResult,
+  sendPromptOnStdin,
+  withMessage,
+} from "../host.js";
 import {
   type SessionLimit,
   type SessionRecord,
@@ -130,6 +137,7 @@ export function resumeGemini(
 ): Promise<SendResult> {
   if (!r.program)
     return Promise.resolve({ ok: false, reason: "unsupported", detail: "no Gemini CLI found" });
+  if (folderGone(r.cwd)) return Promise.resolve(FOLDER_GONE);
   const program = nodeAware(r.program, node);
   return new Promise((resolve) => {
     let out = "";
