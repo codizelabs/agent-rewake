@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { HostLimit } from "../core/limits/types.js";
 import { SessionLock } from "../core/lock.js";
@@ -137,6 +137,13 @@ export class SessionRecords {
     const next = { ...change({ ...current, cwd: cwd || current.cwd }), updatedAt: now };
     this.put(next);
     return next;
+  }
+
+  /** Delete one session's record. Returns whether there was one. */
+  remove(sessionId: string): boolean {
+    if (!this.get(sessionId)) return false;
+    rmSync(join(this.dir, `${sessionId}.json`), { force: true });
+    return true;
   }
 
   list(): SessionRecord[] {

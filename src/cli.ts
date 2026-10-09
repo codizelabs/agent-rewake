@@ -31,6 +31,7 @@ import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/inde
 import { jetbrainsFound, runJetbrainsInstall } from "./hosts/jetbrains/install.js";
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
 import { AGENT_VERSIONS } from "./hosts/versions.js";
+import { finishUninstall } from "./install/cleanup.js";
 import {
   agentCopies,
   agyPrograms,
@@ -45,7 +46,7 @@ import {
   type PlaceId,
   terminalAgents,
 } from "./install/detect.js";
-import { choosePlaces, type Place, placesFrom } from "./install/select.js";
+import { choosePlaces, defaultPlaceText, type Place, placesFrom } from "./install/select.js";
 import { zedLaunch } from "./install/zed-launch.js";
 import {
   keyChord,
@@ -67,6 +68,7 @@ import { ensureLauncher, launcherPath, refreshLauncher } from "./timers/launcher
 import { loginItem, loginItemPlanText, loginItemText, syncLoginItem } from "./timers/login.js";
 import { rewakeNode } from "./timers/node-shim.js";
 import { osNotifier } from "./timers/notify.js";
+import { pruneState } from "./timers/prune.js";
 import { type SweepDeps, scheduleFire, sweep } from "./timers/sweep.js";
 import { cancelTimer, defaultTimerHost, parseTimerName, timerKind } from "./timers/timers.js";
 import { isWsl, runWaiter, waiterNote } from "./timers/waiter.js";
@@ -121,7 +123,7 @@ Usage:
   agent-rewake --wrap-command <json> Run in front of a custom agent: {"command": "...", "args": [...]}
   agent-rewake                     Run in front of the Claude adapter
   agent-rewake -- <cmd> [args...]  Run in front of another ACP agent command
-  agent-rewake doctor [--details]  Check whether Rewake can work in your Zed (no network access)
+  agent-rewake doctor [--details]  Check where Rewake is set up and what to do next (no network access)
   agent-rewake ui [--inline] [--thread <id>]
                                    Schedules page: a table you can click, for every thread
                                    (Zed's terminal panel; --inline draws it inside a thread)
@@ -272,9 +274,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       // Scripts and `--yes` keep today's default, Zed, and say so.
       chosen = ["zed"];
       if (first === "install" && only.length === 0)
-        process.stdout.write(
-          "Setting up Zed (the default). To choose other places, run install in a terminal without --yes, or name them: --only claude-code,codex\n",
-        );
+        process.stdout.write(defaultPlaceText(placesHere(env).places));
     }
     chosen = chosen.filter((p) => !skip.includes(p));
     const bad = [...chosen, ...skip].filter((p) => !INSTALL_PLACES.has(p));
@@ -397,10 +397,6 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         code = Math.max(code, c);
       }
       print(summaryText(results, uninstall ? "uninstall" : "install"));
-      if (uninstall && code === 0)
-        print(
-          `\nRewake's entries and hooks are gone from every place above. Its own folder, with your scheduled messages, is still on disk: "${rewake("doctor --details")}" shows where; delete it to finish.\n`,
-        );
     } else {
       // Said before the place's own question, with its other changes.
       if (!uninstall && loginWouldAdd(env, order)) print(loginItemPlanText(process.platform));
@@ -413,7 +409,18 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       if (change !== "unchanged") print(loginItemText(change, process.platform));
       if (!uninstall && order.some((p) => TIMER_PLACES.has(p)) && usesWaiter(env))
         print(((n) => `${n.text} ${n.fix}\n`)(waiterNote(isWsl())));
-      sweepQuietly(env);
+      if (uninstall) {
+        // Out of every place: the timers and helper files go too, and what stays is listed. With
+        // places left, nothing is deleted (their hooks run those files) and the sweep carries on.
+        const done = finishUninstall({
+          env,
+          home: homedir(),
+          platform: process.platform,
+          chosen,
+        });
+        if (done.text) print(done.text);
+        if (done.remains) sweepQuietly(env);
+      } else sweepQuietly(env);
     }
     return code;
   }
@@ -955,6 +962,7 @@ function sweepQuietly(env: NodeJS.ProcessEnv): void {
     const { sweepDeps } = timerDeps(env);
     sweep(sweepDeps(Date.now()));
     reapClosed(CLOSED_HOSTS, closedDeps(env, Date.now()));
+    pruneState(stateDir(env), Date.now());
   } catch {
     // The next hook or command sweeps again.
   }
@@ -1079,7 +1087,10 @@ async function runHookCommand(
     if (reply) process.stdout.write(`${reply}\n`);
     const swept = sweep(sweepDeps(Date.now()));
     const reaped = reapClosed(CLOSED_HOSTS, closedDeps(env, Date.now()));
+    // Once a day, after the work the agent is waiting for: old records and temporary files go.
+    const pruned = pruneState(state, Date.now());
     log.info("hook", { host, event, fired: swept.fired, armed: swept.armed, reaped });
+    if (pruned) log.info("state.pruned", { ...pruned });
   } catch (err) {
     // The error's kind only: its message can hold paths and session ids (plan §2.6).
     log.error("hook.failed", {

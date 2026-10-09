@@ -16,6 +16,7 @@ import { rewake } from "../util/command.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
 import type { Notifier } from "./notify.js";
+import { type SlotOptions, takeSlot } from "./slots.js";
 import { armTimer, cancelTimer, nextGen, type TimerHost, timerName } from "./timers.js";
 
 /**
@@ -77,6 +78,8 @@ export interface FireDeps {
   timerGen?: number;
   /** Tests: how often a running continue looks for a stop. */
   stopPollMs?: number;
+  /** Tests: the limits on resumes starting together (src/timers/slots.ts). */
+  slots?: Omit<SlotOptions, "stateDir">;
 }
 
 const LIVE = new Set<Schedule["status"]>(["scheduled", "waiting_for_limit", "cancelled"]);
@@ -196,6 +199,10 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
   const lock = new SessionLock(deps.stateDir);
   const lockKey = `fire:${id}`;
   if (!lock.acquire(lockKey)) return "busy";
+  const slot: { release?: () => void } = {};
+  const giveBack = (): void => {
+    slot.release?.();
+  };
   try {
     // Re-read under the lock: another run may have sent or changed it since.
     const s = store.get(id);
@@ -204,6 +211,40 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       return "gone";
     }
     if (s.status !== "cancelled" && now < s.dueAt - EARLY_MS) return "early";
+    // Tried again later: at `until` (at least a minute on), with a new timer name because this
+    // run's own timer can't be replaced from inside it (see timers.ts). Waiting for a free place
+    // (`count` false) isn't the agent's doing, so it doesn't use up the bounded re-arms.
+    const wait = (until: number, why: string, count = true): FireOutcome => {
+      const next = Math.max(until, now + MIN_ARM_MS);
+      store.update(
+        id,
+        (x) => ({
+          ...x,
+          status: "scheduled",
+          dueAt: next,
+          ...(count && { rearms: (x.rearms ?? 0) + 1 }),
+        }),
+        now,
+      );
+      let armed: ReturnType<typeof armTimer> | undefined;
+      if (deps.timers) {
+        const gen = nextGen(id, deps.timerGen ?? 0, deps.timers);
+        armed = armTimer(id, next, deps.timers, gen);
+        if (armed.ok) cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
+      }
+      log("fire.wait", { why, armed: armed?.ok ?? false });
+      return "waiting";
+    };
+    // Several resumes due together: wait for one of a few places and for this one's turn, so they
+    // don't all start in the same second (src/timers/slots.ts). Throttling never stops a resume.
+    if (s.status !== "cancelled") {
+      const place = await takeSlot({ stateDir: deps.stateDir, ...deps.slots }).catch(
+        () => "error" as const,
+      );
+      if (place === undefined) return wait(now + MIN_ARM_MS, "no-free-place", false);
+      // On an error, carried on without a place: throttling is best effort.
+      if (place !== "error") slot.release = place;
+    }
     // The person's 12- or 24-hour clock, for notifications, and whether to keep the computer awake.
     const settings = loadSettings(deps.stateDir);
     const key = `${id}:${s.dueAt}`;
@@ -237,23 +278,6 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         }),
         now,
       );
-    const wait = (until: number, why: string): FireOutcome => {
-      const next = Math.max(until, now + MIN_ARM_MS);
-      store.update(
-        id,
-        (x) => ({ ...x, status: "scheduled", dueAt: next, rearms: (x.rearms ?? 0) + 1 }),
-        now,
-      );
-      let armed: ReturnType<typeof armTimer> | undefined;
-      if (deps.timers) {
-        // A new name: this run's own timer can't be replaced from inside it (see timers.ts).
-        const gen = nextGen(id, deps.timerGen ?? 0, deps.timers);
-        armed = armTimer(id, next, deps.timers, gen);
-        if (armed.ok) cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
-      }
-      log("fire.wait", { why, armed: armed?.ok ?? false });
-      return "waiting";
-    };
     const tell = (
       why: Parameters<typeof notice>[0],
       status: Schedule["status"],
@@ -413,6 +437,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         return "skipped";
     }
   } finally {
+    giveBack();
     lock.release(lockKey);
   }
 }

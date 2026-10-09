@@ -12,6 +12,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -279,13 +280,14 @@ describe("agent-rewake bundle", () => {
     const removed = cli("uninstall", "--yes");
     expect(removed.status).toBe(0);
     expect(existsSync(copilotHooks)).toBe(false);
-    expect(removed.stdout).toContain(
-      "Its own folder, with your scheduled messages, is still on disk",
-    );
+    // Out of every place: what stays is listed, and it says nothing runs from it any more.
+    expect(removed.stdout).toContain("Rewake is out of every place");
+    expect(removed.stdout).toContain("Nothing runs from that folder any more");
     const restored = readFileSync(join(zed, "settings.json"), "utf8");
-    // Hooks and timers use the same files, so uninstall leaves them in place.
+    // Out of every place, nothing needs the helper files any more: they go (they are what the
+    // Zed entries, hooks and timers run, and only those).
     if (process.platform !== "win32")
-      expect(existsSync(join(home, "doctor-state", "bin", "agent-rewake.mjs"))).toBe(true);
+      expect(existsSync(join(home, "doctor-state", "bin", "agent-rewake.mjs"))).toBe(false);
     expect(restored).not.toContain("--wrap-registry");
     expect(restored).toContain('"type": "registry"');
     expect(cli("install", "--bogus").status).toBe(2);
@@ -505,4 +507,106 @@ describe("agent-rewake bundle", () => {
     p.child.stdin.end();
     await p.exited;
   }, 90_000);
+
+  it.skipIf(process.platform === "win32")(
+    "uninstall keeps what a remaining place runs, then removes it and lists what stays",
+    () => {
+      const h = mkdtempSync(join(tmpdir(), "rewake-residue-"));
+      try {
+        const state = join(h, "state");
+        const bin = join(h, "no-agents");
+        mkdirSync(bin);
+        mkdirSync(join(h, "zed"));
+        const env = isolatedEnv({
+          HOME: h,
+          PATH: bin,
+          AGENT_REWAKE_STATE_DIR: state,
+          AGENT_REWAKE_ZED_CONFIG_DIR: join(h, "zed"),
+        });
+        const cli = (...args: string[]) =>
+          spawnSync(process.execPath, [bundle, ...args], { encoding: "utf8", env });
+        // Rewake in two terminal agents, with its helper files and the person's data in its folder.
+        const copilot = join(h, ".copilot", "hooks", "agent-rewake.json");
+        const grok = join(h, ".grok", "hooks", "agent-rewake.json");
+        for (const f of [copilot, grok]) {
+          mkdirSync(dirname(f), { recursive: true });
+          writeFileSync(f, '{ "version": 1, "hooks": {} }\n');
+        }
+        for (const f of ["schedules/a.json", "settings.json", "logs/rewake-2026-10-01.jsonl"]) {
+          mkdirSync(dirname(join(state, f)), { recursive: true });
+          writeFileSync(join(state, f), "{}\n");
+        }
+        mkdirSync(join(state, "bin"), { recursive: true });
+        writeFileSync(join(state, "bin", "my-own-script.sh"), "echo hi\n");
+        writeFileSync(join(state, "bin", "agent-rewake.version"), "0.0.1\n");
+
+        // One place out: the other's hooks still run the launcher, so it stays.
+        const first = cli("uninstall", "--only", "copilot-cli", "--yes");
+        expect(first.status).toBe(0);
+        expect(existsSync(copilot)).toBe(false);
+        expect(existsSync(grok)).toBe(true);
+        expect(first.stdout).toContain("Rewake is still set up in Grok Build");
+        expect(existsSync(join(state, "bin", "agent-rewake.mjs"))).toBe(true);
+        expect(existsSync(join(state, "bin", "agent-rewake.version"))).toBe(true);
+
+        // The last place out: the launcher, Node.js finder and version file go; the person's data stays.
+        const last = cli("uninstall", "--yes");
+        expect(last.status).toBe(0);
+        expect(existsSync(grok)).toBe(false);
+        for (const f of ["agent-rewake.mjs", "rewake-node", "agent-rewake.version"])
+          expect(existsSync(join(state, "bin", f)), f).toBe(false);
+        expect(existsSync(join(state, "timers"))).toBe(false);
+        expect(readdirSync(join(state, "bin"))).toEqual(["my-own-script.sh"]);
+        for (const f of ["schedules/a.json", "settings.json", "logs/rewake-2026-10-01.jsonl"])
+          expect(existsSync(join(state, f)), f).toBe(true);
+        expect(last.stdout).toContain("Rewake is out of every place");
+        expect(last.stdout).toContain(
+          `Rewake's folder, with your scheduled messages, your settings and logs (no message text): ${state}`,
+        );
+      } finally {
+        rmSync(h, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("a hook or sweep prunes old finished resumes and stale temporary files", () => {
+    const h = mkdtempSync(join(tmpdir(), "rewake-prune-e2e-"));
+    try {
+      const state = join(h, "state");
+      const schedules = join(state, "schedules");
+      mkdirSync(schedules, { recursive: true });
+      const old = Date.now() - 45 * 24 * 3_600_000;
+      const id = "00000000-0000-4000-8000-000000000001";
+      writeFileSync(
+        join(schedules, `${id}.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          scheduleId: id,
+          sessionId: "s1",
+          cwd: "/work",
+          kind: "user",
+          text: "old",
+          dueAt: old,
+          createdBy: "user",
+          status: "sent",
+          attempts: [],
+          createdAt: old,
+          updatedAt: old,
+        }),
+      );
+      const stale = join(schedules, ".x.json.1.deadbeef.tmp");
+      writeFileSync(stale, "{");
+      const when = new Date(Date.now() - 3 * 3_600_000);
+      utimesSync(stale, when, when);
+      const run = spawnSync(process.execPath, [bundle, "sweep", "--state-dir", state], {
+        encoding: "utf8",
+        env: isolatedEnv({ HOME: h, AGENT_REWAKE_STATE_DIR: state }),
+      });
+      expect(run.status).toBe(0);
+      expect(existsSync(join(schedules, `${id}.json`))).toBe(false);
+      expect(existsSync(stale)).toBe(false);
+    } finally {
+      rmSync(h, { recursive: true, force: true });
+    }
+  });
 });

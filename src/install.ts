@@ -773,8 +773,9 @@ function nextSteps(reachShown = false): string {
     ...(reachShown
       ? []
       : [
-          "Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI.",
-          "It can't reach Zed's own agent, Claude Code in a terminal, or the Claude desktop app.",
+          "Rewake works in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI.",
+          "It can't reach Zed's own agent or the Claude desktop app.",
+          `For Claude Code, Codex and other agents in a terminal, install them, then run \`${rewake("install")}\` and pick them.`,
           "",
         ]),
     `Agent Rewake is open source: ${REPO_URL}. If it saves you time, a star there helps others find it.`,
