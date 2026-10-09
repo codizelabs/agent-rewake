@@ -32,6 +32,8 @@ export interface ThreadGroup {
   agent: string;
   cwd: string;
   autoResume: boolean;
+  /** A session of an agent outside Zed (Codex, Copilot CLI…), resumed by Rewake's own timers. */
+  outsideZed: boolean;
   schedules: Schedule[];
 }
 
@@ -44,12 +46,14 @@ export interface ProjectGroup {
 /**
  * All schedules, grouped by project then thread. Finished ones only with `all`, which also lists
  * everything newest first (a long history is read from the top). `hostName` names the agent of a
- * session outside Zed ("Codex"), which has no thread settings of its own.
+ * session outside Zed ("Codex"), which has no thread settings of its own, and `hostNoun` says what
+ * that agent calls one ("thread" in Codex; "session" when it doesn't say).
  */
 export function overview(
   stateDir: string,
   all = false,
   hostName?: (host: string) => string | undefined,
+  hostNoun?: (host: string) => string | undefined,
 ): ProjectGroup[] {
   const store = new ScheduleStore(stateDir);
   const threads = new ThreadStore(stateDir);
@@ -59,9 +63,11 @@ export function overview(
     let t = byThread.get(s.sessionId);
     if (!t) {
       const settings = threads.get(s.sessionId);
+      const outsideZed = isOutsideZed(s);
+      const noun = outsideZed ? (hostNoun?.(s.host ?? "") ?? "session") : "thread";
       t = {
         sessionId: s.sessionId,
-        title: printable(settings?.title ?? `Thread ${s.sessionId.slice(0, 8)}`),
+        title: printable(settings?.title ?? `${capital(noun)} ${s.sessionId.slice(0, 8)}`),
         agentId: settings?.agentId,
         agent:
           settings?.agentName ??
@@ -70,6 +76,7 @@ export function overview(
           "—",
         cwd: printable(s.cwd || settings?.cwd || ""),
         autoResume: settings?.autoResume ?? false,
+        outsideZed,
         schedules: [],
       };
       byThread.set(s.sessionId, t);
@@ -136,7 +143,9 @@ export function overviewText(
     out.push(`${p.name}  (${p.cwd})`);
     for (const t of p.threads) {
       const who = t.agent === "—" ? "" : `${t.agent} · `;
-      out.push(`  ${who}${t.title}${t.autoResume ? "  [automatic resume on]" : ""}`);
+      out.push(
+        `  ${who}${t.title}${t.outsideZed ? "  [outside Zed]" : ""}${t.autoResume ? "  [automatic resume on]" : ""}`,
+      );
       for (const s of t.schedules) {
         out.push(
           `    ${years ? formatWhenFull(s.dueAt, locale) : formatWhen(s.dueAt, now, locale)} · ${years ? outcomeText(s) : STATUS_WORDS[s.status]} · ${oneLine(s.text)}  [${s.scheduleId.slice(0, 8)}]`,
@@ -144,7 +153,25 @@ export function overviewText(
       }
     }
   }
+  // The schedules page deletes any row; a resume outside Zed can also be cancelled from here.
+  if (groups.some((p) => p.threads.some((t) => t.outsideZed && t.schedules.some(planned))))
+    out.push(
+      "",
+      `To cancel a resume outside Zed: ${rewake("continue --cancel")} lets you pick it (or add its id from the square brackets), or delete it on the schedules page (${rewake("ui")}).`,
+    );
   return out.join("\n");
+}
+
+/** A resume of an agent outside Zed: its own host, not the Zed (ACP) add-on's. */
+export function isOutsideZed(s: Schedule): boolean {
+  return s.host !== undefined && s.host !== "acp";
+}
+
+const planned = (s: Schedule) => !TERMINAL_STATUSES.has(s.status);
+
+/** "Session" from "session". */
+export function capital(word: string): string {
+  return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
 }
 
 /** How late the Zed add-on still sends a resume on its own (src/addon.ts `missedGraceMs`). */
@@ -197,7 +224,7 @@ export function explainSchedule(
       outsideZed: host !== undefined,
       ...(host === undefined && { lateMs: ZED_LATE_MS }),
       cancel: host
-        ? `To cancel all planned resumes: ${rewake("continue --cancel")}`
+        ? `To cancel it: ${rewake(`continue --cancel ${s.scheduleId.slice(0, 8)}`)}`
         : `To cancel it, use the schedules page: ${rewake("ui")}`,
     },
     now,

@@ -1,6 +1,6 @@
 import { RESET_MARGIN_MS } from "./core/resume.js";
 import { loadSettings, saveSettings } from "./core/settings.js";
-import { ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
+import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import { formatAt, formatWhen, parseWhen } from "./core/time.js";
 import {
   armClosed,
@@ -14,6 +14,7 @@ import {
 } from "./hosts/closed.js";
 import { type SessionRecord, SessionRecords } from "./hosts/sessions.js";
 import { rewake } from "./util/command.js";
+import { printable } from "./util/printable.js";
 import { SLEEP_DOCS_URL, type SleepSettings, sleepRisks } from "./util/sleep-settings.js";
 
 /**
@@ -23,15 +24,22 @@ import { SLEEP_DOCS_URL, type SleepSettings, sleepRisks } from "./util/sleep-set
  *
  * One session waiting with a known reset: it's armed at once (the person asked to continue).
  * Several: a numbered list first. No reset time known: preset times, or another one.
- * `--always` / `--ask` turn automatic resume on or off; `--cancel` cancels pending resumes.
+ * `--always` / `--ask` turn automatic resume on or off; `--cancel` cancels pending resumes, and
+ * `--cancel <id>` one of them, by the id `agent-rewake schedules` shows.
  */
 export interface ContinueOptions {
   /** `--always`, `--ask` or `--cancel`; none: choose a session to continue. */
   mode?: "always" | "ask" | "cancel";
+  /** With `--cancel`: only the planned resume whose id starts with this (the lists show eight). */
+  cancelId?: string;
+  /** Names a host that isn't in `hosts` (Codex), for a resume `cancelId` names. */
+  hostOf?: (hostId: string) => NamedHost | undefined;
   hosts: ClosedHost[];
   deps: ClosedDeps;
   interactive: boolean;
   out: (text: string) => void;
+  /** Where a mistake is said (stderr); `out` when absent. */
+  err?: (text: string) => void;
   /** Ask a question; resolves with the typed answer. */
   ask: (question: string) => Promise<string>;
   /** Reads this computer's own sleep settings; not checked when absent. */
@@ -70,6 +78,7 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
   }
   if (o.mode === "cancel") {
     const store = new ScheduleStore(o.deps.stateDir);
+    if (o.cancelId !== undefined) return cancelOne(o, store, o.cancelId);
     const ids = new Set(o.hosts.map((h) => h.id));
     const pending = store
       .list()
@@ -78,46 +87,27 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
       o.out("Nothing to cancel: Rewake isn't set to continue any session.\n");
       return 0;
     }
-    for (const s of pending) {
-      const host = o.hosts.find((h) => h.id === s.host);
-      const place = host ? placeOf(host, s.cwd) : "a session";
-      // A continue already under way: its message was sent, but its run can be stopped.
-      if (!store.cancel(s.scheduleId, now)) {
-        const reopen = host?.reopen ?? `open the session in ${host?.name ?? "its agent"}`;
-        const run = store.get(s.scheduleId)?.attempts.at(-1);
-        if (s.status === "sending" && run?.pid !== undefined && !run.stopped && o.interactive) {
-          const stop = /^y(es)?$/i.test(
-            (
-              await o.ask(
-                `Rewake is continuing ${place} now. Stop it? What it has done so far stays. [y/N] `,
-              )
-            ).trim(),
-          );
-          if (stop) {
-            store.update(
-              s.scheduleId,
-              (x) => ({
-                ...x,
-                attempts: x.attempts.map((a, i) =>
-                  i === x.attempts.length - 1 ? { ...a, stopped: true } : a,
-                ),
-              }),
-              now,
-            );
-            o.out(
-              `Stopping: ${place}. It ends within a few seconds, with no further notification; ${reopen} to see where it got to.\n`,
-            );
-            continue;
-          }
-        }
-        o.out(
-          `Not cancelled: Rewake is already continuing ${place}. It finishes on its own; ${reopen} afterwards to see what it did.\n`,
-        );
-        continue;
+    let chosen = pending;
+    // Several, in a terminal: pick one by its number, or all of them.
+    if (pending.length > 1 && o.interactive) {
+      o.out(
+        `Planned resumes:\n${pending.map((s, i) => `  ${i + 1}. ${about(o, s)}  [${s.scheduleId.slice(0, 8)}]`).join("\n")}\n`,
+      );
+      const answer = (
+        await o.ask(
+          `Which one should Rewake cancel? (1-${pending.length}, "all" for every one, or Enter to keep them) `,
+        )
+      )
+        .trim()
+        .toLowerCase();
+      const one = pending[Number(answer) - 1];
+      if (answer !== "all" && !one) {
+        o.out("Nothing was changed.\n");
+        return 0;
       }
-      o.deps.disarm(s.scheduleId);
-      o.out(`Cancelled: ${place} ${formatAt(s.dueAt, now)}.\n`);
+      chosen = one ? [one] : pending;
     }
+    for (const s of chosen) await cancel(o, store, s);
     return 0;
   }
   const list = waiting(o);
@@ -249,4 +239,100 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
       `To let Rewake do this by itself next time, in every agent (Zed, Claude Code and closed sessions) when the reset is within a day: ${rewake("continue --always")}\n`,
     );
   return 0;
+}
+
+/** The host of a resume, for what Rewake says about it. */
+type NamedHost = Pick<ClosedHost, "name" | "noun" | "reopen">;
+
+function hostFor(o: ContinueOptions, id: string | undefined): NamedHost | undefined {
+  if (id === undefined) return undefined;
+  return o.hosts.find((h) => h.id === id) ?? o.hostOf?.(id);
+}
+
+/**
+ * Cancel one planned resume outside Zed. One already being sent isn't cancelled (and can be
+ * stopped, if the person says so): returns whether it was cancelled or stopped.
+ */
+async function cancel(o: ContinueOptions, store: ScheduleStore, s: Schedule): Promise<boolean> {
+  const now = o.deps.now;
+  const host = hostFor(o, s.host);
+  const place = host ? placeOf(host, s.cwd) : "a session";
+  if (store.cancel(s.scheduleId, now)) {
+    o.deps.disarm(s.scheduleId);
+    o.out(`Cancelled: ${place} ${formatAt(s.dueAt, now)}.\n`);
+    return true;
+  }
+  // A continue already under way: its message was sent, but its run can be stopped.
+  const reopen = host?.reopen ?? `open the session in ${host?.name ?? "its agent"}`;
+  const run = store.get(s.scheduleId)?.attempts.at(-1);
+  if (s.status === "sending" && run?.pid !== undefined && !run.stopped && o.interactive) {
+    const stop = /^y(es)?$/i.test(
+      (
+        await o.ask(
+          `Rewake is continuing ${place} now. Stop it? What it has done so far stays. [y/N] `,
+        )
+      ).trim(),
+    );
+    if (stop) {
+      store.update(
+        s.scheduleId,
+        (x) => ({
+          ...x,
+          attempts: x.attempts.map((a, i) =>
+            i === x.attempts.length - 1 ? { ...a, stopped: true } : a,
+          ),
+        }),
+        now,
+      );
+      o.out(
+        `Stopping: ${place}. It ends within a few seconds, with no further notification; ${reopen} to see where it got to.\n`,
+      );
+      return true;
+    }
+  }
+  o.out(
+    `Not cancelled: Rewake is already continuing ${place}. It finishes on its own; ${reopen} afterwards to see what it did.\n`,
+  );
+  return false;
+}
+
+/** "GitHub Copilot CLI in the "shop" folder at 3:00 PM today" (a Zed message: its time only). */
+function about(o: ContinueOptions, s: Schedule): string {
+  const host = hostFor(o, s.host);
+  return `${host ? `${placeOf(host, s.cwd)} ` : s.host === undefined ? "Zed thread " : ""}${formatAt(s.dueAt, o.deps.now)}`;
+}
+
+/** `continue --cancel <id>`: one planned resume, by the start of its id (the lists show eight). */
+async function cancelOne(o: ContinueOptions, store: ScheduleStore, id: string): Promise<number> {
+  const wanted = id.trim().toLowerCase();
+  const found = wanted
+    ? store.list().filter((s) => s.scheduleId.toLowerCase().startsWith(wanted))
+    : [];
+  const fail = (text: string) => {
+    (o.err ?? o.out)(`agent-rewake: ${text}\n`);
+    return 1;
+  };
+  if (found.length === 0)
+    return fail(
+      `No planned resume starts with "${printable(id)}". The ids are in ${rewake("schedules")}, in square brackets.`,
+    );
+  if (found.length > 1)
+    return fail(
+      `More than one starts with "${printable(id)}". Give one of these:\n${found
+        .map((s) => `  ${s.scheduleId.slice(0, 8)}  ${about(o, s)}`)
+        .join("\n")}`,
+    );
+  const s = found[0] as Schedule;
+  if (s.host === undefined || s.host === "acp")
+    return fail(
+      `That's a message in a Zed thread: change or delete it on the schedules page (${rewake("ui")}), or in the thread's Rewake menu.`,
+    );
+  if (TERMINAL_STATUSES.has(s.status)) {
+    const host = hostFor(o, s.host);
+    o.out(
+      `Nothing to cancel: the resume of ${host ? placeOf(host, s.cwd) : "that session"} ${s.status === "cancelled" ? "was already cancelled" : "has already ended"}.\n`,
+    );
+    return 0;
+  }
+  return (await cancel(o, store, s)) ? 0 : 1;
 }

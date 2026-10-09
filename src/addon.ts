@@ -43,7 +43,14 @@ import {
 } from "./core/options-bridge.js";
 import { type AgentRequest, LinkStore, RequestStore } from "./core/requests.js";
 import { decideArm, decideFire, FAR_RESET_MS } from "./core/resume.js";
-import { applySettings, type KeepAwake, loadSettings, saveSettings } from "./core/settings.js";
+import {
+  applySettings,
+  KEEP_AWAKE_SAVED,
+  KEEP_AWAKE_VALUES,
+  type KeepAwake,
+  loadSettings,
+  saveSettings,
+} from "./core/settings.js";
 import { MAX_FOLLOW_UPS, type Schedule, ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import { DEFAULT_RESUME_PROMPT, ThreadStore } from "./core/threads.js";
 import { clockTime, formatClock, formatWhen, parseWhen, TEXT_LOCALE } from "./core/time.js";
@@ -2218,11 +2225,8 @@ export class SchedulingAddon {
       : now;
     const newThreads = choice === "off" ? "off" : choice === "ask" ? "ask" : "on";
     const autoWhenPromptsSkipped = choice !== "exceptBypass";
-    const keepAwake: KeepAwake = (["plugged-in", "always", "never"] as const).includes(
-      content.keepAwake as KeepAwake,
-    )
-      ? (content.keepAwake as KeepAwake)
-      : current.keepAwake;
+    const keepAwake: KeepAwake =
+      KEEP_AWAKE_VALUES.find((v) => v === content.keepAwake) ?? current.keepAwake;
     saveSettings(this.opts.stateDir, {
       ...current,
       clock,
@@ -2233,16 +2237,7 @@ export class SchedulingAddon {
     applySettings(this.opts.stateDir);
     const changed: string[] = [];
     if (clock !== current.clock) changed.push(`Times now show like ${clockTime(15, 19)}.`);
-    if (keepAwake !== current.keepAwake)
-      changed.push(
-        {
-          "plugged-in":
-            "Rewake keeps this computer awake for resumes and scheduled messages while it's plugged in.",
-          always:
-            "Rewake keeps this computer awake for resumes and scheduled messages, also on battery.",
-          never: "Rewake lets this computer sleep, even with messages scheduled.",
-        }[keepAwake],
-      );
+    if (keepAwake !== current.keepAwake) changed.push(KEEP_AWAKE_SAVED[keepAwake]);
     if (choice !== now)
       changed.push(
         {

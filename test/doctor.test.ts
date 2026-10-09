@@ -551,3 +551,14 @@ describe("helpers", () => {
     expect(findZedApps("linux", dir, {})).toEqual([{ name: "Zed" }]);
   });
 });
+
+describe("doctor: automatic resume turned off", () => {
+  it("says how to turn it back on, in Zed and in a terminal", () => {
+    mkdirSync(join(dir, "state"), { recursive: true });
+    writeFileSync(join(dir, "state", "settings.json"), JSON.stringify({ newThreads: "off" }));
+    const found = run().find((x) => x.text.includes("you chose Never"));
+    expect(found?.fix).toBe(
+      "To change it: Rewake menu → Settings…, or agent-rewake settings new-threads ask",
+    );
+  });
+});

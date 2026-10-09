@@ -34,6 +34,26 @@ export interface Settings {
 export type NewThreads = "ask" | "on" | "off";
 export type KeepAwake = "plugged-in" | "always" | "never";
 
+/** The values each choice takes: the rules Zed's Settings form and `agent-rewake settings` share. */
+export const CLOCKS: readonly Clock[] = ["12h", "24h"];
+export const NEW_THREADS_VALUES: readonly NewThreads[] = ["ask", "on", "off"];
+export const KEEP_AWAKE_VALUES: readonly KeepAwake[] = ["plugged-in", "always", "never"];
+/** The longest resume message kept (a longer one falls back to Rewake's own). */
+export const MAX_RESUME_PROMPT = 16_384;
+
+/** What Rewake says once keep-awake is changed, wherever it was changed. */
+export const KEEP_AWAKE_SAVED: Record<KeepAwake, string> = {
+  "plugged-in":
+    "Rewake keeps this computer awake for resumes and scheduled messages while it's plugged in.",
+  always: "Rewake keeps this computer awake for resumes and scheduled messages, also on battery.",
+  never: "Rewake lets this computer sleep, even with messages scheduled.",
+};
+
+/** A resume message Rewake keeps: some text, not too long. */
+export function validResumePrompt(text: string): boolean {
+  return text.trim() !== "" && text.length <= MAX_RESUME_PROMPT;
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   clock: "12h",
   newThreads: "ask",
@@ -47,19 +67,15 @@ export function loadSettings(stateDir: string): Settings {
       string,
       unknown
     >;
-    const clock = raw.clock === "12h" || raw.clock === "24h" ? raw.clock : DEFAULT_SETTINGS.clock;
-    const newThreads = raw.newThreads === "on" || raw.newThreads === "off" ? raw.newThreads : "ask";
+    const clock = CLOCKS.find((c) => c === raw.clock) ?? DEFAULT_SETTINGS.clock;
+    const newThreads = NEW_THREADS_VALUES.find((v) => v === raw.newThreads) ?? "ask";
     const resumePrompt =
-      typeof raw.resumePrompt === "string" &&
-      raw.resumePrompt.trim() &&
-      raw.resumePrompt.length <= 16_384
+      typeof raw.resumePrompt === "string" && validResumePrompt(raw.resumePrompt)
         ? raw.resumePrompt
         : undefined;
     const autoWhenPromptsSkipped = raw.autoWhenPromptsSkipped !== false;
     const keepAwake =
-      raw.keepAwake === "always" || raw.keepAwake === "never"
-        ? raw.keepAwake
-        : DEFAULT_SETTINGS.keepAwake;
+      KEEP_AWAKE_VALUES.find((v) => v === raw.keepAwake) ?? DEFAULT_SETTINGS.keepAwake;
     return {
       clock,
       newThreads,
