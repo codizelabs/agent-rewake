@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type BinaryTarget,
+  downloadBinaryAgent,
   findBinaryAgent,
   packageExecutable,
   parseWrapArgs,
@@ -233,5 +234,33 @@ describe("launching any registry agent", () => {
       ),
     ).rejects.toThrow(/doesn't match the registry's checksum/);
     expect(existsSync(join(dir, "state", "agents", "bin", "goose", "v_1.18.34"))).toBe(false);
+  });
+
+  it("refuses a download that isn't https, or a command path that leaves the folder", async () => {
+    const target = (o: Partial<BinaryTarget>): BinaryTarget => ({
+      archive: "https://example.test/agent",
+      cmd: "./agent",
+      args: [],
+      env: {},
+      ...o,
+    });
+    const never = (async () => {
+      throw new Error("must not download");
+    }) as unknown as typeof fetch;
+    await expect(
+      downloadBinaryAgent(
+        "agent",
+        "1",
+        target({ archive: "http://example.test/agent" }),
+        join(dir, "state"),
+        never,
+      ),
+    ).rejects.toThrow(/isn't https/);
+    await expect(
+      downloadBinaryAgent("agent", "1", target({ cmd: "./../escape" }), join(dir, "state"), never),
+    ).rejects.toThrow(/isn't inside the download/);
+    await expect(
+      downloadBinaryAgent("agent", "1", target({ cmd: "/abs/escape" }), join(dir, "state"), never),
+    ).rejects.toThrow(/isn't inside the download/);
   });
 });

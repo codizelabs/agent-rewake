@@ -16,6 +16,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Fixed
 
+- **Smaller hardening:** a binary agent is downloaded only over https, and its command path is checked before anything is moved; a session id can't start with a dash; Rewake closes its own state folders to other users if they were left open; the backups Rewake makes of your files never overwrite each other and only the newest five are kept; an address with a user name, password or query (often a key) isn't saved with a session, only that it was set.
 - **A folder name with curly quotes can no longer break a Windows notification:** every quote character PowerShell treats as a quote is now escaped in the notification text.
 - **Planned resumes no longer keep your API keys:** timers started through `at`, `systemd` or Rewake's own waiter now run with a cleaned environment, so keys from the session that planned them aren't saved on disk or used to skip the missing-key check.
 - **Text from an agent can no longer send commands to your terminal through Rewake's lists:** thread titles, folder names and message text are shown with escape and other control characters replaced, in `agent-rewake schedules`, its Markdown snapshot and the schedules page.

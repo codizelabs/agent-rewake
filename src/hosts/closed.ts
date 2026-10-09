@@ -71,11 +71,22 @@ export function sessionEnv(
   env: NodeJS.ProcessEnv,
 ): { env?: Record<string, string>; keysSet?: string[] } {
   const vars: Record<string, string> = {};
+  const carriesSecret: string[] = [];
   for (const name of [...COMMON_VARS, ...(host.settingsVars ?? [])]) {
     const v = env[name];
-    if (v !== undefined && v !== "" && !SECRET_NAME.test(name)) vars[name] = v;
+    if (v === undefined || v === "" || SECRET_NAME.test(name)) continue;
+    // An address with a user name, password or query in it (often a key) is treated as a key:
+    // only that it was set is recorded.
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v) && (/\/\/[^/?#]*@/.test(v) || /[?#]/.test(v))) {
+      carriesSecret.push(name);
+      continue;
+    }
+    vars[name] = v;
   }
-  const keys = (host.keyVars ?? []).filter((k) => env[k] !== undefined && env[k] !== "");
+  const keys = [
+    ...(host.keyVars ?? []).filter((k) => env[k] !== undefined && env[k] !== ""),
+    ...carriesSecret,
+  ];
   return {
     ...(Object.keys(vars).length > 0 && { env: vars }),
     ...(keys.length > 0 && { keysSet: keys }),

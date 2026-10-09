@@ -1,6 +1,16 @@
-import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { homedir, platform } from "node:os";
-import { delimiter, dirname, join, posix, win32 } from "node:path";
+import { basename, delimiter, dirname, join, posix, win32 } from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   applyEdits,
@@ -598,6 +608,30 @@ function stamp(now: Date): string {
   return now.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "-");
 }
 
+/** A backup name that doesn't exist yet: two installs in the same second don't share one. */
+function backupName(target: string, time: string): string {
+  const first = `${target}.agent-rewake-backup-${time}`;
+  if (!existsSync(first)) return first;
+  for (let n = 2; ; n++) if (!existsSync(`${first}-${n}`)) return `${first}-${n}`;
+}
+
+/** Backups of one file kept: the newest few. Older ones are Rewake's own copies, safe to remove. */
+export const BACKUPS_KEPT = 5;
+
+function pruneBackups(target: string): void {
+  try {
+    const prefix = `${basename(target)}.agent-rewake-backup-`;
+    const old = readdirSync(dirname(target))
+      .filter((f) => f.startsWith(prefix))
+      .map((f) => join(dirname(target), f))
+      .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs || (a < b ? 1 : -1))
+      .slice(BACKUPS_KEPT);
+    for (const f of old) rmSync(f, { force: true });
+  } catch {
+    // A backup that can't be tidied stays: nothing depends on it.
+  }
+}
+
 /**
  * Write the planned edits. Each existing file is first copied to
  * `<file>.agent-rewake-backup-<time>`, then replaced atomically, keeping its permissions. Symlinked
@@ -615,9 +649,10 @@ export function applyPlan(plan: Plan, now: Date = new Date()): string[] {
       mode = statSync(target).mode & 0o777;
       // A file saved with a byte-order mark keeps it (read() strips it for editing).
       if (readFileSync(target, "utf8").charCodeAt(0) === 0xfeff) bom = "\uFEFF";
-      const backup = `${target}.agent-rewake-backup-${stamp(now)}`;
-      copyFileSync(target, backup);
+      const backup = backupName(target, stamp(now));
+      copyFileSync(target, backup, constants.COPYFILE_EXCL);
       backups.push(backup);
+      pruneBackups(target);
     }
     const tmp = writeTempExclusive(target, bom + change.after, mode);
     // Windows refuses to replace a read-only file: make it writable, then restore its mode.
