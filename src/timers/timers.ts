@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { RESUME_TIMEOUT_MS } from "../hosts/host.js";
 import { ensurePrivateDir } from "../util/paths.js";
 import { SECRET_NAME } from "../util/secrets.js";
 
@@ -387,6 +388,16 @@ export function localIso(at: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${off >= 0 ? "+" : "-"}${p(Math.trunc(off / 60))}:${p(off % 60)}`;
 }
 
+/**
+ * How long Task Scheduler lets a task run before it stops it ("By default, a task will be stopped
+ * 72 hours after it starts to run": learn.microsoft.com/windows/win32/api/taskschd/
+ * nf-taskschd-itasksettings-get_executiontimelimit; the XML element is
+ * taskschedulerschema-executiontimelimit-settingstype-element).
+ * `fire` may run a headless resume for up to RESUME_TIMEOUT_MS and stops it itself then, so the
+ * task's own limit is an hour longer: Task Scheduler never cuts a resume off before Rewake does.
+ */
+export const TASK_TIME_LIMIT = `PT${Math.ceil(RESUME_TIMEOUT_MS / 3_600_000) + 1}H`;
+
 export function taskXml(
   id: string,
   at: number,
@@ -411,7 +422,7 @@ export function taskXml(
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <ExecutionTimeLimit>${TASK_TIME_LIMIT}</ExecutionTimeLimit>
   </Settings>
   <Actions Context="Author">
     <Exec><Command>conhost.exe</Command><Arguments>--headless "${xml(node)}" "${xml(cli)}" fire ${id}${stateDir ? ` --state-dir "${xml(stateDir)}"` : ""}</Arguments></Exec>

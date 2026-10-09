@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { applyPlan, type FileChange, type Plan } from "../../install.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
 import { rewake } from "../../util/command.js";
+import { readJsonFile } from "../../util/fs.js";
+import { findOnWindows } from "../../util/spawn.js";
 
 /**
  * `agent-rewake install --only cursor` (a preview): Cursor's own agent (the Agent panel, the Agents
@@ -34,6 +36,7 @@ export function cursorFound(
   env: NodeJS.ProcessEnv,
   home: string,
   platform: NodeJS.Platform,
+  exists: (path: string) => boolean = existsSync,
 ): boolean {
   const apps =
     platform === "darwin"
@@ -43,13 +46,13 @@ export function cursorFound(
           ? [join(env.LOCALAPPDATA, "Programs", "cursor", "Cursor.exe")]
           : []
         : ["/usr/share/cursor", "/opt/Cursor", "/opt/cursor"];
-  if (apps.some((a) => existsSync(a))) return true;
-  const sep = platform === "win32" ? ";" : ":";
-  const names = platform === "win32" ? ["cursor.cmd", "cursor.exe"] : ["cursor"];
+  if (apps.some((a) => exists(a))) return true;
+  // A copied Windows environment is a plain object whose key is `Path`, not `PATH`.
+  if (platform === "win32") return findOnWindows("cursor", env, exists) !== undefined;
   return (env.PATH ?? "")
-    .split(sep)
+    .split(":")
     .filter(Boolean)
-    .some((d) => names.some((n) => existsSync(join(d, n))));
+    .some((d) => exists(join(d, "cursor")));
 }
 
 const OURS = /\bhook cursor\b/;
@@ -57,7 +60,8 @@ type Entry = Record<string, unknown> & { command?: unknown };
 
 function readHooks(file: string): Record<string, unknown> | undefined {
   try {
-    const v = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    // A byte-order mark, as Notepad and Windows PowerShell 5.1 may write, is not an error.
+    const v = readJsonFile(file);
     return typeof v === "object" && v !== null && !Array.isArray(v)
       ? (v as Record<string, unknown>)
       : undefined;

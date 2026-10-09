@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { RESUME_TIMEOUT_MS } from "../src/hosts/host.js";
 import {
   armTimer,
   atTime,
@@ -292,6 +293,17 @@ describe("Windows: Task Scheduler", () => {
     expect(xml).toContain(
       `<Arguments>--headless "C:\\node\\node.exe" "C:\\state\\bin\\agent-rewake.js" fire ${ID}</Arguments>`,
     );
+  });
+
+  it("lets the task run longer than the longest resume, so Task Scheduler never stops one first", () => {
+    const xml = taskXml(ID, AT, "C:\\node\\node.exe", "C:\\state\\bin\\agent-rewake.js");
+    const limit = /<ExecutionTimeLimit>(.*?)<\/ExecutionTimeLimit>/.exec(xml)?.[1];
+    // An ISO 8601 duration, such as PT4H.
+    const m = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(limit ?? "");
+    expect(m).not.toBeNull();
+    const [d = 0, h = 0, min = 0, s = 0] = (m ?? []).slice(1).map((x) => Number(x ?? 0));
+    const ms = (((d * 24 + h) * 60 + min) * 60 + s) * 1000;
+    expect(ms).toBeGreaterThan(RESUME_TIMEOUT_MS);
   });
 });
 
