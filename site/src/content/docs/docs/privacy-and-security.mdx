@@ -1,0 +1,92 @@
+---
+title: "Privacy and security"
+description: "What Agent Rewake runs, stores and changes on your computer, what it never does, how to undo it, and what it can't protect you from."
+tableOfContents:
+  maxHeadingLevel: 2
+head:
+  - tag: meta
+    attrs:
+      property: og:title
+      content: "Privacy and security · Agent Rewake"
+  - tag: meta
+    attrs:
+      name: twitter:title
+      content: "Privacy and security · Agent Rewake"
+  - tag: meta
+    attrs:
+      name: twitter:description
+      content: "What Agent Rewake runs, stores and changes on your computer, what it never does, how to undo it, and what it can't protect you from."
+---
+
+Rewake sends messages into your agent while you may be away, so it should be clear about what it does on your computer. This page is the whole picture. It is written against the code and the docs of the current release; if something here and the code disagree, that is a bug: [tell us](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+
+## What Rewake never does
+
+- **It never approves anything for you.** A permission prompt during a resumed reply waits for you.
+- **It never adds a flag that skips or widens permissions.** A resumed session is never given more permission than it had. The one approval flag Rewake passes is Gemini CLI's own default mode, which never widens yours. In Zed, a setting decides whether automatic resume also covers threads that bypass permission prompts, and automatic resume itself starts as "ask when a new thread opens".
+- **It never types into your terminal.** It reaches each agent through that agent's own plugin, hooks or resume command, and in Zed, JetBrains IDEs and Devin Desktop through the connection between the editor and the agent. It doesn't send keystrokes to a window.
+- **It never resumes a limit that waiting won't fix.** Credit, billing and spending limits get a message, not a resume.
+- **It never sends what you didn't choose.** It sends only the messages you scheduled, ones you approved in the thread, or the resume message you turned on.
+- **It sends nothing about you anywhere,** and it never sees your credentials: sign-in goes through each agent's own flow. Its only network use is fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it.
+- **It doesn't put message text in its logs.** Logs hold metadata only.
+
+## What runs where
+
+Everything runs on your computer. Nothing runs in the cloud.
+
+| Where | What runs |
+|---|---|
+| Zed, JetBrains IDEs, Devin Desktop | Rewake runs as the agent's stand-in on the [Agent Client Protocol](https://agentclientprotocol.com) connection, started by the editor. It starts the real agent and passes everything through, so it only runs while the editor runs it |
+| Claude Code (terminal, VS Code, Cursor) | A plugin that Claude Code loads, inside the session, for as long as the session is open |
+| Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI | The agent's own hooks tell Rewake about a limit. At the reset, your system's own timer (launchd on macOS, Task Scheduler on Windows, a systemd user timer or `at` on Linux) runs Rewake once. On Linux without systemd or `at` (WSL, containers), Rewake runs its own background process, only while a resume is waiting |
+| Cursor's own agent | Two hooks in `~/.cursor/hooks.json`. One waits in the background for the time you chose, while that Cursor window is open |
+
+On macOS and Linux, installing Codex, Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI also adds a login item, so planned resumes are set again after a restart. Hooks, timers and the login item start Rewake through a small script, `bin/rewake-node`, in Rewake's own folder.
+
+## What it stores, and where
+
+Rewake keeps its data in one folder of its own, with owner-only permissions. `agent-rewake doctor --details` prints where it is; plain `doctor` names no folders, accounts or keys, so you can paste its output anywhere.
+
+- **Your scheduled messages and per-thread settings**, such as whether automatic resume is on.
+- **For a session it may continue:** the session's id, its folder, the limit it hit and when, and the agent's own settings the session had (such as `COPILOT_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME` or a provider address), so a closed session continues the way it ran.
+- **The last error line of a failed continue,** with your home folder shown as `~` and anything that looks like a key, token or email address removed. It is shown by `continue` and `doctor`.
+- **A metadata-only log:** what happened and when, never message text, and the agent's program name rather than its full path.
+
+Rewake never stores an API key. If a session used a key exported in your shell profile, Rewake doesn't continue it and says so; the docs explain [the fix](../#outside-zed-previews). Cursor's hook data includes your account's email address; Rewake keeps only the chat id, its folder and the limit.
+
+## Your message stays off the command line
+
+A command line can be read by every other process on the computer. When Rewake continues a closed Copilot CLI or Gemini CLI session, it hands the agent the message on standard input. For Grok Build, whose CLI reads no prompt from standard input, it uses a file only you can read, deleted the moment the run ends. **Antigravity CLI is the exception:** its CLI documents no other way to take a prompt, so on that preview the message is visible in the process list while the run lasts. Nothing leaves your computer either way.
+
+## What install changes, and how to undo it
+
+`npx @codizelabs/agent-rewake install` shows every change first and asks once. Nothing is written before you answer.
+
+| Place | What `install` changes |
+|---|---|
+| Zed | Entries for the agents you pick, in Zed's settings. Each file is backed up first, and your comments and settings are kept |
+| Claude Code | Rewake's plugin, added with Claude Code's own plugin commands |
+| Codex | Hooks, which Codex asks you to trust before they run |
+| Gemini CLI | Rewake's extension, added with Gemini CLI's own command |
+| Copilot CLI, Grok Build | A hooks file of Rewake's own in the agent's folder. Nothing in your settings changes |
+| Antigravity CLI | A plugin folder of Rewake's own, with one hook |
+| Cursor | Two hooks added to `~/.cursor/hooks.json`; yours stay |
+| JetBrains IDEs, Devin Desktop | Two entries, "Claude Agent (with Rewake)" and "Codex (with Rewake)", added to the IDE's list of ACP agents; nothing else in that file changes |
+| macOS, Linux | A login item, for the previews that use a system timer |
+
+To undo it, run `npx @codizelabs/agent-rewake uninstall`. It shows the list, asks once, and takes Rewake out of every place it was set up in. To keep some places, name the others with `--only`, or leave some out with `--skip`. It leaves Rewake's own folder, with your scheduled messages; `doctor --details` shows where, if you want to delete that too.
+
+## What it can't protect you from
+
+- **It acts with your account while you may be away.** What Rewake sends runs with the thread's permission settings. Turn on automatic resume only for threads you would let run unattended.
+- **It doesn't sandbox the agent.** What the agent does with your files and tools is up to the agent and its settings.
+- **What an agent writes can be steered.** Some agents report a usage limit only as the last line of their reply, and a model steered by a file or web page could write such a line. In Zed threads that bypass permission prompts, Rewake asks first instead of resuming on its own when the limit was read only from that line, and always if you chose to leave those threads out of automatic resume. Rewake follows the reset time the agent reports, or the time you pick, and a reset more than a day away is confirmed with you first.
+- **Your computer's own security is outside it.** Anything else running as you can read what you can read, including Rewake's folder.
+
+## The package
+
+Rewake is open source under the Apache-2.0 license, and the workflow that publishes it is in the repository ([`publish.yml`](https://github.com/codizelabs/agent-rewake/blob/main/.github/workflows/publish.yml)). It publishes through npm's trusted publishing, so no npm token is stored anywhere. `npx` downloads the package from npm when you run it, and your agents talk to their own services as they always did; that traffic is theirs, not Rewake's.
+
+## Report a vulnerability
+
+Please don't open a public issue. Use the repository's **Security** tab and choose **Report a vulnerability**. What's in scope, and what to expect, is in [SECURITY.md](https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md).

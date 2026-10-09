@@ -1,0 +1,60 @@
+---
+/**
+ * What changed in each release, built from CHANGELOG.md. Released versions only (see
+ * src/lib/changelog.ts); the file stays the source, so this page can't drift from it.
+ */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import changelog from "../../../CHANGELOG.md?raw";
+import { parseChangelog } from "../lib/changelog";
+
+const releases = parseChangelog(changelog);
+const slug = (v: string) => `v${v.replaceAll(".", "-")}`;
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
+const latest = releases[0];
+const description = `What changed in each released version of Agent Rewake, newest first${latest ? `: the latest is ${latest.version}, released ${latest.date}` : ""}. Rewake is free and open source.`;
+const pretty = (iso: string) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "Changelog",
+    description,
+    tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 2 },
+    // A shared link says which page it is. (Starlight sets the description, URL and canonical.)
+    head: [
+      { tag: "meta", attrs: { property: "og:title", content: "Changelog · Agent Rewake" } },
+      { tag: "meta", attrs: { name: "twitter:title", content: "Changelog · Agent Rewake" } },
+      { tag: "meta", attrs: { name: "twitter:description", content: description } },
+    ],
+  }}
+  headings={releases.map((r) => ({ depth: 2, slug: slug(r.version), text: r.version }))}
+>
+  <p>
+    Every released version of Agent Rewake, newest first, as written in the project's
+    <a href="https://github.com/codizelabs/agent-rewake/blob/main/CHANGELOG.md">CHANGELOG.md</a>. Only versions you can install are listed here. To update,
+    follow <a href={`${base}docs/#update`}>the two steps in the docs</a>.
+  </p>
+  {
+    releases.map((r) => (
+      <section class="release" aria-labelledby={slug(r.version)}>
+        <h2 id={slug(r.version)}>{r.version}</h2>
+        <p class="release-date"><time datetime={r.date}>{pretty(r.date)}</time></p>
+        {r.groups.map((g) => (
+          <>
+            {g.heading && <h3>{g.heading}</h3>}
+            <Fragment set:html={g.html} />
+          </>
+        ))}
+      </section>
+    ))
+  }
+</StarlightPage>
+
+<style>
+  .release-date {
+    margin-top: -0.5rem;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+  }
+</style>
