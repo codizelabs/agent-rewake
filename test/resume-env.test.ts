@@ -69,6 +69,19 @@ describe("sessionEnv", () => {
       JSON.stringify(sessionEnv(host, { ...shell, COPILOT_PROVIDER_API_KEY: "sk-secret" })),
     ).not.toContain("sk-secret");
   });
+
+  it("doesn't record an address that carries a user name, password or query (often a key)", () => {
+    for (const url of [
+      "https://user:pw@llm.example/v1",
+      "https://llm.example/v1?api_key=abc123",
+      "https://llm.example/v1#token=abc123",
+    ]) {
+      const r = sessionEnv(host, { ...shell, COPILOT_PROVIDER_BASE_URL: url });
+      expect(JSON.stringify(r)).not.toMatch(/pw@|abc123/);
+      expect(r.env).not.toHaveProperty("COPILOT_PROVIDER_BASE_URL");
+      expect(r.keysSet).toContain("COPILOT_PROVIDER_BASE_URL");
+    }
+  });
 });
 
 describe("a resume from a timer", () => {

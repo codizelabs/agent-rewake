@@ -129,3 +129,27 @@ describe("doctor's check of Zed's agent entries", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("ensurePrivateDir", () => {
+  it.skipIf(process.platform === "win32")(
+    "closes one of Rewake's own folders that was left open, only when asked to",
+    async () => {
+      const { mkdtempSync, chmodSync, statSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const { ensurePrivateDir } = await import("../src/util/paths.js");
+      const base = mkdtempSync(join(tmpdir(), "rewake-private-"));
+      try {
+        const open = join(base, "open");
+        ensurePrivateDir(open);
+        chmodSync(open, 0o755);
+        ensurePrivateDir(open);
+        expect(statSync(open).mode & 0o777).toBe(0o755); // somebody else's folder: left alone
+        ensurePrivateDir(open, { tighten: true });
+        expect(statSync(open).mode & 0o777).toBe(0o700); // Rewake's own: closed
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    },
+  );
+});

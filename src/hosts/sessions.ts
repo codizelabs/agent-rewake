@@ -58,9 +58,12 @@ export interface SessionLimit extends HostLimit {
 /** A short sleep without a timer (hooks are short synchronous runs). */
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 
-/** Session ids become file names: only the shapes agents use. */
+/**
+ * Session ids become file names and command arguments: only the shapes agents use, and never a
+ * leading "-" (which a command would read as an option).
+ */
 export const safeSessionId = (id: unknown): id is string =>
-  typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id);
+  typeof id === "string" && /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/.test(id);
 
 function valid(v: unknown, host: string): v is SessionRecord {
   if (typeof v !== "object" || v === null) return false;
@@ -98,7 +101,7 @@ export class SessionRecords {
   put(record: SessionRecord): void {
     if (!safeSessionId(record.sessionId) || record.host !== this.host) return;
     writeFileAtomic(
-      ensurePrivateDir(this.dir),
+      ensurePrivateDir(this.dir, { tighten: true }),
       `${record.sessionId}.json`,
       `${JSON.stringify(record)}\n`,
     );
