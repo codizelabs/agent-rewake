@@ -12,7 +12,7 @@ import {
   type SendResult,
 } from "../src/hosts/host.js";
 import { type FireDeps, fire, notice, SENDING_STALE_MS } from "../src/timers/fire.js";
-import type { TimerHost } from "../src/timers/timers.js";
+import { armTimer, type TimerHost, utcCalendar } from "../src/timers/timers.js";
 
 registerHost("test");
 
@@ -146,6 +146,57 @@ describe("fire", () => {
     expect(await fire(r.scheduleId, deps)).toBe("early");
     expect(sent).toEqual([]);
     expect(store.get(r.scheduleId)?.status).toBe("scheduled");
+  });
+
+  it("sets a new timer for the right moment when its timer ran early and none is left", async () => {
+    // The clock went back an hour (the repeated hour when daylight saving ends): the timer ran, the
+    // resume isn't due, and nothing else would wake it while the person is away.
+    const r = resume();
+    const { deps, sent, calls } = setup({ now: NOW - 3_600_000 });
+    expect(await fire(r.scheduleId, deps)).toBe("early");
+    expect(sent).toEqual([]);
+    const armedFor = calls.filter((c) => c[0] === "systemd-run");
+    expect(armedFor).toHaveLength(1);
+    expect(armedFor[0]).toContain(`--unit=codizelabs-agent-rewake-${r.scheduleId}-r1`);
+    expect(armedFor[0]).toContain(`--on-calendar=${utcCalendar(NOW)}`);
+    expect(store.get(r.scheduleId)).toMatchObject({ status: "scheduled", earlyRearms: 1 });
+    expect(store.get(r.scheduleId)?.dueAt).toBe(NOW);
+  });
+
+  it("stops setting new timers after a few early runs, leaving the rest to the sweep", async () => {
+    const r = resume({ earlyRearms: 3 });
+    const { deps, calls } = setup({ now: NOW - 3_600_000 });
+    expect(await fire(r.scheduleId, deps)).toBe("early");
+    expect(calls.filter((c) => c[0] === "systemd-run")).toEqual([]);
+    expect(store.get(r.scheduleId)?.earlyRearms).toBe(3);
+  });
+
+  it("macOS: a new timer after a time-zone change, none when its timer is still right", async () => {
+    const r = resume();
+    const { deps, calls } = setup({ now: NOW - 3_600_000 });
+    const timers: TimerHost = {
+      ...(deps.timers as TimerHost),
+      platform: "darwin",
+      // launchd has the job loaded.
+      run: (command, args) => {
+        calls.push([command, ...args]);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+    const mac = { ...deps, timers };
+    // Armed for a moment an hour away from the resume's time: the plist's local time is wrong.
+    armTimer(r.scheduleId, NOW + 3_600_000, timers);
+    calls.length = 0;
+    expect(await fire(r.scheduleId, mac)).toBe("early");
+    expect(calls.some((c) => c[0] === "launchctl" && c[1] === "bootstrap")).toBe(true);
+    expect(store.get(r.scheduleId)?.earlyRearms).toBe(1);
+    // launchd's own run-at-load of a correct timer is left alone.
+    const ok = resume();
+    armTimer(ok.scheduleId, NOW, timers);
+    calls.length = 0;
+    expect(await fire(ok.scheduleId, mac)).toBe("early");
+    expect(calls.some((c) => c[1] === "bootstrap")).toBe(false);
+    expect(store.get(ok.scheduleId)?.earlyRearms).toBeUndefined();
   });
 
   it("only notifies when the session is open: never a second writer", async () => {

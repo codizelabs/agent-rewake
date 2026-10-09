@@ -88,6 +88,8 @@ export interface Schedule {
   sessionRef?: Record<string, string>;
   /** Times a resume was put back after the agent was still limited (missing = 0). */
   rearms?: number;
+  /** Times a timer ran before its time and a new one was set for the right moment (missing = 0). */
+  earlyRearms?: number;
 }
 
 /**
@@ -188,7 +190,9 @@ export function validateSchedule(value: unknown): Schedule | undefined {
     (s.host === undefined || (typeof s.host === "string" && KNOWN_HOSTS.has(s.host))) &&
     (s.sessionRef === undefined || validSessionRef(s.sessionRef)) &&
     (s.rearms === undefined ||
-      (typeof s.rearms === "number" && Number.isInteger(s.rearms) && s.rearms >= 0));
+      (typeof s.rearms === "number" && Number.isInteger(s.rearms) && s.rearms >= 0)) &&
+    (s.earlyRearms === undefined ||
+      (typeof s.earlyRearms === "number" && Number.isInteger(s.earlyRearms) && s.earlyRearms >= 0));
   return ok ? (value as Schedule) : undefined;
 }
 

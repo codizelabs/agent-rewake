@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { basename } from "node:path";
 import { decideArm, FAR_RESET_MS, RESET_MARGIN_MS } from "../core/resume.js";
 import { loadSettings, type Settings } from "../core/settings.js";
@@ -266,17 +267,49 @@ export function onPrompt(host: ClosedHost, sessionId: string, cwd: string, d: Cl
   }
 }
 
+/**
+ * A session's history this big (the agent's own transcript file) is worth a warning before it is
+ * continued: continuing re-reads all of it, after the agent's cache has expired, and that counts
+ * against the person's plan. A rough guide taken from the file's size, not a token count.
+ */
+export const LARGE_HISTORY_BYTES = 5 * 1024 * 1024;
+
+/** A file's size in bytes from its directory entry, without reading it; undefined if unknown. */
+export function fileBytes(path: unknown): number | undefined {
+  if (typeof path !== "string" || path === "") return undefined;
+  try {
+    const s = statSync(path);
+    return s.isFile() ? s.size : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** One plain sentence for a continue of a large session, or nothing below the threshold. */
+export function largeHistoryText(host: ClosedHost, bytes: number | undefined): string | undefined {
+  if (bytes === undefined || bytes < LARGE_HISTORY_BYTES) return undefined;
+  const mb = Math.round(bytes / (1024 * 1024));
+  return `This ${host.noun ?? "session"} is large (about ${mb} MB of history); continuing it re-reads that and uses your plan.`;
+}
+
 export function onLimit(
   host: ClosedHost,
   sessionId: string,
   cwd: string,
   limit: Omit<SessionLimit, "seenAt">,
   d: ClosedDeps,
+  /** The agent's transcript file, where its hook gives one: only its size is looked at. */
+  historyFile?: unknown,
 ): void {
-  new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (r) => ({
-    ...r,
-    limit: { ...limit, seenAt: d.now },
-  }));
+  const bytes = fileBytes(historyFile);
+  new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (r) => {
+    const { historyBytes: _old, ...rest } = r;
+    return {
+      ...rest,
+      limit: { ...limit, seenAt: d.now },
+      ...(bytes !== undefined && { historyBytes: bytes }),
+    };
+  });
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   armedText,
   type ClosedDeps,
   type ClosedHost,
+  largeHistoryText,
   placeOf,
   stillOpen,
   unanswered,
@@ -235,6 +236,8 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
   }
   armClosed(chosen.host, chosen.record, at, o.deps);
   o.out(`${armedText(chosen.host, chosen.record.cwd, at, now)}\n`);
+  const large = largeHistoryText(chosen.host, chosen.record.historyBytes);
+  if (large) o.out(`${large}\n`);
   // Nothing of Rewake's runs while it waits here, so any sleep setting counts.
   const risks = o.sleepSettings ? sleepRisks(o.sleepSettings(), "none") : [];
   if (risks.length > 0)

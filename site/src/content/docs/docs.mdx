@@ -109,6 +109,8 @@ In JetBrains IDEs (AI Assistant 2026.2 or newer), run `npx @codizelabs/agent-rew
 
 For Claude Code, Copilot CLI, Gemini CLI and Grok Build: Rewake continues a closed session from a system timer, which starts the agent without your shell profile. Rewake remembers each session's own settings (such as `COPILOT_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME` or a provider address) and gives them back to it. It never stores an API key: if the session used a key exported in your shell profile (such as `GEMINI_API_KEY`, `XAI_API_KEY` or Copilot's `GH_TOKEN`), the timer can't see it, so Rewake doesn't continue and tells you why. To have Rewake continue those sessions, sign in to the agent and remove the key from your shell profile. For Codex and Antigravity CLI, keep their default folders: a `CODEX_HOME` set only in your shell profile isn't seen.
 
+Continuing a long session re-reads all of its history, and that uses your plan like any message you type, because the agent's cache has expired by the time the limit resets. Where the agent gives Rewake the path of its history file (Gemini CLI and Cursor), `agent-rewake continue` looks at the file's size, never its content, and when it is 5 MB or more it adds "This session is large (about N MB of history); continuing it re-reads that and uses your plan." It's a size, not a count of tokens, and it only warns: nothing is paused.
+
 While Rewake continues a closed session, the agent runs in the background with no window. A notification says when it starts and when it's done. To stop it, run `agent-rewake continue --cancel` (or `npx @codizelabs/agent-rewake continue --cancel`) and answer **y**: what it has done so far stays. Rewake stops a run that is still going after three hours.
 
 On macOS and Linux, installing Codex, Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI or Cursor also adds a login item, so planned resumes are set again after a restart (macOS may show "Background Items Added"; it's listed as "node", which runs Agent Rewake, under Login Items, Allow in the Background). It's removed when you uninstall the last of them. To turn it off on its own: on macOS switch off "node" in **System Settings → General → Login Items**; on Linux run `systemctl --user disable agent-rewake-sweep.service` (or delete `~/.config/autostart/agent-rewake-sweep.desktop`). Planned resumes then wait until you next open an agent after a restart.
@@ -356,6 +358,7 @@ You can also ask the agent ("check the CI run again in 30 minutes"). It proposes
 
 - **Rewake → Schedules** shows this thread's messages.
 - **Rewake → Change a scheduled message…** changes the time or text, sends it now, pauses or deletes it.
+- **What will happen at the time:** `agent-rewake schedules` lists each message with an id in square brackets. `agent-rewake schedules --explain <id>` says what Rewake will do then and what could stop it (you typing in the thread, the agent continuing on its own, the thread being open, a later usage limit, the computer being off), without sending anything.
 - **Every thread at once:** run the Zed task **Agent Rewake: schedules** (command palette → *task: spawn*), or `agent-rewake ui` in any terminal. Add `--keybinding` to `install` for ⌘⌥R (Ctrl+Alt+R elsewhere; on Windows, Ctrl+Alt can be AltGr, so change it in Zed's `keymap.json` if it types a character).
 
 ### Settings
@@ -496,6 +499,7 @@ Everything here is also in the Rewake menu.
 | `agent-rewake doctor [--details]` | Checks your setup: Zed, each agent preview, sleep settings, and what to do next; `--details` adds versions and folders for bug reports |
 | `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |
 | `agent-rewake schedules [--all] [--json]` | List scheduled messages |
+| `agent-rewake schedules --explain <id>` | Say in plain words what Rewake will do for one scheduled message or resume (`<id>` is the eight characters in square brackets in the list), and what could stop it. Sends nothing and changes nothing |
 | `agent-rewake setup zed` | Print the Zed entries, to add by hand |
 | `agent-rewake --version`, `--help` | |
 | `agent-rewake --wrap-registry <id>`, `--wrap-command <json>`, `-- <cmd>`, `mcp`, `hook <agent> <event>`, `fire <id>`, `wait`, `sweep` | Started by Zed, an agent, a timer or the login item, not by you |

@@ -35,6 +35,11 @@ export interface SessionRecord {
   lastPromptAt?: number;
   limit?: SessionLimit;
   /**
+   * The size of the agent's transcript file when the limit was seen, where the hook gives its path
+   * (from the file's size only; the file is never read for this). For `continue`'s large-session note.
+   */
+  historyBytes?: number;
+  /**
    * The agent's own settings variables as the session had them (its home folder, provider base
    * URL…: never a key), so a resume from a timer, which starts without the person's shell, finds
    * the same session and setup.

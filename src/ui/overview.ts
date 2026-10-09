@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { explainResume } from "../core/explain.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { ThreadStore } from "../core/threads.js";
 import { formatWhen, TEXT_LOCALE } from "../core/time.js";
@@ -109,6 +110,65 @@ export function overviewText(groups: ProjectGroup[], now: number, locale?: strin
     }
   }
   return out.join("\n");
+}
+
+/** How late the Zed add-on still sends a resume on its own (src/addon.ts `missedGraceMs`). */
+const ZED_LATE_MS = 15 * 60_000;
+
+/** The resume `--explain` names: a full id, or the start of one (the lists show eight characters). */
+export function explainSchedule(
+  stateDir: string,
+  idPrefix: string,
+  now: number,
+  hostOf: (hostId: string) => { name: string; noun: string } | undefined,
+  locale?: string,
+): { ok: true; text: string } | { ok: false; error: string } {
+  const wanted = idPrefix.trim().toLowerCase();
+  const found = wanted
+    ? new ScheduleStore(stateDir)
+        .list()
+        .filter((s) => s.scheduleId.toLowerCase().startsWith(wanted))
+    : [];
+  if (found.length === 0)
+    return {
+      ok: false,
+      error: `No scheduled message starts with "${idPrefix}". The ids are in ${rewake("schedules --all")}, in square brackets.`,
+    };
+  if (found.length > 1)
+    return {
+      ok: false,
+      error: `More than one starts with "${idPrefix}". Give a few more characters of the id.`,
+    };
+  const s = found[0] as Schedule;
+  const host = s.host && s.host !== "acp" ? hostOf(s.host) : undefined;
+  const folder = s.cwd ? basename(s.cwd) : "";
+  const title = new ThreadStore(stateDir).get(s.sessionId)?.title;
+  const where = host
+    ? folder
+      ? `${host.name} in the "${folder}" folder`
+      : host.name
+    : title
+      ? `The Zed thread "${title}"`
+      : `The Zed thread ${s.sessionId.slice(0, 8)}`;
+  const lines = explainResume(
+    {
+      dueAt: s.dueAt,
+      status: s.status,
+      statusWord: STATUS_WORDS[s.status],
+      kind: s.kind,
+      text: s.text,
+      where,
+      noun: host?.noun ?? "thread",
+      outsideZed: host !== undefined,
+      ...(host === undefined && { lateMs: ZED_LATE_MS }),
+      cancel: host
+        ? `To cancel all planned resumes: ${rewake("continue --cancel")}`
+        : `To cancel it, use the schedules page: ${rewake("ui")}`,
+    },
+    now,
+    locale,
+  );
+  return { ok: true, text: lines.join("\n") };
 }
 
 /** Markdown overview, opened in a Zed tab via `/rewake page`. */
