@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **The landing page shows a real Claude Code session.** The hero's drawn illustration is replaced by a recording of Claude Code in a terminal hitting its usage limit at night, Rewake asking, and the same session continuing after the 3:00 AM reset, played back as text with play, pause and jumps to each moment.
+
 ### Added
 
 - **Keeping the computer awake while a resume is due now also works on Linux and Windows:** on Linux with systemd Rewake uses `systemd-inhibit`, on Windows a hidden PowerShell holding the system awake, both tied to Rewake's process so they end with it, and "while plugged in" is honoured on both. Only macOS has been tried by hand.

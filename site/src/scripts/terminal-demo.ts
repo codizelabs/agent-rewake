@@ -9,7 +9,8 @@ interface Data {
   start: number;
   marks: { limit: number; armed: number; continued: number; end: number };
   frames: number[][];
-  lines: string[];
+  /** Each distinct line: runs of [text, css, classes]. */
+  lines: [string, string, string][][];
   text: string[];
 }
 
@@ -31,6 +32,26 @@ function setUp(root: HTMLElement) {
   const progress = root.querySelector<HTMLInputElement>("[data-term-progress]");
   if (!raw || !screen || !time || !state || !play || !progress) return;
   const d = JSON.parse(raw) as Data;
+
+  // Each line built once from text nodes (never parsed as HTML), then copied.
+  const built = new Map<number, HTMLElement>();
+  const line = (id: number) => {
+    let el = built.get(id);
+    if (!el) {
+      el = document.createElement("span");
+      el.className = "term-line";
+      for (const [text, css, cls] of d.lines[id] ?? []) {
+        const run = document.createElement("span");
+        if (css) run.style.cssText = css;
+        if (cls) run.className = cls;
+        run.textContent = text;
+        el.append(run);
+      }
+      el.append("\n");
+      built.set(id, el);
+    }
+    return el;
+  };
 
   // The playback timeline: recorded times with long pauses shortened, and the night (the longest
   // pause between the limit and the continue) shown as the clock running fast.
@@ -95,10 +116,7 @@ function setUp(root: HTMLElement) {
     const i = frameAt(v);
     if (i !== shown) {
       shown = i;
-      screen.innerHTML = (d.frames[i] ?? [])
-        .slice(1)
-        .map((id) => d.lines[id] ?? "")
-        .join("");
+      screen.replaceChildren(...(d.frames[i] ?? []).slice(1).map((id) => line(id).cloneNode(true)));
     }
     const r = realAt(v);
     const s = stateAt(r);

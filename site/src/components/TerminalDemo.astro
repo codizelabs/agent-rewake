@@ -44,16 +44,22 @@ const lineHtml = (runs: Run[]) =>
     })
     .join("")}\n</span>`;
 
-// Each distinct line once; frames list their lines by index.
-const dictionary: string[] = [];
+// Each distinct line once, as runs of [text, css, classes]; frames list their lines by index.
+type Cell = [string, string, string];
+const dictionary: Cell[][] = [];
 const index = new Map<string, number>();
 const lineId = (runs: Run[]) => {
-  const html = lineHtml(runs);
-  let id = index.get(html);
+  const cells: Cell[] = runs.map(([text, fg, bg, flags]) => [
+    text,
+    style(fg, bg),
+    [...flags].map((f) => `t-${f}`).join(" "),
+  ]);
+  const key = JSON.stringify(cells);
+  let id = index.get(key);
   if (id === undefined) {
     id = dictionary.length;
-    dictionary.push(html);
-    index.set(html, id);
+    dictionary.push(cells);
+    index.set(key, id);
   }
   return id;
 };

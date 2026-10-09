@@ -387,7 +387,8 @@ export function startMock() {
         if (path.includes("/chat/completions")) return chat(res, body, state.reply);
         return gemini(res, path, body, state.reply);
       };
-      if (family) return state.think > 0 ? void setTimeout(answer, state.think) : answer();
+      const think = Math.min(Math.max(Number(state.think) || 0, 0), 30_000);
+      if (family) return think > 0 ? void setTimeout(answer, think) : answer();
       // Grok lists models first and needs these fields on each (research §2.5).
       if (path.endsWith("/models"))
         return json(res, 200, {
