@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { grokText } from "../../adapters/profiles.js";
+import { normalize } from "../../adapters/text.js";
 import { classifyGrokFailure } from "../../core/limits/agents.js";
 import { recogniseForHost } from "../../core/limits/recognise.js";
 import { isProcessAlive } from "../../core/lock.js";
@@ -146,6 +148,35 @@ export function resultSession(out: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Whether a failed headless run printed that the limit is still on. Grok's own texts: "rate limit",
+ * "weekly limit" or a 429 or 402 status, and what a free account's run prints, which has none of
+ * those: "You've reached your free Grok Build usage limit for now …" (what Grok shows for the 429
+ * code `subscription:free-usage-exhausted`) and the 402 "Grok Build usage balance exhausted".
+ * Source: xai-org/grok-build @2bdd1d6, `xai-grok-shell/src/sampling/error.rs:29-50`,
+ * `xai-grok-pager/src/headless.rs:355,1415` (the `{"type":"error","message":…}` line under
+ * `--output-format json`) and `dispatch/tests/billing.rs:569`.
+ */
+export function grokLimitAgain(out: string, err: string): boolean {
+  const all = `${out}\n${err}`;
+  if (/rate limit|weekly limit|\b429\b|\b402\b/i.test(all)) return true;
+  // The error line's own message, on a line of its own: Grok's sentences are matched at line start.
+  const messages: string[] = [];
+  for (const line of out.split("\n")) {
+    try {
+      const m = (JSON.parse(line) as { message?: unknown } | null)?.message;
+      if (typeof m === "string") messages.push(m);
+    } catch {
+      // Not JSON: progress text.
+    }
+  }
+  const text = normalize(`${messages.join("\n")}\n${all}`);
+  return (
+    /usage balance exhausted|subscription:free-usage-exhausted/i.test(text) ||
+    grokText(text)?.kind === "usage_limit"
+  );
+}
+
 /** Continue the closed session headless. */
 export function resumeGrok(
   r: SessionRecord,
@@ -206,7 +237,7 @@ export function resumeGrok(
         return resolve({ ok: true });
       }
       // Exit 1 at the limit again (INFERENCE until X-G1): the text says so, on either stream.
-      if (/rate limit|weekly limit|\b429\b|\b402\b/i.test(`${out}\n${err}`)) {
+      if (grokLimitAgain(out, err)) {
         // The run logged a billing line: its period's end, when the pool is what ran out.
         const b = billingReset(grokHome(env), Date.now(), r.sessionId);
         const resetsAt = b.full ? b.resetsAt : undefined;

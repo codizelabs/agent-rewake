@@ -657,7 +657,7 @@ function turnEnd(
         return { kind: "not_recoverable", text, reason: "billing" };
       // Copilot's own rate-limit sentences (CLI 1.0.92, older CLIs, and the raw BYOK status line).
       if (
-        /^(?:\d{3} )?(?:Sorry, )?you've (?:reached your weekly|hit your session|hit the|hit your|hit a|exceeded your(?: weekly)?) rate limit/i.test(
+        /^(?:\d{3} )?(?:Sorry, )?you(?:'ve| have) (?:reached your weekly|hit your session|hit the|hit your|hit a|exceeded your(?: weekly)?) rate limit/i.test(
           text,
         )
       )

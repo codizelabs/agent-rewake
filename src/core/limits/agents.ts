@@ -35,22 +35,43 @@ const str = (v: unknown) => (typeof v === "string" ? v : "");
  * Copilot's own sentences, "reset in 2 hours", and reset dates printed in UTC.
  */
 /**
- * A usage limit from the error code Copilot's service sends (`user_weekly_rate_limited`,
- * `user_session_rate_limited`, `session_quota_exceeded`; research impl-claude-copilot B.3.2,
- * testing-harness §2.4). The hook's message is that error as JSON. Undefined: no code it knows.
+ * A usage limit from the error code Copilot's service sends. The hook's message is that error as
+ * JSON, with the code at the top (`{"code": …}`) or inside an `error` object
+ * (`{"error": {"code": …}}`; VS Code's Copilot Chat reads `error.code`, per the community-autoresume
+ * research note C1, not read directly here).
+ *
+ * The rate-limit codes are `user_weekly_rate_limited`, `user_global_rate_limited` (which Copilot
+ * shows as the session limit), `user_model_rate_limited`, `integration_rate_limited` and
+ * `rate_limited`; `session_quota_exceeded` is a quota code (github/copilot-sdk @503bc70,
+ * `nodejs/src/generated/session-events.ts:2014`; the "session limit" wording and the `:pro`-style
+ * suffix are from the research note, citing VS Code's `commonTypes.ts`). A code may carry a suffix
+ * after a colon, so only the part before it counts. A bare `rate_limited` names no window and
+ * Copilot rides it out itself: it is no limit here. Undefined: no code it knows.
  */
 export function copilotCode(text: string): SessionLimit | undefined {
-  let e: { code?: unknown; type?: unknown };
+  let e: { code?: unknown; type?: unknown; error?: { code?: unknown; type?: unknown } | null };
   try {
-    e = JSON.parse(text) as { code?: unknown; type?: unknown };
+    e = JSON.parse(text) as typeof e;
   } catch {
     return undefined;
   }
-  const code = typeof e?.code === "string" ? e.code : typeof e?.type === "string" ? e.type : "";
-  if (code === "user_weekly_rate_limited") return { kind: "weekly", billing: false };
-  if (code === "user_session_rate_limited" || code === "session_quota_exceeded")
-    return { kind: "session", billing: false };
-  return undefined;
+  const first = [e?.code, e?.type, e?.error?.code, e?.error?.type].find(
+    (v): v is string => typeof v === "string" && v !== "",
+  );
+  switch (first?.split(":")[0]) {
+    case "user_weekly_rate_limited":
+      return { kind: "weekly", billing: false };
+    case "user_session_rate_limited":
+    case "user_global_rate_limited":
+    case "session_quota_exceeded":
+      return { kind: "session", billing: false };
+    case "user_model_rate_limited":
+      return { kind: "model", billing: false };
+    case "integration_rate_limited":
+      return { kind: "other", billing: false };
+    default:
+      return undefined;
+  }
 }
 
 /** `{"message": "…"}` (or `{"error": {"message": "…"}}`) as its message; anything else as is. */
@@ -146,7 +167,35 @@ export function classifyGeminiError(text: string, now: number): SessionLimit | u
 
 // ---- Antigravity CLI ----------------------------------------------------------------------------
 
-export const ANTIGRAVITY_QUOTA = /Individual quota reached|RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED/;
+/**
+ * "Individual quota reached" and the gRPC codes are the CLI's own (research impl-google L3).
+ * "Model quota limit exceeded" is the IDE's and app's wording, from a Google forum post
+ * (discuss.ai.google.dev, 2026-01-24) and a community tool (saaranshM/unsnooze), not from Google's
+ * documentation: the CLI may not print it.
+ */
+export const ANTIGRAVITY_QUOTA =
+  /Individual quota reached|Model quota limit exceeded|RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED/;
+
+const DAY_MS = 24 * 3_600_000;
+
+/**
+ * The wait in "Resets in 16h39m20s" or "Refreshes in 2h30m" (a Go-style duration), or in
+ * "Refreshes in 6 days and 18 hours" (the app's wording, same community sources as above).
+ * Undefined when the text names no wait.
+ */
+export function antigravityWaitMs(text: string): number | undefined {
+  const compact = /(?:Resets|Refreshes) in ((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)(?!\w)/i.exec(
+    text,
+  )?.[1];
+  const ms = compact ? durationMs(compact) : undefined;
+  if (ms !== undefined) return ms;
+  const w =
+    /(?:Resets|Refreshes) in (?:(\d+) days?)?(?:,? ?(?:and )?(\d+) hours?)?(?:,? ?(?:and )?(\d+) minutes?)?/i.exec(
+      text,
+    );
+  if (!w || (!w[1] && !w[2] && !w[3])) return undefined;
+  return Number(w[1] ?? 0) * DAY_MS + Number(w[2] ?? 0) * 3_600_000 + Number(w[3] ?? 0) * 60_000;
+}
 
 export function classifyAntigravityStop(
   input: Record<string, unknown>,
@@ -160,8 +209,7 @@ export function classifyAntigravityStop(
   if (c.kind === "transient") return undefined;
   if (c.kind === "not_recoverable" && c.reason === "billing")
     return { kind: "billing", billing: true };
-  const d = /Resets in ((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)/.exec(error)?.[1];
-  const ms = d ? durationMs(d) : undefined;
+  const ms = antigravityWaitMs(error);
   const resetsAt =
     c.kind === "usage_limit" && c.resetAt !== undefined
       ? c.resetAt
@@ -194,11 +242,22 @@ export function classifyGrokFailure(
     if (c?.kind === "usage_limit") return { kind: "other", billing: false, ...weekly };
     return billing.full ? { kind: "weekly", billing: false, ...weekly } : undefined;
   }
-  if (error !== "invalid_request" || !/\b402\b|weekly limit|credit|spending cap/i.test(text))
+  if (
+    error !== "invalid_request" ||
+    !/\b402\b|weekly limit|credit|spending cap|usage balance exhausted/i.test(text)
+  )
     return undefined;
   // A 402: the weekly pool (wait for the reset) or a spending cap or credit limit (billing).
   const cap = /spending (?:cap|limit)|credit limit|out of credits/i.test(text);
   if (!cap && billing.full && (/weekly limit/i.test(text) || /\b402\b/.test(text)))
+    return { kind: "weekly", billing: false, ...weekly };
+  // "Grok Build usage balance exhausted" is Grok's own wording for the usage pool running out, a
+  // 402 its screen heads "You hit your weekly limit." under unified credits (xai-org/grok-build
+  // @2bdd1d6: xai-grok-pager/src/app/dispatch/tests/billing.rs:569 for the text,
+  // dispatch/billing.rs:106 for the heading). The log line that says the pool is full may be
+  // missing or older than 30 minutes after a long turn, so the text alone is enough; the reset
+  // is then unknown and the person picks a time.
+  if (!cap && /usage balance exhausted/i.test(text))
     return { kind: "weekly", billing: false, ...weekly };
   // Grok says "weekly limit" and its log has no recent billing line to say otherwise: still a
   // limit that resets, so the person is asked for a time rather than told nothing. (A recent line

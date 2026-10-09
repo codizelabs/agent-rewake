@@ -47,5 +47,23 @@ if (outcome === "refused") {
   process.stdout.write(`${JSON.stringify({ response: "I couldn't run that command." })}\n`);
   process.exit(0);
 }
+// agy 1.2.6+: `AGY_ERROR: {...}` on stderr, exit 3, nothing on stdout. The line's field names are
+// unknown (research impl-google L5); these carry only the text.
+if (outcome === "agy-stderr-quota") {
+  process.stderr.write(
+    `AGY_ERROR: ${JSON.stringify({ message: "Model quota limit exceeded. Refreshes in 2h30m." })}\n`,
+  );
+  process.exit(3);
+}
+if (outcome === "agy-stderr-other") {
+  process.stderr.write(`AGY_ERROR: ${JSON.stringify({ message: "Something else broke." })}\n`);
+  process.exit(3);
+}
+// A good turn that still left a stale quota line on stderr (research impl-google L6).
+if (outcome === "agy-ok-stale-stderr") {
+  process.stderr.write("AGY_ERROR: Individual quota reached. Resets in 1h0m0s\n");
+  process.stdout.write(`${JSON.stringify({ response: "Continuing." })}\n`);
+  process.exit(0);
+}
 if (outcome === "silent") process.exit(0);
 process.stdout.write(`${JSON.stringify({ response: "Continuing from where I left off." })}\n`);
