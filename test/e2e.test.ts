@@ -37,7 +37,8 @@ beforeAll(() => {
   home = mkdtempSync(join(tmpdir(), "rewake-e2e-"));
 });
 // Retries: an agent process from the last test may still be writing its log as the folder goes.
-afterAll(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+// A detached helper Rewake started (a sweep, a log write) may still be finishing: wait for it.
+afterAll(() => rmSync(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 }));
 
 /**
  * An empty home and no credentials, like the ACP Registry's CI check. On

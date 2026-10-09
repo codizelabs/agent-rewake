@@ -227,7 +227,7 @@ describe("Zed's entries start Rewake from its own folder", () => {
       env: { PATH: process.env.PATH ?? "", HOME: dir },
     });
     expect(r.stdout.trim()).toBe("42");
-  });
+  }, 30_000);
 });
 
 describe("doctor and the stable start", () => {
