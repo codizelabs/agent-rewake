@@ -116,7 +116,9 @@ In Zed, the **Rewake** menu under the message box does everything; elsewhere, ty
 | Schedule a message | **Rewake → Schedule a message…** | `/rewake in 3h Run the tests` (Claude Code) |
 | Repeat a message | **Custom time…** in the schedule form, or `/rewake every weekday 09:00 Check the build` | Not yet |
 | See or change messages | **Rewake → Schedules**, **Change a scheduled message…** | `/rewake list` and `/rewake cancel` (Claude Code, Gemini CLI; in Codex without the slash). `/rewake cancel N` deletes one message: Claude Code only |
-| See what's planned | The Zed task **Agent Rewake: schedules** | `/rewake list` in the session; `agent-rewake doctor` shows the next planned resume of a closed session |
+| See what's planned | The Zed task **Agent Rewake: schedules** | `/rewake list` in the session; `agent-rewake schedules` lists every one, marking the resumes outside Zed; `agent-rewake doctor` shows the next planned resume of a closed session |
+| Cancel a planned resume | **Rewake → Change a scheduled message…**, or the schedules page | `agent-rewake continue --cancel` lets you pick one, or all; `agent-rewake continue --cancel <id>` cancels one by the id in square brackets in `agent-rewake schedules` |
+| Change settings | **Rewake → Settings…** | `agent-rewake settings` lists them with what each does; `agent-rewake settings change` lets you pick one, or `agent-rewake settings <name> <value>` changes it (for example `agent-rewake settings clock 24h`) |
 
 **One command everywhere:** `/rewake` is the same in Zed, Claude Code and Gemini CLI (in Codex, type `rewake` without the slash). At a usage limit it continues after the reset; `/rewake <time>` continues then, `/rewake cancel` cancels it, and `/rewake help` lists what else works where you are. Rewake answers it itself, without using the model.
 

@@ -68,6 +68,7 @@ import {
 import { renderSample } from "./limit-sample.js";
 import { runMcp } from "./mcp.js";
 import { runProxy } from "./proxy.js";
+import { runSettings } from "./settings-command.js";
 import { agentName } from "./setup.js";
 import { fire } from "./timers/fire.js";
 import { ensureLauncher, launcherPath, refreshLauncher } from "./timers/launcher.js";
@@ -243,6 +244,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       ...(threadId && { threadId }),
       env,
       hostName: (h) => hosts.get(h)?.name,
+      hostNoun: (h) => hosts.get(h)?.noun,
       // A resume outside Zed changed on the page: its OS timer follows.
       onHostChange: (id) => {
         const s = new ScheduleStore(state).get(id);
@@ -270,7 +272,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       return 0;
     }
     const all = argv.includes("--all");
-    const groups = overview(stateDir(env), all, hostLabel);
+    const { node, state } = timerDeps(env);
+    const hosts = hostAdapters(env, node, state);
+    const groups = overview(stateDir(env), all, hostLabel, (h) => hosts.get(h)?.noun);
     process.stdout.write(
       argv.includes("--json")
         ? `${JSON.stringify(groups, null, 2)}\n`
@@ -492,14 +496,27 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           : flag === "--cancel"
             ? "cancel"
             : undefined;
-    if (flag !== undefined && mode === undefined) {
+    // `--cancel <id>`: one planned resume, by the id the lists show.
+    const cancelId = mode === "cancel" ? argv[2] : undefined;
+    const extra = argv.length > (cancelId === undefined ? 2 : 3);
+    if ((flag !== undefined && mode === undefined) || extra || cancelId?.startsWith("-")) {
       process.stderr.write(
-        "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel]\n",
+        "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel [<id>]]\n",
       );
       return 2;
     }
-    return runContinueCommand(env, mode);
+    return runContinueCommand(env, mode, cancelId);
   }
+  if (first === "settings")
+    return runSettings({
+      stateDir: stateDir(env),
+      args: argv.slice(1),
+      interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+      wakeSupported: new Wakefulness().supported,
+      out: (t) => process.stdout.write(t),
+      err: (t) => process.stderr.write(t),
+      ask: prompt,
+    });
   if (first === "sweep") {
     // Run at login by Rewake's login item (src/timers/login.ts): set lost timers again.
     const at = argv.indexOf("--state-dir");
@@ -1256,12 +1273,17 @@ async function prompt(question: string): Promise<string> {
 async function runContinueCommand(
   env: NodeJS.ProcessEnv,
   mode?: "always" | "ask" | "cancel",
+  cancelId?: string,
 ): Promise<number> {
-  const { state, timers, sweepDeps } = timerDeps(env);
+  const { state, timers, sweepDeps, node } = timerDeps(env);
   sweepQuietly(env);
+  const adapters = hostAdapters(env, node, state);
   return runContinue({
     sleepSettings: () => readSleepSettings({ env }),
     ...(mode && { mode }),
+    ...(cancelId !== undefined && { cancelId }),
+    // Codex's resumes too, which `continue` doesn't arm itself.
+    hostOf: (id) => adapters.get(id),
     hosts: CLOSED_HOSTS,
     deps: {
       stateDir: state,
@@ -1275,6 +1297,7 @@ async function runContinueCommand(
     },
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     out: (t) => process.stdout.write(t),
+    err: (t) => process.stderr.write(t),
     ask: prompt,
   });
 }

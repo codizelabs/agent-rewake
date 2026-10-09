@@ -369,11 +369,21 @@ You can also ask the agent ("check the CI run again in 30 minutes"). It proposes
 - **Time format:** 12-hour (default) or 24-hour.
 - **Keep this computer awake for resumes and scheduled messages** (macOS, Linux with systemd, Windows): *While it's plugged in* (default), *Always, also on battery* or *Never*. While a resume or scheduled message is due within six hours, or while the agent is working on a scheduled message, Rewake stops the computer from idling to sleep, and says so once in the thread. Closing the lid, choosing Sleep or a flat battery still put it to sleep, and Rewake can't wake a sleeping computer. Only macOS has been tried by hand; on Linux it uses `systemd-inhibit`, on Windows a hidden PowerShell, and both are checked only by automated tests so far. Outside Zed, the Claude Code preview's own hold is macOS only.
 
+Outside Zed, the same settings are in a terminal: `agent-rewake settings` lists each with its value and what it does, `agent-rewake settings change` lets you pick one and its new value by number, `agent-rewake settings <name>` shows the values one takes, `agent-rewake settings <name> <value>` changes it, and `agent-rewake settings --reset <name>` puts it back to the default. They are one set of settings: a change in either place applies in both, and to every agent Rewake is set up in.
+
+| Name | Values | In Zed's Settings… |
+|---|---|---|
+| `new-threads` | `ask` (default), `on`, `off` | **Automatic resume after usage limits** (`continue --always` and `continue --ask` change it too) |
+| `auto-when-prompts-skipped` | `on` (default), `off` | Whether "On" includes threads that bypass permissions (Zed threads only) |
+| `clock` | `12h` (default), `24h` | **Time format** |
+| `keep-awake` | `plugged-in` (default), `always`, `never` | **Keep this computer awake…** (only where Rewake can keep the computer awake; not listed elsewhere) |
+| `resume-prompt` | Your own message, or Rewake's own (default) | Not in the form: the message a resume sends to a closed session or a Codex thread, and in new threads that automatic resume turns on |
+
 ## Keep your computer awake
 
 Rewake sends a resume or scheduled message only while the computer is awake. The best settings, on every system: let the screen turn off, but don't let the computer sleep while it's plugged in; keep the lid open; stay on mains power. Rewake never changes these settings itself. `agent-rewake doctor` reads them and says if one would let the computer sleep while a resume waits, and the thread says so once too.
 
-Rewake's own **Keep this computer awake** setting (macOS, Linux, Windows) is changed in Zed's **Rewake → Settings…**; without Zed, its default applies: kept awake while plugged in.
+Rewake's own **Keep this computer awake** setting (macOS, Linux, Windows) is changed in Zed's **Rewake → Settings…**, or with `agent-rewake settings keep-awake` followed by `plugged-in`, `always` or `never`; until you change it, its default applies: kept awake while plugged in.
 
 ### macOS
 
@@ -511,10 +521,11 @@ Everything here is also in the Rewake menu.
 | `agent-rewake uninstall [--yes] [--dry-run]` | Take Rewake out of every place it's set up in |
 | `agent-rewake install` (in a terminal) | Shows what's on your computer and lets you tick the places to set up; then shows every change and asks once |
 | `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`, `jetbrains`, `devin-desktop`, `cursor`. With `--yes` and no place named, `install` sets up Zed and `uninstall` removes every place |
-| `agent-rewake continue [--always \| --ask \| --cancel]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit, or a stopped Cursor chat. `--always` does it from now on, `--ask` asks again, `--cancel` cancels all planned resumes |
+| `agent-rewake continue [--always \| --ask \| --cancel [<id>]]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit, or a stopped Cursor chat. `--always` does it from now on, `--ask` asks again, `--cancel` cancels the planned resume (with several, in a terminal, it lists them to pick one or all; otherwise all), and `--cancel <id>` only the one with that id (the eight characters in square brackets in `schedules`; a Codex resume too). One that is already running isn't cancelled, and Rewake says so |
+| `agent-rewake settings [<name> [<value>]]`, `agent-rewake settings change`, `agent-rewake settings --reset <name>` | See Rewake's settings, with their values and what each does, and change one (see [Settings](#settings)). `settings change` lets you pick one by its number |
 | `agent-rewake doctor [--details] [--json] [--report]` | Whether Rewake can work in your Zed, and what to do next, each finding as `Problem:`, `To do:`, `Note:` or `OK:`. `--details` adds versions and folders for bug reports; `--json` prints the findings as JSON for scripts; `--report` writes one text file for a bug report (see [Troubleshooting](#troubleshooting)). It also says how long ago this version was installed and how to update |
 | `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread. For a screen reader or plain text, use `schedules` |
-| `agent-rewake schedules [--all] [--json]` | List scheduled messages as plain text. `--all` includes finished ones, newest first, with the year and what happened to each |
+| `agent-rewake schedules [--all] [--json]` | List scheduled messages as plain text, with each one's agent; resumes of agents outside Zed are marked `[outside Zed]` and called what their agent calls them (session, thread or chat). `--all` includes finished ones, newest first, with the year and what happened to each |
 | `agent-rewake schedules --explain <id>` | Say in plain words what Rewake will do for one scheduled message or resume (`<id>` is the eight characters in square brackets in the list), and what could stop it. Sends nothing and changes nothing |
 | `agent-rewake history [--days <n>]` | What Rewake did in the last days (7 by default), newest first: the agent and folder, and what happened and why (sent, cancelled because you typed, too late, still limited, failed and the reason) |
 | `agent-rewake setup zed` | Print the Zed entries, to add by hand |

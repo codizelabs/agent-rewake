@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerHost, ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
-import { overview, overviewMarkdown, overviewText } from "../src/ui/overview.js";
+import { explainSchedule, overview, overviewMarkdown, overviewText } from "../src/ui/overview.js";
 import { VERSION } from "../src/version.js";
 
 const NOW = new Date(2026, 9, 4, 14, 0).getTime();
@@ -94,5 +94,80 @@ describe("schedules overview", () => {
     expect(md).toContain("| 15:00 today | Scheduled | Message | Run \\| the tests |");
     expect(md).toContain("| 16:00 today | Scheduled | Resume | Resume |");
     expect(md).toContain(`by Agent Rewake ${VERSION}.`);
+  });
+
+  /** A planned resume of a Copilot CLI session, outside Zed. */
+  function copilotResume() {
+    registerHost("copilot");
+    const store = new ScheduleStore(dir);
+    const made = store.create({
+      sessionId: "8a3c1f2e-0b5d-4c7a-9e21-3f6b8d0c4a17",
+      cwd: "/work/cli",
+      text: "Continue.",
+      dueAt: NOW + 3_600_000,
+      kind: "limit_resume",
+      createdBy: "auto",
+      now: NOW,
+    });
+    store.put({ ...made, host: "copilot", sessionRef: { sessionId: made.sessionId } });
+    return made;
+  }
+  const copilotName = (h: string) => (h === "copilot" ? "GitHub Copilot CLI" : undefined);
+  const threadOf = (groups: ReturnType<typeof overview>, sessionId: string) =>
+    groups.flatMap((p) => p.threads).find((t) => t.sessionId === sessionId);
+
+  it("calls a session outside Zed by its agent's word, and marks it outside Zed", () => {
+    const made = copilotResume();
+    const plain = overview(dir, false, copilotName, () => undefined);
+    expect(threadOf(plain, made.sessionId)).toMatchObject({
+      title: "Session 8a3c1f2e",
+      outsideZed: true,
+    });
+    const threads = overview(dir, false, copilotName, (h) =>
+      h === "copilot" ? "thread" : undefined,
+    );
+    expect(threadOf(threads, made.sessionId)?.title).toBe("Thread 8a3c1f2e");
+    expect(threadOf(plain, "s-2")).toMatchObject({ title: "Thread s-2", outsideZed: false });
+  });
+
+  it("marks outside-Zed sessions in the text and ends with how to cancel one", () => {
+    const made = copilotResume();
+    const text = overviewText(
+      overview(dir, false, copilotName, () => undefined),
+      NOW,
+      "en-GB",
+    );
+    const lines = text.split("\n");
+    expect(lines.find((l) => l.includes("Session 8a3c1f2e"))).toContain("[outside Zed]");
+    expect(lines.find((l) => l.includes("Thread s-2"))).not.toContain("[outside Zed]");
+    expect(lines.at(-1)).toContain("continue --cancel");
+    expect(made.scheduleId).toBeTruthy();
+  });
+
+  it("names no cancel command when only Zed threads are listed", () => {
+    const text = overviewText(overview(dir), NOW, "en-GB");
+    expect(text).not.toContain("[outside Zed]");
+    expect(text).not.toContain("continue --cancel");
+  });
+
+  it("names no cancel command when the outside-Zed resume has finished", () => {
+    const made = copilotResume();
+    new ScheduleStore(dir).update(made.scheduleId, (x) => ({ ...x, status: "sent" }), NOW);
+    const text = overviewText(
+      overview(dir, true, copilotName, () => undefined),
+      NOW,
+      "en-GB",
+    );
+    expect(text).toContain("[outside Zed]");
+    expect(text).not.toContain("continue --cancel");
+  });
+
+  it("explains how to cancel a resume outside Zed", () => {
+    const made = copilotResume();
+    const r = explainSchedule(dir, made.scheduleId.slice(0, 8), NOW, (h) =>
+      h === "copilot" ? { name: "GitHub Copilot CLI", noun: "session" } : undefined,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.text).toContain(`continue --cancel ${made.scheduleId.slice(0, 8)}`);
   });
 });

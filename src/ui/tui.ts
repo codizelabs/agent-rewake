@@ -27,6 +27,7 @@ export interface TuiOptions {
   env?: NodeJS.ProcessEnv;
   /** Resumes of agents outside Zed (src/ui/page.ts PageOptions). */
   hostName?: (host: string) => string | undefined;
+  hostNoun?: (host: string) => string | undefined;
   onHostChange?: (scheduleId: string) => void;
 }
 
@@ -45,6 +46,7 @@ export async function runTui(stateDir: string, opts: TuiOptions = {}): Promise<n
     ...(opts.threadId && { threadId: opts.threadId }),
     noColor: Boolean(env.NO_COLOR) || env.TERM === "dumb",
     ...(opts.hostName && { hostName: opts.hostName }),
+    ...(opts.hostNoun && { hostNoun: opts.hostNoun }),
     ...(opts.onHostChange && { onHostChange: opts.onHostChange }),
   });
   const inline = opts.inline === true;

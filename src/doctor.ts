@@ -683,7 +683,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       area: "Rewake",
       level: "info",
       text: "New threads don't offer automatic resume (you chose Never). Rewake still asks at each limit.",
-      fix: "To change it: Rewake menu → Settings…",
+      fix: `To change it: Rewake menu → Settings…, or ${rewake("settings new-threads ask")}`,
     });
   if (setup.withRewake.includes(CLAUDE_REGISTRY_ID) && claudeAutoContinueDisabled(env, ""))
     add({

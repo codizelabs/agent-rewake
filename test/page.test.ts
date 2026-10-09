@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -340,5 +340,59 @@ describe("resumes of agents outside Zed", () => {
     p.action("auto");
     expect(loadSettings(dir).newThreads).toBe("ask");
     expect(p.toast).toBe("Automatic resume is off: Rewake asks after each usage limit.");
+  });
+
+  it("says thread for an agent whose word is thread", () => {
+    hostRow();
+    const p = new SchedulesPage({
+      stateDir: dir,
+      now: () => T0,
+      locale: "en-GB",
+      noColor: true,
+      hostName: (h) => (h === "codex" ? "Codex" : undefined),
+      hostNoun: (h) => (h === "codex" ? "thread" : undefined),
+      onHostChange: () => undefined,
+    });
+    p.render(120, 30);
+    p.action("now");
+    expect(p.toast).toContain("Codex thread");
+    expect(p.toast).not.toContain("session");
+  });
+
+  it("names the agent and the session when confirming a delete", () => {
+    registerHost("copilot-cli");
+    const store = new ScheduleStore(dir);
+    const s = store.create({
+      sessionId: "8a3c1f2e-0b5d-4c7a-9e21-3f6b8d0c4a17",
+      cwd: "/work/shop",
+      text: "Continue.",
+      dueAt: T0 + HOUR,
+      kind: "limit_resume",
+      createdBy: "auto",
+      now: T0,
+    });
+    store.put({ ...s, host: "copilot-cli", sessionRef: { sessionId: s.sessionId } });
+    const p = new SchedulesPage({
+      stateDir: dir,
+      now: () => T0,
+      locale: "en-GB",
+      noColor: true,
+      hostName: (h) => (h === "copilot-cli" ? "GitHub Copilot CLI" : undefined),
+      hostNoun: () => undefined,
+      onHostChange: () => undefined,
+    });
+    p.render(120, 30);
+    p.action("delete");
+    const dialog = p.dialog;
+    expect(dialog?.kind).toBe("confirm");
+    if (dialog?.kind === "confirm")
+      expect(dialog.body.join("\n")).toContain("GitHub Copilot CLI · Session ");
+  });
+
+  it("its help says when Zed threads' messages are sent", () => {
+    const source = readFileSync(join(import.meta.dirname, "../src/ui/page.ts"), "utf8");
+    expect(source).toContain(
+      "Messages in Zed threads are sent while Zed is open with that thread's project",
+    );
   });
 });
