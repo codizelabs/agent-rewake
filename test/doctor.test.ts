@@ -379,6 +379,30 @@ describe("doctor: output", () => {
   });
 });
 
+describe("--details with two copies of an agent", () => {
+  it("lists each copy and says which one Rewake goes by", () => {
+    const first = {
+      path: join(dir, "nvm", "bin", "claude"),
+      surface: "terminal",
+      version: "2.1.282",
+    };
+    const second = { path: "/elsewhere/claude", surface: "terminal", version: "2.1.292" };
+    const lines = detailLines({
+      env,
+      now: NOW,
+      platform: "darwin",
+      home: dir,
+      zedApps: () => zed,
+      version: "0.1.2",
+      nodeVersion: "24.1.0",
+      copies: () => [{ name: "Claude Code", copies: [first, second], chosen: first }],
+    }).join("\n");
+    expect(lines).toContain(
+      `Claude Code is installed 2 times; Rewake uses the first one on your PATH: ~${sep}nvm${sep}bin${sep}claude 2.1.282 (used); /elsewhere/claude 2.1.292`,
+    );
+  });
+});
+
 describe("helpers", () => {
   it("compares versions", () => {
     expect(compareVersions("1.21.0", "1.22.0")).toBe(-1);

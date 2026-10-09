@@ -95,7 +95,8 @@ export type FailCause =
   | "timeout"
   | "missing-key"
   | "window-closed"
-  | "needs-approval";
+  | "needs-approval"
+  | "folder-gone";
 
 export interface NoticeFacts {
   /** "thread" (Codex, Zed) or "session" (Copilot, Grok): the host's own word. */
@@ -154,6 +155,8 @@ export function notice(
         return `${agent}: Rewake couldn't continue the ${n} because it used a key or token from your shell, and Rewake never stores those. ${cap(reopen)} to continue. Next time, sign in to ${f.agentName} and remove the key from your shell profile.`;
       if (f.cause === "window-closed")
         return `${agent}: the time you chose has come, but Rewake couldn't continue the ${n} (was its window closed or reloaded?). ${cap(reopen)} to continue.`;
+      if (f.cause === "folder-gone")
+        return `${agent}: Rewake couldn't continue the ${n} because the project folder is gone (moved, renamed or deleted). Open the ${n} from its new folder to continue.`;
       if (f.cause === "deleted")
         return `${agent}: Rewake couldn't continue the ${n} because it no longer exists.`;
       if (f.cause === "needs-approval")
@@ -391,6 +394,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           "missing-key",
           "window-closed",
           "needs-approval",
+          "folder-gone",
         ].includes(result.detail ?? "")
           ? (result.detail as FailCause)
           : undefined;

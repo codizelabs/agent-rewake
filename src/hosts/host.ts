@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { statSync } from "node:fs";
 import type { Schedule } from "../core/store.js";
 import { errorLine } from "../util/error-line.js";
 
@@ -65,6 +66,25 @@ export function withMessage(output: string): { message?: string } {
   const message = errorLine(output);
   return message === undefined ? {} : { message };
 }
+
+/**
+ * Whether the folder a session was started in is gone (moved, renamed or deleted). A headless
+ * resume runs in that folder, so without it the agent can't start (`spawn` says only ENOENT) or
+ * can't find the session, which Gemini keeps per project folder. An empty `cwd` means the host
+ * records none: nothing to check.
+ */
+export function folderGone(cwd: string | undefined): boolean {
+  if (!cwd) return false;
+  try {
+    return !statSync(cwd).isDirectory();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  }
+}
+
+/** The failed result a resume gives when its folder is gone: `fire` tells the person (FailCause). */
+export const FOLDER_GONE: SendResult = { ok: false, reason: "failed", detail: "folder-gone" };
 
 /**
  * The longest a headless resume run may take before Rewake stops it: long enough for a night's

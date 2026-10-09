@@ -361,6 +361,17 @@ export class SchedulingAddon {
     this.wake.release();
   }
 
+  /**
+   * Rewake's own handling failed and the router now only relays: stop the timers and watchers, and
+   * pass on the user messages held back for a scheduled reply, which nothing else would send.
+   */
+  failOpen(): void {
+    for (const session of this.sessions.values()) {
+      for (const held of session.heldPrompts.splice(0)) this.router?.forwardClientRequest(held);
+    }
+    this.stop();
+  }
+
   hooks(): RouterHooks {
     return {
       onClientMessage: (m) => this.onClientMessage(m),
@@ -398,7 +409,15 @@ export class SchedulingAddon {
     const text = promptText(params.prompt);
     const command = REWAKE_TYPED.exec(text.trim());
     if (command) {
-      setImmediate(() => this.runCommand(session, m.id as JsonRpcId, command[1] ?? ""));
+      setImmediate(() => {
+        try {
+          this.runCommand(session, m.id as JsonRpcId, command[1] ?? "");
+        } catch (err) {
+          // The command's turn must still end, or the person's thread waits for ever.
+          this.router?.respondToClient(m.id as JsonRpcId, { result: { stopReason: "end_turn" } });
+          throw err;
+        }
+      });
       return CONSUME;
     }
     if (session.delivering) {
@@ -414,7 +433,14 @@ export class SchedulingAddon {
     session.userTurnCommand = text.trim().startsWith("/");
     this.startTurn(session);
     if (session.needsReattach) {
-      void this.reattach(session).then((ok) => this.forwardAfterReattach(session, m, ok));
+      void this.reattach(session).then(
+        (ok) => this.forwardAfterReattach(session, m, ok),
+        (err: unknown) => {
+          // Answer the held message with the usual error rather than leave it waiting.
+          this.forwardAfterReattach(session, m, false);
+          throw err;
+        },
+      );
       return CONSUME;
     }
     return FORWARD;

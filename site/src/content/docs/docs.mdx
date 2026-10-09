@@ -98,6 +98,7 @@ Automated tests run each agent's real program against a test server; "Not yet" m
 
 - `install` won't set up an agent that's too old, and tells you how to update it.
 - `doctor` warns when an agent is too old.
+- If an agent is installed more than once, `doctor` and `install` both go by the copy your terminal starts (the first one on your PATH). `agent-rewake doctor --details` lists every copy and says which one that is.
 - `doctor` also notes when an agent is newer than any version tested. It should still work; if Rewake misses a usage limit there, [open an issue](https://github.com/codizelabs/agent-rewake/issues) with what `agent-rewake doctor --details` shows.
 
 In Devin Desktop (formerly Windsurf), run `npx @codizelabs/agent-rewake install --only devin-desktop`, restart it, then pick **Claude Agent (with Rewake)** or **Codex (with Rewake)** in the agent selector for a new conversation. This hasn't been tried in Devin Desktop yet.
@@ -394,6 +395,8 @@ Start with `agent-rewake doctor`. It checks Zed (installed, version, AI features
 - **The resume form didn't appear:** it appears only for limits that a wait fixes. Use **Rewake → Resume after the usage limit…** or `/rewake`.
 - **The thread stopped responding after a limit:** a known Zed issue ([#55501](https://github.com/zed-industries/zed/issues/55501)). Rewake reconnects a thread whose session the agent lost; without Rewake, reload the agent in Zed.
 - **"Another Zed window owns this thread":** the thread is open in two windows; only one sends.
+- **"Rewake hit a problem and switched itself off for now":** something went wrong inside Rewake. Your agent isn't affected: Rewake passes everything through untouched and keeps your scheduled messages, but sends none until you restart Zed. If it happens again, [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose) with what `agent-rewake doctor --details` shows.
+- **"…because the project folder is gone (moved, renamed or deleted)":** the folder the session was started in no longer exists. Open the session from its new folder to continue. This applies to Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions.
 
 ## Update
 
