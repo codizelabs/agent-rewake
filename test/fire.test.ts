@@ -520,12 +520,13 @@ describe("agentProcess", () => {
 });
 
 describe("processes on Windows", () => {
-  it("reads the parent and the name from the PowerShell line, whatever the case or .exe", async () => {
-    const { parseWindowsProcess } = await import("../src/util/proc.js");
-    expect(parseWindowsProcess("4120 Node.EXE\r\n")).toEqual({ ppid: 4120, name: "node" });
-    expect(parseWindowsProcess("\n 88   cmd.exe  \n")).toEqual({ ppid: 88, name: "cmd" });
-    expect(parseWindowsProcess("")).toBeUndefined();
-    expect(parseWindowsProcess("not a process line")).toBeUndefined();
+  it("reads each process's parent and name from the PowerShell lines, whatever the case or .exe", async () => {
+    const { parseWindowsChain } = await import("../src/util/proc.js");
+    const chain = parseWindowsChain("4120 88 Node.EXE\r\n88 4 cmd.exe  \r\nnot a line\r\n");
+    expect(chain.get(4120)).toEqual({ ppid: 88, name: "node" });
+    expect(chain.get(88)).toEqual({ ppid: 4, name: "cmd" });
+    expect(chain.size).toBe(2);
+    expect(parseWindowsChain("").size).toBe(0);
   });
 
   it("walks up through cmd.exe and PowerShell to the agent", async () => {
@@ -538,18 +539,22 @@ describe("processes on Windows", () => {
     expect(agentProcess(900, "win32", (pid) => tree[pid])).toEqual({ pid: 700, name: "copilot" });
   });
 
-  // The real thing, on the Windows job: a child process answers to the PowerShell query.
+  // The real thing, on the Windows job: a child process and its parent answer to ONE query.
   it.skipIf(process.platform !== "win32")(
-    "finds a real child process by its id",
+    "finds a real child process and its parent in one query",
     async () => {
-      const { psWindows, stillRunning } = await import("../src/util/proc.js");
-      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"], {
+      const { windowsChainRunner, stillRunning } = await import("../src/util/proc.js");
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
         stdio: "ignore",
       });
       try {
-        const found = psWindows(child.pid ?? 0);
+        // A generous wait: a loaded runner can take many seconds to start PowerShell.
+        const lookup = windowsChainRunner(90_000);
+        const found = lookup(child.pid ?? 0);
         expect(found?.name).toBe("node");
         expect(found?.ppid).toBe(process.pid);
+        // The parent came with it: no second PowerShell start.
+        expect(lookup(process.pid)?.name).toBe("node");
         expect(stillRunning({ pid: child.pid ?? 0, name: "node" })).toBe(true);
       } finally {
         child.kill();
@@ -557,7 +562,7 @@ describe("processes on Windows", () => {
       await new Promise((r) => child.once("exit", r));
       expect(stillRunning({ pid: child.pid ?? 0, name: "node" })).toBe(false);
     },
-    60_000,
+    180_000,
   );
 });
 

@@ -51,33 +51,59 @@ const windowsName = (file: string): string =>
     .toLowerCase();
 
 /**
- * One process on Windows from the line `<parent id> <name>` that the PowerShell query prints, or
- * undefined for no line (the process isn't there).
+ * The processes on Windows from the lines `<id> <parent id> <name>` that the PowerShell query
+ * prints, by id. A line that isn't one is ignored.
  */
-export function parseWindowsProcess(stdout: string): { ppid: number; name: string } | undefined {
-  const m = /^\s*(\d+)\s+(.+?)\s*$/m.exec(stdout);
-  return m ? { ppid: Number(m[1]), name: windowsName(m[2] as string) } : undefined;
+export function parseWindowsChain(stdout: string): Map<number, { ppid: number; name: string }> {
+  const out = new Map<number, { ppid: number; name: string }>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
+    if (m) out.set(Number(m[1]), { ppid: Number(m[2]), name: windowsName(m[3] as string) });
+  }
+  return out;
 }
 
-export const psWindows: PsRun = (pid) => {
-  if (!Number.isInteger(pid) || pid <= 0) return undefined;
+/** How long a hook may spend asking Windows about processes: hooks have only a few seconds. */
+const WINDOWS_QUERY_MS = 2500;
+
+/** The process and up to four of its ancestors, in ONE PowerShell start (each costs about a second). */
+function queryWindowsChain(
+  pid: number,
+  timeoutMs: number,
+): Map<number, { ppid: number; name: string }> {
+  if (!Number.isInteger(pid) || pid <= 0) return new Map();
   const r = spawnSync(
     "powershell.exe",
     [
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if ($p) { '{0} {1}' -f $p.ParentProcessId, $p.Name }`,
+      `$id = ${pid}; for ($i = 0; $i -lt 5 -and $id -gt 4; $i++) { $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id); if (-not $p) { break }; '{0} {1} {2}' -f $p.ProcessId, $p.ParentProcessId, $p.Name; $id = $p.ParentProcessId }`,
     ],
-    { encoding: "utf8", timeout: 8000, windowsHide: true },
+    { encoding: "utf8", timeout: timeoutMs, windowsHide: true },
   );
-  return parseWindowsProcess(r.stdout ?? "");
-};
+  return parseWindowsChain(r.stdout ?? "");
+}
+
+/**
+ * A process lookup for one walk up the tree: the first question fetches the process and its
+ * ancestors together, so the walk costs one PowerShell start, not one per step.
+ */
+export function windowsChainRunner(timeoutMs: number = WINDOWS_QUERY_MS): PsRun {
+  const known = new Map<number, { ppid: number; name: string }>();
+  return (pid) => {
+    if (!known.has(pid)) for (const [k, v] of queryWindowsChain(pid, timeoutMs)) known.set(k, v);
+    return known.get(pid);
+  };
+}
+
+/** One lookup, for a single process (is it still the same program?). */
+export const psWindows: PsRun = (pid) => windowsChainRunner()(pid);
 
 export function agentProcess(
   start: number = process.ppid,
   platform: NodeJS.Platform = process.platform,
-  run: PsRun = platform === "win32" ? psWindows : ps,
+  run: PsRun = platform === "win32" ? windowsChainRunner() : ps,
 ): AgentProcess | undefined {
   let pid = start;
   for (let i = 0; i < 4 && pid > 1; i++) {
