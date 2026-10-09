@@ -215,20 +215,24 @@ describe("Zed's entries start Rewake from its own folder", () => {
     expect(launcherVersion(state)).not.toBe("0.0.1");
   });
 
-  it("the finder starts a working Node.js when the one it recorded is gone", () => {
-    if (process.platform === "win32") return;
-    zedLaunch(state, bundle, "linux").prepare();
-    const text = readFileSync(nodeShimPath(state), "utf8");
-    const gone = join(dir, "removed-node");
-    writeFileSync(nodeShimPath(state), text.replace(/^RECORDED='.*'$/m, `RECORDED='${gone}'`));
-    chmodSync(nodeShimPath(state), 0o700);
-    expect(existsSync(gone)).toBe(false);
-    const r = spawnSync(nodeShimPath(state), ["-p", "40 + 2"], {
-      encoding: "utf8",
-      env: { PATH: process.env.PATH ?? "", HOME: dir },
-    });
-    expect(r.stdout.trim()).toBe("42");
-  }, 30_000);
+  // The finder is a shell script; Windows doesn't use it (src/timers/node-shim.ts).
+  it.skipIf(process.platform === "win32")(
+    "the finder starts a working Node.js when the one it recorded is gone",
+    () => {
+      zedLaunch(state, bundle, "linux").prepare();
+      const text = readFileSync(nodeShimPath(state), "utf8");
+      const gone = join(dir, "removed-node");
+      writeFileSync(nodeShimPath(state), text.replace(/^RECORDED='.*'$/m, `RECORDED='${gone}'`));
+      chmodSync(nodeShimPath(state), 0o700);
+      expect(existsSync(gone)).toBe(false);
+      const r = spawnSync(nodeShimPath(state), ["-p", "40 + 2"], {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH ?? "", HOME: dir },
+      });
+      expect(r.stdout.trim()).toBe("42");
+    },
+    30_000,
+  );
 });
 
 describe("doctor and the stable start", () => {

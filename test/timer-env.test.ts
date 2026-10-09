@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultTimerHost, timerEnv } from "../src/timers/timers.js";
+import { until } from "./support.js";
 
 const posix = process.platform !== "win32";
 let dir: string;
@@ -63,11 +64,17 @@ describe("the environment timer commands get", () => {
       // This one runs the real timer host against fake `at` and waiter programs in a temp folder
       // (nothing real is created), so it opts out of the switch that keeps tests off OS jobs.
       delete process.env.AGENT_REWAKE_TEST_NO_OS_TIMERS;
-      // A fake `at` and a fake waiter that write the environment they were given to a file.
+      // A fake `at` and a fake waiter that write the environment they were given to a file. Written
+      // aside and renamed: `env` may flush a large environment in several writes, so a reader must
+      // never see the file until it is complete. The rename is the scripts' last write.
       const bin = join(dir, "bin");
       const script = (name: string) => {
         const p = join(bin, name);
-        writeFileSync(p, `#!/bin/sh\nenv > "${join(dir, name)}.env"\necho "job 1 at x" >&2\n`);
+        const out = join(dir, `${name}.env`);
+        writeFileSync(
+          p,
+          `#!/bin/sh\necho "job 1 at x" >&2\nenv > "${out}.tmp" && mv "${out}.tmp" "${out}"\n`,
+        );
         chmodSync(p, 0o755);
         return p;
       };
@@ -81,11 +88,9 @@ describe("the environment timer commands get", () => {
       const h = defaultTimerHost(dir, "/n", "/c");
       h.run("at", ["-t", "202601010000"], "x\n");
       h.detached(waiter, []);
-      // The shell creates the file empty before `env` fills it: wait for content, not existence.
-      const filled = (name: string) =>
-        existsSync(join(dir, name)) && readFileSync(join(dir, name), "utf8").length > 0;
-      for (let i = 0; i < 200 && !filled("fake-waiter.env"); i++)
-        await new Promise((r) => setTimeout(r, 50));
+      // The detached waiter runs on its own: its file appears, complete, when it is done. The wait
+      // stays inside the test's time, so a slow runner reports what was missing.
+      await until(() => existsSync(join(dir, "fake-waiter.env")), "the detached waiter's file");
       for (const name of ["at", "fake-waiter"]) {
         const text = readFileSync(join(dir, `${name}.env`), "utf8");
         expect(text).not.toContain("must-not-leak");

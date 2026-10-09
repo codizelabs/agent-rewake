@@ -212,10 +212,13 @@ describe("SessionLock", () => {
     expect(linuxStartTime("garbage")).toBeUndefined();
   });
 
-  it("gives this process's own start time where the system can say", () => {
-    if (process.platform === "win32") return;
-    const a = processStartTime(process.pid);
-    expect(a).toBeTruthy();
-    expect(processStartTime(process.pid)).toBe(a);
-  });
+  // Windows has no start time to read (processStartTime gives undefined there).
+  it.skipIf(process.platform === "win32")(
+    "gives this process's own start time where the system can say",
+    () => {
+      const a = processStartTime(process.pid);
+      expect(a).toBeTruthy();
+      expect(processStartTime(process.pid)).toBe(a);
+    },
+  );
 });

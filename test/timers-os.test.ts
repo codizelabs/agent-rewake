@@ -22,43 +22,52 @@ const enabled = process.env.REWAKE_OS_TIMERS === "1";
 describe.runIf(enabled)("OS timer", () => {
   it(
     "fires once at its time and removes itself",
-    async () => {
+    async (ctx) => {
       const dir = mkdtempSync(join(tmpdir(), "rewake-os-timer-"));
       const marker = join(dir, "fired.txt");
       const stub = join(dir, "stub.mjs");
+      // Each run writes when it ran (ms) and its arguments, so runs are told apart by time.
       writeFileSync(
         stub,
-        `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(marker)}, process.argv.slice(2).join(" ") + "\\n");\n`,
+        `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(marker)}, Date.now() + " " + process.argv.slice(2).join(" ") + "\\n");\n`,
       );
       const h = defaultTimerHost(dir, process.execPath, stub);
       const kind = timerKind(h);
       // Rewake's own waiter runs the real CLI, not a stub: test/waiter-os.test.ts.
-      if (kind === "waiter") return;
+      if (kind === "waiter") {
+        rmSync(dir, { recursive: true, force: true });
+        ctx.skip();
+      }
       if (!kind) {
+        rmSync(dir, { recursive: true, force: true });
         // On CI a missing scheduler is a broken runner, not a pass.
         if (process.env.CI)
           throw new Error("No OS timer on this CI runner (no systemd user manager or at).");
-        console.warn("No OS timer on this computer (no systemd user manager or at): skipped.");
-        return;
+        ctx.skip("No OS timer on this computer (no systemd user manager or at)");
       }
       const id = `test-${Date.now().toString(36)}`;
       const at = Date.now() + 65_000;
+      const runs = () =>
+        (existsSync(marker) ? readFileSync(marker, "utf8").trim().split("\n") : []).map((l) => {
+          const space = l.indexOf(" ");
+          return { t: Number(l.slice(0, space)), args: l.slice(space + 1) };
+        });
+      // launchd runs a job once when it's loaded (RunAtLoad), a minute before its time: that run
+      // isn't the timer firing. A run at the time is one at or after it (less a second of skew).
+      const onTime = () => runs().filter((r) => r.t >= at - 1000);
       try {
         expect(armTimer(id, at, h)).toEqual({ ok: true, via: kind });
         expect(timerArmed(id, h)).toBe(true);
         const deadline = at + 60_000;
-        // launchd runs a job once when it's loaded (RunAtLoad): ignore that early run.
-        const due = () =>
-          existsSync(marker) &&
-          readFileSync(marker, "utf8")
-            .trim()
-            .split("\n")
-            .filter(() => Date.now() >= at - 1000).length > 0;
-        while (Date.now() < deadline && !(Date.now() >= at && due()))
+        while (Date.now() < deadline && onTime().length === 0)
           await new Promise((r) => setTimeout(r, 1000));
-        const lines = readFileSync(marker, "utf8").trim().split("\n");
+        // A second run would come at once (a duplicate timer) or never: give it a few seconds.
+        await new Promise((r) => setTimeout(r, 5000));
+        // Exactly one run at the time; the only other one allowed is launchd's load-time run.
         // The timer names Rewake's state folder: it runs without Rewake's environment.
-        expect(lines.at(-1)).toBe(`fire ${id} --state-dir ${dir}`);
+        expect(onTime().map((r) => r.args)).toEqual([`fire ${id} --state-dir ${dir}`]);
+        const early = runs().filter((r) => r.t < at - 1000);
+        expect(early.length).toBeLessThanOrEqual(kind === "launchd" ? 1 : 0);
         // `fire` removes its own timer on macOS and Windows; systemd and at remove theirs.
         cancelTimer(id, h);
         await new Promise((r) => setTimeout(r, 2000));
@@ -73,7 +82,7 @@ describe.runIf(enabled)("OS timer", () => {
 
   it(
     "re-arms from inside its own run under a new name, which then fires too",
-    async () => {
+    async (ctx) => {
       const dir = mkdtempSync(join(tmpdir(), "rewake-os-rearm-"));
       const marker = join(dir, "fired.txt");
       // The real timer code, bundled for the stub to load (it runs outside the test's process).
@@ -88,12 +97,15 @@ describe.runIf(enabled)("OS timer", () => {
       const stub = join(dir, "stub.mjs");
       const h = defaultTimerHost(dir, process.execPath, stub);
       const kind = timerKind(h);
-      if (kind === "waiter") return;
+      if (kind === "waiter") {
+        rmSync(dir, { recursive: true, force: true });
+        ctx.skip();
+      }
       if (!kind) {
+        rmSync(dir, { recursive: true, force: true });
         // On CI a missing scheduler is a broken runner, not a pass.
         if (process.env.CI) throw new Error("No OS timer on this CI runner.");
-        console.warn("No OS timer on this computer: skipped.");
-        return;
+        ctx.skip("No OS timer on this computer");
       }
       const id = `test-${Date.now().toString(36)}`;
       const at = Date.now() + 65_000;
