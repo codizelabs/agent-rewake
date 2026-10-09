@@ -29,7 +29,9 @@ import { type Mock, startMock } from "./e2e/mock-llm.mjs";
  *
  * Only an interactive session counts: in `claude -p` and the stream-json (SDK) mode the mod sees
  * the limit (StopFailure, session.measure) but stands aside by design (isInteractive is false), so
- * nothing is recorded there and a later `--resume` has nothing to pick up.
+ * nothing is recorded there and a later `--resume` has nothing to pick up. The exception is Claude
+ * Code's editor panel (CLAUDE_CODE_ENTRYPOINT=claude-vscode, also run through the SDK), where a
+ * person is at the prompt: the third case runs the SDK mode with that entry point.
  *
  * Claude Code's own "continue automatically at usage limit" is turned off in its settings, as a
  * person who wants Rewake to ask would: with it on, Claude Code continues by itself and the mod
@@ -332,6 +334,134 @@ describe.runIf(enabled)("Claude Code's terminal, offline: limit → continue (th
     } finally {
       s?.t.kill();
       again?.kill();
+      await mock?.close();
+      rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  }, 240_000);
+
+  it.concurrent("the editor panel (Agent SDK, CLAUDE_CODE_ENTRYPOINT=claude-vscode) continues the same session once", async () => {
+    const home = mkdtempSync(join(tmpdir(), "rewake-cc-panel-"));
+    let mock: Mock | undefined;
+    let panel: ChildProcessWithoutNullStreams | undefined;
+    try {
+      mock = await startMock();
+      const work = join(home, "work");
+      mkdirSync(work);
+      const config = join(home, ".claude");
+      const state = join(home, "state");
+      const env: NodeJS.ProcessEnv = {
+        PATH: [agents, dirname(process.execPath), "/usr/bin", "/bin"].join(":"),
+        HOME: home,
+        CLAUDE_CONFIG_DIR: config,
+        AGENT_REWAKE_STATE_DIR: state,
+        AGENT_REWAKE_TEST_NO_OS_TIMERS: "1",
+        ANTHROPIC_BASE_URL: mock.url,
+        CLAUDE_CODE_OAUTH_TOKEN: "rewake-test-not-a-real-token",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        DISABLE_AUTOUPDATER: "1",
+        DISABLE_TELEMETRY: "1",
+        DISABLE_ERROR_REPORTING: "1",
+        // How the VS Code extension starts Claude Code: through the Agent SDK, a person at the prompt.
+        CLAUDE_CODE_ENTRYPOINT: "claude-vscode",
+      };
+      const install = await run(
+        [process.execPath, bundle, "install", "--only", "claude-code", "--yes"],
+        env,
+        home,
+      );
+      expect(install.status, install.out).toBe(0);
+      // Automatic continue on for every agent, as `agent-rewake continue --always` sets it: the
+      // panel has no dialog the test could answer, so Rewake must not need to ask.
+      const always = await run([process.execPath, bundle, "continue", "--always"], env, home);
+      expect(always.status, always.out).toBe(0);
+      const profile = join(config, ".claude.json");
+      writeFileSync(
+        profile,
+        JSON.stringify({
+          ...JSON.parse(readFileSync(profile, "utf8")),
+          hasCompletedOnboarding: true,
+          projects: {
+            [realpathSync(work)]: {
+              hasTrustDialogAccepted: true,
+              hasCompletedProjectOnboarding: true,
+            },
+          },
+        }),
+      );
+      const settings = join(config, "settings.json");
+      writeFileSync(
+        settings,
+        JSON.stringify({
+          ...JSON.parse(readFileSync(settings, "utf8")),
+          autoContinueAtUsageLimit: false,
+        }),
+      );
+
+      mock.set({ mode: "limit", until: Date.now() + 20_000, claim: "five_hour" });
+      const [command, ...args] = guarded([
+        claude,
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+      ]);
+      panel = spawn(command as string, args, {
+        cwd: work,
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+      }) as ChildProcessWithoutNullStreams;
+      let out = "";
+      panel.stdout.on("data", (c: Buffer) => {
+        out += c.toString("utf8");
+      });
+      panel.stderr.on("data", (c: Buffer) => {
+        out += c.toString("utf8");
+      });
+      // The panel keeps its input open, as the extension does, and sends the person's message.
+      panel.stdin.write(
+        `${JSON.stringify({ type: "user", message: { role: "user", content: "say hi" } })}\n`,
+      );
+
+      const limited = () =>
+        mock?.log().filter((r) => r.limited && r.path.startsWith("/v1/messages")) ?? [];
+      expect(await until(() => limited().length === 1, 30_000), out).toBe(true);
+      const sessionId = limited()[0]?.session as string;
+      expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+
+      // The mod recorded the limit and armed the continue, in Rewake's copy.
+      const mirror = join(state, "hosts", "claude-code", "sessions", `${sessionId}.json`);
+      const mirrored = () => {
+        try {
+          return JSON.parse(readFileSync(mirror, "utf8")) as Episode;
+        } catch {
+          return undefined;
+        }
+      };
+      expect(await until(() => mirrored()?.state === "armed", 15_000), out).toBe(true);
+      const armed = mirrored() as Episode;
+      expect(armed.kind).toBe("five_hour");
+      expect(armed.fireAt).toBe((armed.resetAt ?? 0) + 60_000);
+
+      // A minute after the reset the continue goes into the same session, from the same process.
+      const continues = () =>
+        mock
+          ?.log()
+          .filter((r) => r.path.startsWith("/v1/messages") && r.prompt?.includes(CONTINUE)) ?? [];
+      expect(await until(() => continues().length > 0, 150_000), out).toBe(true);
+      expect(await until(() => out.includes("RESUMED_OK"), 15_000), out).toBe(true);
+      const sent = continues()[0];
+      expect(sent?.limited).toBe(false);
+      expect(sent?.session).toBe(sessionId);
+      expect(Date.now()).toBeGreaterThanOrEqual(armed.fireAt ?? 0);
+      expect(await until(() => mirrored()?.state === "sent", 15_000), out).toBe(true);
+      // Once: no second continue, and the limit was hit only the once.
+      await new Promise((r) => setTimeout(r, 3_000));
+      expect(continues()).toHaveLength(1);
+      expect(mock.log().filter((r) => r.limited)).toHaveLength(1);
+    } finally {
+      panel?.kill("SIGKILL");
       await mock?.close();
       rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
