@@ -1041,6 +1041,7 @@ details.only summary:focus-visible {
   margin: 0;
   color: var(--rw-muted);
   font-size: 0.9375rem;
+}
 
 /* ---- the recorded terminal (TerminalDemo.astro) ---- */
 .term-demo {
