@@ -367,13 +367,13 @@ You can also ask the agent ("check the CI run again in 30 minutes"). It proposes
 
 - **Automatic resume after usage limits:** *Ask when a new thread opens* (default), *On, except when permissions are bypassed*, *On, even when permissions are bypassed*, or *Off*. "On" also covers threads Rewake sees for the first time, such as ones you reopen after installing it.
 - **Time format:** 12-hour (default) or 24-hour.
-- **Keep this computer awake for resumes and scheduled messages** (macOS): *While it's plugged in* (default), *Always, also on battery* or *Never*. While a resume or scheduled message is due within six hours, or while the agent is working on a scheduled message, Rewake stops the computer from idling to sleep, and says so once in the thread. Closing the lid, choosing Sleep or a flat battery still put it to sleep, and Rewake can't wake a sleeping computer. On Linux and Windows this setting isn't offered yet.
+- **Keep this computer awake for resumes and scheduled messages** (macOS, Linux with systemd, Windows): *While it's plugged in* (default), *Always, also on battery* or *Never*. While a resume or scheduled message is due within six hours, or while the agent is working on a scheduled message, Rewake stops the computer from idling to sleep, and says so once in the thread. Closing the lid, choosing Sleep or a flat battery still put it to sleep, and Rewake can't wake a sleeping computer. Only macOS has been tried by hand; on Linux it uses `systemd-inhibit`, on Windows a hidden PowerShell, and both are checked only by automated tests so far. Outside Zed, the Claude Code preview's own hold is macOS only.
 
 ## Keep your computer awake
 
 Rewake sends a resume or scheduled message only while the computer is awake. The best settings, on every system: let the screen turn off, but don't let the computer sleep while it's plugged in; keep the lid open; stay on mains power. Rewake never changes these settings itself. `agent-rewake doctor` reads them and says if one would let the computer sleep while a resume waits, and the thread says so once too.
 
-Rewake's own **Keep this computer awake** setting (macOS) is changed in Zed's **Rewake → Settings…**; without Zed, its default applies: kept awake while plugged in.
+Rewake's own **Keep this computer awake** setting (macOS, Linux, Windows) is changed in Zed's **Rewake → Settings…**; without Zed, its default applies: kept awake while plugged in.
 
 ### macOS
 
