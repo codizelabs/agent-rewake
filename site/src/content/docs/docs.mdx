@@ -9,7 +9,7 @@ banner:
 
 import ResumeScene from "../../components/scenes/ResumeScene.astro";
 
-Agent Rewake picks your coding agent's work back up **when a usage limit resets**, so it continues while you're away, in the same session: in a terminal (Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI), in Claude Code's panel in VS Code or Cursor, and in Zed's Agent Panel for every external agent. Everything outside Zed is a preview.
+Agent Rewake picks your coding agent's work back up **when a usage limit resets**, so it continues while you're away, in the same session: in a terminal (Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI), in Claude Code's panel in VS Code or Cursor, in Cursor's own agent, and in Zed's Agent Panel for every external agent. Everything outside Zed is a preview.
 
 ## Is it for you?
 
@@ -30,7 +30,7 @@ It can't reach:
 - **Zed's own agent** (the panel's built-in one): Zed doesn't let add-ons into it. Start the thread with Claude Agent in the same panel instead.
 - **Claude's own apps**: claude.ai and the Claude desktop app's chat.
 
-Not supported yet: GitHub Copilot's own chat in VS Code. The Claude desktop app's Code tab hasn't been tried yet.
+Not supported yet: GitHub Copilot's own chat in VS Code. The Claude desktop app's Code tab: Rewake's plugin has code for it (it always asks first), but it hasn't been tried.
 
 ## Install
 
@@ -96,20 +96,22 @@ Each preview needs a recent version of its agent (a closed Claude Code session a
 
 Automated tests run each agent's real program against a test server; "Not yet" means no real copy has been tested. "Tried by hand" means the agent was installed on a real Mac and taken through Rewake's install, a usage limit and the continue in the same session; the limit came from a test server, because a real one can't be had on cue. Windows and Linux haven't been tried by hand yet.
 
+If the agent is still limited when a closed session is continued, Rewake tries again at the new reset time, up to four times, then tells you.
+
 - `install` won't set up an agent that's too old, and tells you how to update it.
 - `doctor` warns when an agent is too old.
 - If an agent is installed more than once, `doctor` and `install` both go by the copy your terminal starts (the first one on your PATH). `agent-rewake doctor --details` lists every copy and says which one that is.
-- `doctor` also notes when an agent is newer than any version tested. It should still work; if Rewake misses a usage limit there, [open an issue](https://github.com/codizelabs/agent-rewake/issues) with what `agent-rewake doctor --details` shows.
+- `doctor` also notes when Claude Code, Codex, Gemini CLI or Grok Build is newer than the version tested (Copilot CLI and Antigravity CLI aren't compared). It should still work; if Rewake misses a usage limit there, [open an issue](https://github.com/codizelabs/agent-rewake/issues) with what `agent-rewake doctor --details` shows.
 
 In Devin Desktop (formerly Windsurf), run `npx @codizelabs/agent-rewake install --only devin-desktop`, restart it, then pick **Claude Agent (with Rewake)** or **Codex (with Rewake)** in the agent selector for a new conversation. This hasn't been tried in Devin Desktop yet.
 
-In JetBrains IDEs (AI Assistant 2026.2 or newer), run `npx @codizelabs/agent-rewake install --only jetbrains` (there's no menu entry for this), then pick **Claude Agent (with Rewake)** or **Codex (with Rewake)** in AI Assistant. Rewake resumes a conversation only while the IDE stays open: after a restart, JetBrains starts a new session. The Claude Code plugin for JetBrains runs Claude Code in the IDE's terminal, so the Claude Code setup already covers it.
+In JetBrains IDEs (AI Assistant 2026.2 or newer), run `npx @codizelabs/agent-rewake install` and tick JetBrains IDEs (it's listed when Rewake finds one), or run `npx @codizelabs/agent-rewake install --only jetbrains`, then pick **Claude Agent (with Rewake)** or **Codex (with Rewake)** in AI Assistant. Rewake resumes a conversation only while the IDE stays open: after a restart, JetBrains starts a new session. The Claude Code plugin for JetBrains runs Claude Code in the IDE's terminal, so the Claude Code setup already covers it.
 
 For Claude Code, Copilot CLI, Gemini CLI and Grok Build: Rewake continues a closed session from a system timer, which starts the agent without your shell profile. Rewake remembers each session's own settings (such as `COPILOT_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME` or a provider address) and gives them back to it. It never stores an API key: if the session used a key exported in your shell profile (such as `GEMINI_API_KEY`, `XAI_API_KEY` or Copilot's `GH_TOKEN`), the timer can't see it, so Rewake doesn't continue and tells you why. To have Rewake continue those sessions, sign in to the agent and remove the key from your shell profile. For Codex and Antigravity CLI, keep their default folders: a `CODEX_HOME` set only in your shell profile isn't seen.
 
 While Rewake continues a closed session, the agent runs in the background with no window. A notification says when it starts and when it's done. To stop it, run `agent-rewake continue --cancel` (or `npx @codizelabs/agent-rewake continue --cancel`) and answer **y**: what it has done so far stays. Rewake stops a run that is still going after three hours.
 
-On macOS and Linux, installing Codex, Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI also adds a login item, so planned resumes are set again after a restart (macOS may show "Background Items Added"; it's listed as "node", which runs Agent Rewake, under Login Items, Allow in the Background). It's removed when you uninstall the last of them. To turn it off on its own: on macOS switch off "node" in **System Settings → General → Login Items**; on Linux run `systemctl --user disable agent-rewake-sweep.service` (or delete `~/.config/autostart/agent-rewake-sweep.desktop`). Planned resumes then wait until you next open an agent after a restart.
+On macOS and Linux, installing Codex, Copilot CLI, Gemini CLI, Grok Build, Antigravity CLI or Cursor also adds a login item, so planned resumes are set again after a restart (macOS may show "Background Items Added"; it's listed as "node", which runs Agent Rewake, under Login Items, Allow in the Background). It's removed when you uninstall the last of them. To turn it off on its own: on macOS switch off "node" in **System Settings → General → Login Items**; on Linux run `systemctl --user disable agent-rewake-sweep.service` (or delete `~/.config/autostart/agent-rewake-sweep.desktop`). Planned resumes then wait until you next open an agent after a restart.
 
 On macOS and Linux, Zed's agent entries, hooks, timers and the login item start Rewake through two files in Rewake's own folder: a small script, `bin/rewake-node`, which finds a working Node.js 22 or newer each time, and `bin/agent-rewake.mjs`, Rewake itself. Upgrading or removing a Node.js version (nvm, fnm, asdf, Homebrew) doesn't break them, and starting Rewake in Zed needs neither npm nor the network (an agent's own first download still needs the network). If you run `npx @codizelabs/agent-rewake install` after updating from an earlier version, Zed's entries move over to these files once. Windows keeps starting Rewake with the Node.js it was set up with: run install again after you upgrade or move Node.js.
 
@@ -119,7 +121,7 @@ For every preview, keep the computer on and awake until the time Rewake gives. O
 
 ### Claude Code
 
-Preview, for Claude Code in a terminal, and in Claude Code's panel in VS Code or Cursor (the same plugin loads there). The Claude desktop app's Code tab hasn't been tried yet.
+Preview, for Claude Code in a terminal, and in Claude Code's panel in VS Code or Cursor (the same plugin loads there). The Claude desktop app's Code tab hasn't been tried yet; Rewake's plugin has code for it, and always asks first there.
 
 1. Install:
 
@@ -166,6 +168,8 @@ Preview, for Codex in a terminal.
 
 **Needs:** Codex 0.149.0 or newer (tested with 0.160.1).
 
+**Privacy note:** Rewake queues the message with `codex queue --message <text>`, so another program on your computer can read it from the process list for the few seconds that command runs.
+
 **Can't:** schedule messages, or continue a thread in the Codex desktop app.
 
 ### GitHub Copilot CLI
@@ -199,7 +203,7 @@ Preview. Rewake continues a session once it's closed.
    ```
 
    It adds Rewake's extension with Gemini CLI's own command.
-2. Work in Gemini CLI as usual. At a usage limit, Gemini CLI asks what to do. Choose **Stop**. Rewake then says in the conversation when the limit resets. Type `/rewake` there, then close Gemini CLI.
+2. Work in Gemini CLI as usual. At a usage limit, Gemini CLI asks what to do. Choose **Stop**, type `/rewake` there, then close Gemini CLI. Gemini CLI sometimes says when its limit resets; when it doesn't, Rewake asks you when.
 
    While that question is open, Rewake can't see the limit. If you close Gemini CLI without choosing, Rewake has nothing to continue: open the session again later and continue it yourself.
 
@@ -210,6 +214,8 @@ Preview. Rewake continues a session once it's closed.
 6. To remove it: `npx @codizelabs/agent-rewake uninstall --only gemini-cli`. That also cancels its planned resumes.
 
 **Needs:** Gemini CLI 0.62.0 or newer (tested with 0.62.0). Tried with an API key; signing in with Google hasn't been tried yet.
+
+**Privacy note:** Rewake gives Gemini CLI your message on standard input. If you've turned Gemini CLI's sandbox on, Gemini starts itself again inside the sandbox and passes the text as `--prompt`, so another program on your computer can read it from the process list while the run lasts.
 
 **Can't:** continue a session that's still open, or schedule messages. It can't approve anything for you either: a continued session runs without a terminal, so Gemini CLI can't ask you to approve an edit or a command. It refuses that step and carries on without it, and Rewake sends a notification saying so. Open the session to see where it stopped, and approve what's needed there.
 
@@ -251,6 +257,8 @@ Preview. Rewake continues a conversation once it's closed.
 
 **Needs:** any version of Antigravity CLI. Rewake doesn't check the version, and no real copy has been tested yet.
 
+**Privacy note:** Antigravity CLI's own command takes the message as `-p <text>`, so another program on your computer can read it from the process list while the run lasts.
+
 **Can't:** schedule messages. While Antigravity CLI runs in that conversation's project, Rewake doesn't continue it and tells you instead.
 
 ### Cursor
@@ -265,17 +273,17 @@ Preview, for Cursor's own agent (the Agent panel). Not tried with a real Cursor 
 
    It adds two hooks to `~/.cursor/hooks.json` and keeps your own. Then reload Cursor's window: run **Developer: Reload Window** from the Command Palette.
 2. Work as usual. When a chat stops at its usage limit, Rewake notices and tells you to run `agent-rewake continue` (or `npx @codizelabs/agent-rewake continue`): Cursor doesn't say when its limit resets, so you choose the time, within 4 hours of the limit.
-3. Keep that Cursor window open: reloading or quitting Cursor cancels the continue. At the time, Rewake sends "Resume the work from where you were interrupted." (marked as from Agent Rewake) into the same chat. If you type in the chat before then, it doesn't. If the window was closed or reloaded, Rewake tells you to continue the chat yourself.
+3. Keep that Cursor window open: reloading or quitting Cursor cancels the continue. At the time, Rewake sends your resume message (marked as from Agent Rewake) into the same chat. By default it starts "Resume the work from where you were interrupted" and tells the agent to keep going without asking questions. If you type in the chat before then, it doesn't. If the window was closed or reloaded, Rewake tells you to continue the chat yourself.
 4. To see what's planned: `npx @codizelabs/agent-rewake doctor`. To cancel it: `npx @codizelabs/agent-rewake continue --cancel`.
 5. To remove it: `npx @codizelabs/agent-rewake uninstall --only cursor`.
 
-**Needs:** Cursor 3.23 or newer (its agent hooks).
+**Needs:** Cursor's agent hooks. Tried with Cursor 3.23; Rewake doesn't check Cursor's version.
 
 **Can't:** continue more than 4 hours after the limit, or after a limit that waiting won't lift (a free plan's allowance, or one that needs payment or a new month: Rewake sends a notification instead), continue a chat whose window is closed, continue by itself (`continue --always` doesn't apply: you always choose the time), or reach Cursor's Agents window and CLI (not tried).
 
 ### Zed
 
-Rewake works the same way in front of every external agent Zed runs: Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and the rest, npm-based or binary, plus custom agents. Rewake knows how each of them reports a limit: an error, its own error codes, or a last line such as Cursor's "Upgrade your plan to continue". When the agent says when the limit resets, Rewake resumes at that time; otherwise it asks you when.
+Rewake works the same way in front of every external agent Zed runs: Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and the rest, npm-based or binary, plus custom agents. Rewake has built-in rules for how each agent it knows by name reports a limit: an error, its own error codes, or a last line such as Cursor's "Upgrade your plan to continue". When the agent says when the limit resets, Rewake resumes at that time; otherwise it asks you when. Any other agent, or a custom command, gets the general rules, and its limit may not be recognised. An agent Zed starts from neither an npm package nor a binary can't be added.
 
 1. Install:
 
@@ -307,7 +315,7 @@ When an agent stops at its usage limit, Rewake adds a form to the thread with yo
 
 - **Submit** sends the message about a minute after the limit resets. If the agent is still limited then, Rewake waits for the new reset time and tries again.
 - **Decline** schedules nothing.
-- If the agent doesn't say when the limit resets (Gemini CLI, for example), the form asks when: in 30 minutes, 1, 3 or 5 hours, or a custom time.
+- If the agent doesn't say when the limit resets (Cursor, for example), the form asks when: in 30 minutes, 1, 3 or 5 hours, or a custom time.
 
 **More work after the resume:** while a resume is scheduled, **Rewake → Add a message after the resume…** queues follow-ups (up to 20). Each goes when the reply before it finishes.
 
@@ -387,10 +395,10 @@ Rewake's own **Keep this computer awake** setting (macOS) is changed in Zed's **
 
 ## Privacy and security
 
-- Everything runs on your machine. Rewake makes no network calls of its own and never sees your credentials; sign-in goes through the agent's own flow.
+- Everything runs on your machine. Rewake sends nothing about you anywhere and never sees your credentials; sign-in goes through the agent's own flow. Its only network use is fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it.
 - It sends only what you scheduled, what you approved, or the resume message you turned on.
-- It stores scheduled messages, per-thread settings and metadata-only logs (never message content) in its state directory, with owner-only permissions. `doctor --details` prints where. Plain `doctor` names no folders, accounts or keys, so you can paste its output anywhere.
-- Your message never goes on a command line. Continuing a closed session (Copilot CLI, Gemini CLI, Grok Build) starts the agent and hands it the message on standard input, or in a file with owner-only permissions that is deleted as soon as the run ends. A command-line argument would be readable by every other process on the computer (`ps`). The **Antigravity CLI** preview is the exception: its CLI has no documented way to take a prompt other than as an argument, so on that preview the message is visible in the process list while the run lasts.
+- It stores scheduled messages, per-thread settings and metadata-only logs (events, codes and program names, never message text) in its state directory, with owner-only permissions. `doctor --details` prints where. Plain `doctor` names no folders, accounts or keys, so you can paste its output anywhere.
+- Your message stays off the command line for most agents, with exceptions. Continuing a closed session starts the agent and hands it the message on standard input (Copilot CLI, Gemini CLI), or in a file with owner-only permissions that is deleted as soon as the run ends (Grok Build). A command-line argument would be readable by every other process on the computer (`ps`), and three cases still use one, so the message is visible in the process list while the command runs: **Codex** (`codex queue --message <text>`, a few seconds), **Antigravity CLI** (`-p <text>`, the whole run, because its CLI has no documented way to take a prompt otherwise) and **Gemini CLI** when you've turned its sandbox on (Gemini starts itself again with the text as `--prompt`). Claude Code, Cursor and Zed don't use a command line for it.
 - Anything it sends runs with your account and the thread's permission settings while you may be away. Report vulnerabilities privately: [SECURITY.md](https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md).
 
 ## Troubleshooting
@@ -458,7 +466,7 @@ Everything here is also in the Rewake menu.
 | Command | What it does |
 |---|---|
 | `/rewake` | At a usage limit, the resume question; otherwise the "Schedule a message" form |
-| `/rewake <when> <message>` | Schedule a message. When: `09:00`, `9pm`, `at 6pm`, `tomorrow 09:00`, `in 90m`, `2026-10-06 09:00` (local time, up to 30 days ahead) |
+| `/rewake <when> <message>` | Schedule a message. When: `09:00`, `9pm`, `at 6pm`, `tomorrow 09:00`, `in 90m`, a date and time such as `YYYY-MM-DD 09:00` (local time, up to 30 days ahead) |
 | `/rewake <when>`, `/rewake continue` | Resume after the current usage limit, at that time or at the reset |
 | `/rewake every hour\|day\|weekday\|week\|monday… [HH:MM] <message>` | Repeat a message |
 | `/rewake cron <expression> <message>` | Repeat on a cron expression, e.g. `"0 9 * * 1-5"` |
@@ -483,9 +491,9 @@ Everything here is also in the Rewake menu.
 | `agent-rewake install [--yes] [--keybinding] [--dry-run] [--agent <id>]…` | Add Rewake to your Zed agents (shows the changes and asks first) |
 | `agent-rewake uninstall [--yes] [--dry-run]` | Take Rewake out of every place it's set up in |
 | `agent-rewake install` (in a terminal) | Shows what's on your computer and lets you tick the places to set up; then shows every change and asks once |
-| `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`, `jetbrains`, `devin-desktop`. With `--yes` and no place named, `install` sets up Zed and `uninstall` removes every place |
-| `agent-rewake continue [--always \| --ask \| --cancel]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit. `--always` does it from now on, `--ask` asks again, `--cancel` cancels all planned resumes |
-| `agent-rewake doctor [--details]` | Whether Rewake can work in your Zed, and what to do next; `--details` adds versions and folders for bug reports |
+| `agent-rewake install --only <place>`, `--all`, `--skip <place>`; the same for `uninstall` | Choose places by name: `zed`, `claude-code`, `codex`, `copilot-cli`, `grok`, `gemini-cli`, `antigravity`, `jetbrains`, `devin-desktop`, `cursor`. With `--yes` and no place named, `install` sets up Zed and `uninstall` removes every place |
+| `agent-rewake continue [--always \| --ask \| --cancel]` | Continue a closed Copilot CLI, Grok, Gemini CLI or Antigravity CLI session after its usage limit, or a stopped Cursor chat. `--always` does it from now on, `--ask` asks again, `--cancel` cancels all planned resumes |
+| `agent-rewake doctor [--details]` | Checks your setup: Zed, each agent preview, sleep settings, and what to do next; `--details` adds versions and folders for bug reports |
 | `agent-rewake ui [--inline] [--thread <id>]` | The schedules page for every thread |
 | `agent-rewake schedules [--all] [--json]` | List scheduled messages |
 | `agent-rewake setup zed` | Print the Zed entries, to add by hand |
@@ -521,7 +529,7 @@ Everything here is also in the Rewake menu.
 | `AGENT_REWAKE_STATE_DIR` | Where schedules and settings are stored (default: macOS `~/Library/Application Support/agent-rewake`, Linux `~/.local/state/agent-rewake`, Windows `%LOCALAPPDATA%\agent-rewake`) |
 | `AGENT_REWAKE_ZED_CONFIG_DIR` | Which Zed settings `install` edits (default: where Zed keeps them, including a Flatpak Zed's) |
 | `AGENT_REWAKE_ZED_DATA_DIR` | Where Zed keeps its registry cache and installed agents |
-| `AGENT_REWAKE_ALLOW_AUTO=0` | Turn off automatic resume everywhere |
+| `AGENT_REWAKE_ALLOW_AUTO=0` | Turns off automatic resume in Zed threads. It has no effect outside Zed |
 | `AGENT_REWAKE_AGENT_TOOLS=0` | Don't give the agent Rewake's tools |
 | `AGENT_REWAKE_KEEP_API_KEY=1` | Pass `ANTHROPIC_API_KEY` to the Claude adapter instead of blanking it |
 | `AGENT_REWAKE_TITLE_MARKERS=1` | Add markers such as `Scheduled 09:00 ·` to thread titles |

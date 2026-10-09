@@ -8,6 +8,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - **A Claude Code session you closed at its usage limit can now be continued (macOS, Linux; preview):** if you close Claude Code (or it quits, or the computer restarts) before Rewake's question was answered, `agent-rewake continue` lists the session, and at the reset a system timer continues that same session in the background with Claude Code's own `claude --resume <session id> -p`, with your message on standard input. It never skips permission prompts (a step that would need your approval is denied), never uses `--continue`, and runs in the session's folder with the settings it had (`CLAUDE_CONFIG_DIR`, a gateway address; never an API key). It doesn't continue if you typed in the session after the limit, if the session is open again, or if its transcript changed after the limit: in that last case a notification says so. This was tried only against a stand-in `claude` program, not yet against a real usage limit; the docs say so.
 
+### Changed
+
+- **The README and docs say what the code does:** Cursor's own agent is named with the other places, the README says the data folder is shown by `doctor --details` (not plain `doctor`), the `/rewake cancel` command is described for the agents that have it, and the note about newer agent versions names which agents `doctor` compares.
+
 ### Fixed
 
 - **A folder name with curly quotes can no longer break a Windows notification:** every quote character PowerShell treats as a quote is now escaped in the notification text.
