@@ -89,7 +89,7 @@ const faq: Array<{ q: string; a: string[] }> = [
   {
     q: "What if my computer is asleep at the reset?",
     a: [
-      "Nothing is sent while it sleeps. When it wakes, a resume more than half an hour late (15 minutes in Zed) isn't sent on its own: Rewake asks or tells you instead. On macOS, Rewake keeps the computer from idling to sleep while a resume is due within six hours (while plugged in, by default); closing the lid still puts it to sleep. `agent-rewake doctor` says if your own sleep settings would let it sleep, and the docs list [the settings to change](@docs/#keep-your-computer-awake).",
+      "Nothing is sent while it sleeps. When it wakes, a resume more than half an hour late (15 minutes in Zed) isn't sent on its own: Rewake asks or tells you instead. On macOS (and, not yet tried by hand, Linux with systemd and Windows), Rewake keeps the computer from idling to sleep while a resume is due within six hours (while plugged in, by default); closing the lid still puts it to sleep. `agent-rewake doctor` says if your own sleep settings would let it sleep, and the docs list [the settings to change](@docs/#keep-your-computer-awake).",
     ],
   },
   {
