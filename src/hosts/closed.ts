@@ -11,8 +11,8 @@ import type { HostAdapter, HostFacts, SendResult } from "./host.js";
 import { type SessionLimit, type SessionRecord, SessionRecords } from "./sessions.js";
 
 /**
- * The hosts whose sessions Rewake continues after they're closed: Copilot CLI, Grok, Gemini CLI,
- * Antigravity CLI. Their hooks record the session (open or closed, when the person last typed,
+ * The hosts whose sessions Rewake continues after they're closed: Claude Code, Copilot CLI, Grok,
+ * Gemini CLI, Antigravity CLI, Cursor. Their hooks (Claude Code's plugin) record the session (open or closed, when the person last typed,
  * the last usage limit); when the person agrees, a one-shot timer runs `fire`, which resumes the
  * closed session headless with the agent's own resume command. An open session is never written
  * to (one writer): the person is told instead.
@@ -53,6 +53,12 @@ export interface ClosedHost {
   settingsVars?: readonly string[];
   /** The agent's key variables: only whether each was set is recorded, never its value. */
   keyVars?: readonly string[];
+  /**
+   * Whether the agent's own files show the session changed after `since` (when the limit was seen,
+   * or the last time Rewake tried), by something Rewake can't see: the person went on in it, or
+   * another tool did. Rewake then tells the person instead of writing into it.
+   */
+  changedSince?(record: SessionRecord, since: number, env: NodeJS.ProcessEnv): boolean;
 }
 
 /** Folders every agent may be told to use through the environment. */
@@ -355,9 +361,12 @@ export function closedAdapter(
     async check(s): Promise<HostFacts> {
       const r = records.get(s.sessionRef?.sessionId ?? s.sessionId);
       if (!r) return {};
+      const since = Math.max(r.limit?.seenAt ?? 0, s.attempts.at(-1)?.startedAt ?? 0);
       return {
         userTypedSince: (r.lastPromptAt ?? 0) > s.createdAt,
         sessionOpen: stillOpen(r) || host.isOpen?.(r) === true,
+        ...(since > 0 &&
+          host.changedSince?.(r, since, { ...env, ...r.env }) === true && { changedSince: true }),
       };
     },
     async send(s): Promise<SendResult> {

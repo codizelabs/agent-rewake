@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { registerHost } from "../core/store.js";
 import { ANTIGRAVITY_ID, antigravityHooks, antigravityHost } from "./antigravity/host.js";
+import { CLAUDE_CODE_ID, claudeCodeHost } from "./claude-code/host.js";
 import { type ClosedDeps, type ClosedHost, closedAdapter } from "./closed.js";
 import { codexAdapter } from "./codex/adapter.js";
 import { type CodexHookDeps, codexHooks } from "./codex/hooks.js";
@@ -17,6 +18,7 @@ import type { HostAdapter } from "./host.js";
  * its phase lands (plan §11), with `registerHost` so its records are read.
  */
 registerHost("codex");
+registerHost(CLAUDE_CODE_ID);
 registerHost(COPILOT_ID);
 registerHost(GROK_ID);
 registerHost(GEMINI_ID);
@@ -25,6 +27,7 @@ registerHost(CURSOR_ID);
 
 /** The hosts whose closed sessions Rewake continues (`agent-rewake continue`). */
 export const CLOSED_HOSTS: ClosedHost[] = [
+  claudeCodeHost,
   copilotHost,
   grokHost(process.env),
   geminiHost,

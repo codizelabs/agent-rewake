@@ -39,7 +39,7 @@ export function claudeCodeRecords(stateDir: string, now: number): ClaudeCodeReco
         sessionId: r.sessionId,
         state: r.state,
         updatedAt: r.updatedAt,
-        ...(typeof r.cwd === "string" && { cwd: r.cwd }),
+        ...(typeof r.cwd === "string" && r.cwd !== "" && { cwd: r.cwd }),
         ...(typeof r.resetAt === "number" && { resetAt: r.resetAt }),
         ...(typeof r.fireAt === "number" && { fireAt: r.fireAt }),
       });

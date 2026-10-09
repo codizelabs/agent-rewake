@@ -45,7 +45,7 @@ Install once with `npx @codizelabs/agent-rewake install`: it finds what's on you
 
 | Where | Agents | What Rewake does there | Status |
 |---|---|---|---|
-| **A terminal** | Claude Code | Asks once at the limit, then continues the same session. `/rewake` sends messages later | Preview, tried on a Mac |
+| **A terminal** | Claude Code | Asks once at the limit, then continues the same session. `/rewake` sends messages later. If you close it at the limit first, `agent-rewake continue` continues the closed session (macOS, Linux) | Preview, tried on a Mac; the closed-session part isn't tried against a real limit |
 | | Codex | Type `rewake` at the limit; the thread continues after the reset | Preview, limit not tried by hand yet |
 | | GitHub Copilot CLI, Gemini CLI, Grok Build | Continues a closed session after the reset (`agent-rewake continue`, or on its own) | Preview, tried on a Mac |
 | | Antigravity CLI | The same | Preview, not tried yet |
@@ -97,7 +97,7 @@ From any version: run `npx @codizelabs/agent-rewake@latest install`. Previews us
 
 Rewake joins each agent the way that agent allows, and always continues the same session:
 
-- **Inside the agent**: a plugin in Claude Code's own session (terminal, VS Code, Cursor). It sees the limit, asks, and sends the resume message itself, while Claude Code stays open.
+- **Inside the agent**: a plugin in Claude Code's own session (terminal, VS Code, Cursor). It sees the limit, asks, and sends the resume message itself, while Claude Code stays open. If Claude Code is closed first, Rewake continues the session the way it does for the agents below, with `claude --resume`.
 - **Through the agent's hooks**: Codex, Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI tell Rewake about the limit (and you say when, with `rewake`, `/rewake` or `agent-rewake continue`, unless Rewake does it on its own); at the reset your system's own timer runs Rewake once, and it continues the closed session with the agent's own resume command (Codex: its own message queue).
 - **In front of the agent**: in Zed, JetBrains and Devin Desktop, the editor talks to agents over the [Agent Client Protocol](https://agentclientprotocol.com). Rewake sits on that connection, passes everything through unchanged, adds its menu and forms (in Zed), and sends messages into the same thread at the right time.
 

@@ -30,6 +30,8 @@ function harness(
     caffeinate?: boolean;
     /** How Claude Code was started (`CLAUDE_CODE_ENTRYPOINT`). */
     entrypoint?: string;
+    /** Other variables of Claude Code's environment. */
+    env?: Record<string, string>;
   } = {},
 ) {
   const clock = mock.clock(on, { now: T0 });
@@ -44,9 +46,10 @@ function harness(
     spawned: [] as string[][],
     commands: [] as string[],
   };
-  on("process.run", () => ({
-    value:
-      opts.caffeinate === false
+  on("process.run", (_: unknown, e: Ev) => ({
+    value: String((e.argv as string[]).at(-1)).includes("ps -o comm=")
+      ? { exitCode: 0, stdout: "4242\n/usr/local/bin/claude\n/usr/local/bin/claude\n", stderr: "" }
+      : opts.caffeinate === false
         ? { exitCode: 1, stdout: "", stderr: "" }
         : { exitCode: 0, stdout: "4242\n", stderr: "" },
   }));
@@ -62,7 +65,7 @@ function harness(
     return { value: undefined };
   });
   on("env.get", (_: unknown, e: Ev) => ({
-    value: e.name === "CLAUDE_CODE_ENTRYPOINT" ? opts.entrypoint : undefined,
+    value: e.name === "CLAUDE_CODE_ENTRYPOINT" ? opts.entrypoint : opts.env?.[e.name as string],
   }));
   on("session.id", () => ({ value: "S1" }));
   on("session.usage", () => ({
@@ -434,6 +437,83 @@ test("a copy of the record, without text, goes to the shared state folder", asyn
     kind: "five_hour",
   });
   expect(JSON.stringify(copy)).not.toContain("Continue from");
+});
+
+const COPY = "/state/hosts/claude-code/sessions/S1.json";
+
+test("the copy is a Rewake session record: open, the process, the limit, the settings, no keys", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+    config: JSON.stringify({ stateDir: "/state" }),
+    env: {
+      CLAUDE_CONFIG_DIR: "/home/me/.claude-work",
+      ANTHROPIC_BASE_URL: "https://gateway.example",
+      ANTHROPIC_API_KEY: "sk-ant-not-a-real-key",
+    },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  const copy = JSON.parse(seen.files[COPY] ?? "{}");
+  expect(copy).toMatchObject({
+    schemaVersion: 1,
+    host: "claude-code",
+    sessionId: "S1",
+    cwd: "/work",
+    open: true,
+    agents: [{ pid: 4242, name: "claude" }],
+    program: "/usr/local/bin/claude",
+    limit: {
+      kind: "session",
+      billing: false,
+      resetsAt: Date.parse("2026-10-06T11:00:00Z"),
+      seenAt: T0,
+    },
+    env: {
+      CLAUDE_CONFIG_DIR: "/home/me/.claude-work",
+      ANTHROPIC_BASE_URL: "https://gateway.example",
+    },
+    keysSet: ["ANTHROPIC_API_KEY"],
+  });
+  // Only the key's name is kept, never its value.
+  expect(JSON.stringify(copy)).not.toContain("sk-ant-not-a-real-key");
+});
+
+test("a limit that was continued, declined or answered leaves no limit in the copy", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+    config: JSON.stringify({ stateDir: "/state" }),
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(JSON.parse(seen.files[COPY] ?? "{}").limit).toBeDefined();
+  // The person types: the copy says so, and has no limit left to continue.
+  await $.prompt.submit({ text: "carry on", wait: false, origin: { kind: "composer" } } as never);
+  await clock.advance(1);
+  const copy = JSON.parse(seen.files[COPY] ?? "{}");
+  expect(copy.limit).toBeUndefined();
+  expect(copy.lastPromptAt).toBe(T0 + 1);
+});
+
+test("Rewake's own headless continue (AGENT_REWAKE_FIRE) is left alone: no record, no question", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
+    config: JSON.stringify({ stateDir: "/state" }),
+    env: { AGENT_REWAKE_FIRE: "abc" },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.asked).toBe(0);
+  expect(seen.commands).toEqual([]);
+  expect(seen.files[COPY]).toBeUndefined();
+  expect(seen.store["limit:S1"]).toBeUndefined();
 });
 
 test("Claude Code's own auto-continuation (origin auto-continuation) settles the episode", async ($, on) => {

@@ -17,7 +17,7 @@ Find where you use your agent. Every place needs Node.js 22 or newer, on macOS, 
 
 | Where you use your agent | How Rewake works there | Needs |
 |---|---|---|
-| [**Claude Code**](#claude-code) in a terminal, or its panel in VS Code or Cursor (preview) | A plugin inside the session asks once at the limit and continues the same session after the reset. Keep Claude Code open | Claude Code 2.1.287 or newer |
+| [**Claude Code**](#claude-code) in a terminal, or its panel in VS Code or Cursor (preview) | A plugin inside the session asks once at the limit and continues the same session after the reset. If you close Claude Code first, `agent-rewake continue` continues the closed session (macOS and Linux) | Claude Code 2.1.287 or newer |
 | [**Codex**](#codex) in a terminal (preview) | Type `rewake` at the limit; a system timer continues the thread after the reset, or when you next open Codex | Codex 0.149.0 or newer |
 | [**GitHub Copilot CLI**](#github-copilot-cli), [**Gemini CLI**](#gemini-cli), [**Grok Build**](#grok-build) or [**Antigravity CLI**](#antigravity-cli) (previews) | Once the session is closed, `agent-rewake continue` has a system timer continue it after the reset | [Each one's version](#outside-zed-previews) |
 | [**Zed's Agent Panel**](#zed), with an external agent such as Claude Agent, Codex or Gemini CLI | On the connection between Zed and the agent: the thread offers to resume at the reset, and you can schedule messages. Keep Zed open | Zed 1.22 or newer |
@@ -83,7 +83,7 @@ To continue a Claude Code, Codex or other agent session after a usage limit in a
 
 `/rewake cancel` cancels the continue, and `/rewake help` lists what works where you are; anything a place can't do gets one line saying so. Codex is the one place without the slash: the Codex terminal answers a slash command it doesn't know with "Unrecognized command" and never passes it on. GitHub Copilot CLI, Grok Build and Antigravity CLI have no command in the conversation: use `npx @codizelabs/agent-rewake continue` once the session is closed.
 
-Each preview needs a recent version of its agent:
+Each preview needs a recent version of its agent (a closed Claude Code session also needs `claude --permission-prompts`, in 2.1.259 or newer):
 
 | Agent | Needs | Automated tests use | Tried by hand on a Mac (test limit) |
 |---|---|---|---|
@@ -105,7 +105,7 @@ In Devin Desktop (formerly Windsurf), run `npx @codizelabs/agent-rewake install 
 
 In JetBrains IDEs (AI Assistant 2026.2 or newer), run `npx @codizelabs/agent-rewake install --only jetbrains` (there's no menu entry for this), then pick **Claude Agent (with Rewake)** or **Codex (with Rewake)** in AI Assistant. Rewake resumes a conversation only while the IDE stays open: after a restart, JetBrains starts a new session. The Claude Code plugin for JetBrains runs Claude Code in the IDE's terminal, so the Claude Code setup already covers it.
 
-For Copilot CLI, Gemini CLI and Grok Build: Rewake continues a closed session from a system timer, which starts the agent without your shell profile. Rewake remembers each session's own settings (such as `COPILOT_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME` or a provider address) and gives them back to it. It never stores an API key: if the session used a key exported in your shell profile (such as `GEMINI_API_KEY`, `XAI_API_KEY` or Copilot's `GH_TOKEN`), the timer can't see it, so Rewake doesn't continue and tells you why. To have Rewake continue those sessions, sign in to the agent and remove the key from your shell profile. For Codex and Antigravity CLI, keep their default folders: a `CODEX_HOME` set only in your shell profile isn't seen.
+For Claude Code, Copilot CLI, Gemini CLI and Grok Build: Rewake continues a closed session from a system timer, which starts the agent without your shell profile. Rewake remembers each session's own settings (such as `COPILOT_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME` or a provider address) and gives them back to it. It never stores an API key: if the session used a key exported in your shell profile (such as `GEMINI_API_KEY`, `XAI_API_KEY` or Copilot's `GH_TOKEN`), the timer can't see it, so Rewake doesn't continue and tells you why. To have Rewake continue those sessions, sign in to the agent and remove the key from your shell profile. For Codex and Antigravity CLI, keep their default folders: a `CODEX_HOME` set only in your shell profile isn't seen.
 
 While Rewake continues a closed session, the agent runs in the background with no window. A notification says when it starts and when it's done. To stop it, run `agent-rewake continue --cancel` (or `npx @codizelabs/agent-rewake continue --cancel`) and answer **y**: what it has done so far stays. Rewake stops a run that is still going after three hours.
 
@@ -129,7 +129,7 @@ Preview, for Claude Code in a terminal, and in Claude Code's panel in VS Code or
 
    It adds Rewake's plugin with Claude Code's own plugin commands.
 2. Start a new Claude Code session, and work as usual.
-3. At a usage limit, Rewake asks once whether to continue the session after the reset: at that time, or at that time and from then on in every session when the reset is within a day. If automatic resume is on for every agent (`agent-rewake continue --always`, or Zed's Settings), it doesn't ask. `/rewake auto on` or `off` sets it for Claude Code only. In a terminal, when Claude Code's own "Continue automatically at usage limit" will most likely continue the session (its setting on, a reset within a day), Rewake leaves it to Claude Code and doesn't ask. In VS Code and Cursor, Claude Code's own setting doesn't apply, so Rewake handles every limit there. Keep Claude Code open: Rewake runs inside it. A continue that came due while it was closed is offered when you reopen the session, not sent.
+3. At a usage limit, Rewake asks once whether to continue the session after the reset: at that time, or at that time and from then on in every session when the reset is within a day. If automatic resume is on for every agent (`agent-rewake continue --always`, or Zed's Settings), it doesn't ask. `/rewake auto on` or `off` sets it for Claude Code only. In a terminal, when Claude Code's own "Continue automatically at usage limit" will most likely continue the session (its setting on, a reset within a day), Rewake leaves it to Claude Code and doesn't ask. In VS Code and Cursor, Claude Code's own setting doesn't apply, so Rewake handles every limit there. While Claude Code is open, Rewake runs inside it. If you close Claude Code at the limit before answering, or it quits or the computer restarts, the session counts as closed: see "Closed sessions" below. A continue that was planned inside Claude Code and came due while it was closed is offered when you reopen the session, not sent.
 4. If you didn't answer the question, type `/rewake` to continue after the reset (or `/rewake 3:30pm` for another time). To cancel a planned continue, type `/rewake cancel`. To be asked each time again, `/rewake auto off`.
 5. To send a message later, type `/rewake` alone and choose when, then what, or type it in one go: `/rewake in 1h Run the tests`. `/rewake list` shows what's scheduled, `/rewake cancel N` deletes one, and `/rewake help` lists the rest.
 6. Check the setup: `npx @codizelabs/agent-rewake doctor`.
@@ -137,7 +137,15 @@ Preview, for Claude Code in a terminal, and in Claude Code's panel in VS Code or
 
 **Needs:** Claude Code 2.1.287 or newer (tested with 2.1.292).
 
-**Can't:** continue while Claude Code is closed, or while the computer is asleep.
+**If you close Claude Code at a usage limit (macOS and Linux; not tried against a real usage limit yet).** Close it, or let it quit or restart, before the limit is answered, then run `npx @codizelabs/agent-rewake continue`. It lists the session, and at the reset a system timer continues it with Claude Code's own command, `claude --resume <session id> -p`: the same session, in its folder, in the background with no window, with your message on standard input.
+
+- **Permissions.** Rewake never asks Claude Code to skip permission prompts. A step that would need your approval is denied, so the run goes on without it.
+- **Automatic.** With `continue --always`, Rewake does this by itself once it notices Claude Code has closed. It notices the next time any Rewake command or hook runs.
+- **When it doesn't continue.** If you typed in the session after the limit, that answers it. If the session is open again, Rewake never writes into it. If the session's transcript changed after the limit, a notification says so instead.
+- **Claude Code's own "Continue automatically at usage limit"** keeps handling the limit while Claude Code stays open. Rewake steps in only once it is closed.
+- **Your settings.** A timer starts Claude Code without your shell profile, so Rewake gives the run what the session had: `CLAUDE_CONFIG_DIR`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` and the Bedrock, Vertex and Foundry switches. It never stores `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`: if the session used one exported in your shell profile, Rewake doesn't continue and says why. If you sign in with your Claude account, the timer's `claude` has to be able to read that sign-in; that hasn't been checked from a timer yet.
+
+**Can't:** continue while the computer is asleep, or a closed session on Windows (Rewake can't tell there that Claude Code has closed).
 
 ### Codex
 

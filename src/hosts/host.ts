@@ -47,6 +47,8 @@ export interface HostFacts {
   nativeContinued?: boolean;
   /** The session is open in a UI, so Rewake mustn't write to it (one writer). */
   sessionOpen?: boolean;
+  /** The agent's own files show the session changed after the limit, by something Rewake can't see. */
+  changedSince?: boolean;
 }
 
 export type SendResult =

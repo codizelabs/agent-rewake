@@ -51,7 +51,7 @@ const faq: Array<{ q: string; a: string[] }> = [
   {
     q: "Can it resume automatically, without asking?",
     a: [
-      "Yes, if you turn it on. In Zed: per thread from the Rewake menu (Turn on auto-resume after limits…), or for new threads in Rewake → Settings…. In Claude Code, answer that it should continue from then on; for closed Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions, run `npx @codizelabs/agent-rewake continue --always` once. It still asks instead when the reset is more than 24 hours away; in Zed also when the agent gives the same reset time twice, or when you chose to exclude threads that bypass permissions.",
+      "Yes, if you turn it on. In Zed: per thread from the Rewake menu (Turn on auto-resume after limits…), or for new threads in Rewake → Settings…. In Claude Code, answer that it should continue from then on; for closed Claude Code, Copilot CLI, Gemini CLI, Grok Build and Antigravity CLI sessions, run `npx @codizelabs/agent-rewake continue --always` once. It still asks instead when the reset is more than 24 hours away; in Zed also when the agent gives the same reset time twice, or when you chose to exclude threads that bypass permissions.",
     ],
   },
   {
@@ -386,7 +386,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             <div class="text" data-reveal>
               <p class="kicker">Resume after a usage limit</p>
               <h2>Your session continues as soon as the limit resets.</h2>
-              <p>When the agent stops at its limit, Rewake offers to continue. In Zed, the thread asks once, with your resume message ready to edit. Claude Code asks once in the session. In Codex, you type <code>rewake</code>. A closed Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI session continues with <code>agent-rewake continue</code>. Then come back to work that kept going.</p>
+              <p>When the agent stops at its limit, Rewake offers to continue. In Zed, the thread asks once, with your resume message ready to edit. Claude Code asks once in the session. In Codex, you type <code>rewake</code>. A closed Claude Code, Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI session continues with <code>agent-rewake continue</code>. Then come back to work that kept going.</p>
               <ul>
                 <li><strong>Automatic, if you want:</strong> say so once, and Rewake continues without asking when the reset is within a day.</li>
                 <li><strong>Follows the agent:</strong> if it's still limited, Rewake waits for the new reset time.</li>
@@ -528,7 +528,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
                 <tr><td>Claude Code open at the reset</td><td class="yes">The same session continues.</td></tr>
                 <tr><td>Claude Code closed at the reset</td><td class="no">Not sent: the continue is offered when you reopen the session.</td></tr>
                 <tr><td>Codex closed at the reset</td><td class="yes">The thread continues when you next open it.</td></tr>
-                <tr><td>A closed Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI session</td><td class="yes">The system's timer continues it at the reset. Nothing of Rewake's runs until then.</td></tr>
+                <tr><td>A closed Claude Code, Copilot CLI, Gemini CLI, Grok Build or Antigravity CLI session</td><td class="yes">The system's timer continues it at the reset. Nothing of Rewake's runs until then.</td></tr>
                 <tr><td>That session is open again at the reset</td><td class="no">Nothing is written into it: Rewake tells you instead.</td></tr>
                 <tr><td>The computer asleep or off at the reset</td><td class="no">Nothing is sent then. More than half an hour late, Rewake tells you instead of sending.</td></tr>
               </tbody>

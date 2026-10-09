@@ -118,7 +118,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The notification for a resume Rewake won't send on its own. Plain words, no message text. */
 export function notice(
-  why: "late" | "open" | "far-reset" | "expired" | "failed" | "unconfirmed",
+  why: "late" | "open" | "changed" | "far-reset" | "expired" | "failed" | "unconfirmed",
   agent: string,
   now: number,
   f: NoticeFacts,
@@ -134,6 +134,8 @@ export function notice(
   switch (why) {
     case "open":
       return `${agent}: the usage limit has reset. The ${n} is open, so Rewake didn't send anything. Continue it there.`;
+    case "changed":
+      return `${agent}: the usage limit has reset, but the ${n} has changed since it stopped, so Rewake didn't send anything. ${cap(reopen)} to see where it stands and continue.`;
     case "late":
       return `${agent}: Rewake was due to continue the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but couldn't run then (the computer may have been off or asleep). ${cap(reopen)} to continue.`;
     case "far-reset":
