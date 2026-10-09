@@ -31,6 +31,11 @@ export interface CodexLimit {
   at?: number;
   /** Codex's snapshot named resets that have all passed: usage should be back now. */
   resetPassed?: boolean;
+  /**
+   * The reset is a plan window's, found past a workspace limit that looks like billing. Rewake
+   * asks first even when automatic resume is on: only a community report backs this reading.
+   */
+  askFirst?: boolean;
 }
 
 /** The last `bytes` of a file, without a partial first line. */
@@ -114,6 +119,34 @@ function chooseSnapshot(
   return withWindows.reduce((a, b) => (fullest(b) > fullest(a) ? b : a));
 }
 
+/** A window counts as spent from 99%: the server reports fractions, and a real stop read 99.0. */
+const SPENT_PERCENT = 99;
+
+/**
+ * A Business or Team workspace's limit (`workspace_*` reason, no spend-control flag) with a plan
+ * window that is spent too: the window's reset brings the plan's own allowance back, so waiting
+ * helps, whatever the workspace's credits say. Returns that reset (the latest of the spent
+ * windows), or undefined. Only unsnooze 1.19.1/1.19.2 (a community project) reports this; there is
+ * no capture from Codex itself yet (research unsnooze-deep §3.3 item 3, experiment X-C2).
+ */
+function spentWindowReset(rl: RateLimits | undefined, nowSec: number): Partial<CodexLimit> {
+  if (!rl || !/^workspace_/.test(rl.rate_limit_reached_type ?? "") || rl.spend_control_reached)
+    return {};
+  const spent = [rl.primary, rl.secondary].filter(
+    (w): w is Window =>
+      !!w &&
+      (w.used_percent ?? 0) >= SPENT_PERCENT &&
+      typeof w.resets_at === "number" &&
+      Number.isFinite(w.resets_at) &&
+      w.resets_at > nowSec,
+  );
+  if (spent.length === 0) return {};
+  const w = spent.reduce((a, b) => ((b.resets_at ?? 0) > (a.resets_at ?? 0) ? b : a));
+  const window =
+    w.window_minutes === 300 ? "session" : w.window_minutes === 10080 ? "weekly" : "other";
+  return { resetsAt: (w.resets_at ?? 0) * 1000, window, askFirst: true };
+}
+
 function isBilling(rl: RateLimits | undefined): boolean {
   if (!rl) return false;
   const t = rl.rate_limit_reached_type ?? "";
@@ -172,10 +205,13 @@ export function findCodexLimit(tail: string, now: number = Date.now()): CodexLim
             : fromText !== undefined && fromText > now
               ? { resetsAt: fromText }
               : {};
+        const billing = isBilling(snapshot) || BILLING_MESSAGE.test(message);
+        // A workspace limit with a spent plan window: the window's reset helps (ask first).
+        const spent = billing ? spentWindowReset(snapshot, nowSec) : {};
         verdict = {
           limited: true,
           at: completed,
-          ...(isBilling(snapshot) || BILLING_MESSAGE.test(message) ? { billing: true } : reset),
+          ...(billing ? ("resetsAt" in spent ? spent : { billing: true }) : reset),
         };
       } else verdict = { limited: false };
     }

@@ -127,7 +127,7 @@ export const COMMANDS: CommandInfo[] = [
   {
     name: "doctor",
     summary: "Check your setup, in plain words (no network access)",
-    usage: ["doctor [--details] [--json] [--report]"],
+    usage: ["doctor [--details] [--json] [--report]", 'doctor --limit-sample "<message>"'],
     about: [
       "Looks at every place you set up and says what works and what's left to do. It works offline",
       "and prints no folders, accounts or keys. Exit status 1 when something is a problem.",
@@ -135,6 +135,10 @@ export const COMMANDS: CommandInfo[] = [
     options: [
       { flag: "--details", text: "Add versions and folders, for a bug report" },
       { flag: "--json", text: "Print the findings as JSON, for scripts" },
+      {
+        flag: '--limit-sample "<message>"',
+        text: "See how Rewake reads a limit message it missed, and get a link to report it (nothing is sent or opened)",
+      },
       {
         flag: "--report",
         text: "Write one text file for a bug report: for you to read and attach, nothing is sent",

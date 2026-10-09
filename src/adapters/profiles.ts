@@ -49,6 +49,11 @@ export type AgentProfile =
   | "grok"
   | "generic";
 
+/** Every agent with its own rules (not "generic"), once each, for tools that try them all. */
+export function agentProfiles(): AgentProfile[] {
+  return [...new Set(Object.values(PROFILE_BY_ID))];
+}
+
 const PROFILE_BY_ID: Record<string, AgentProfile> = {
   "claude-acp": "claude",
   "claude-code-acp": "claude",
@@ -466,6 +471,9 @@ function byProfile(
         return { kind: "transient", text };
       if (/monthly usage limit/i.test(text))
         return { kind: "not_recoverable", text, reason: "billing" };
+      // A 402 with no reset to wait for (unsnooze 1.20.0, src/agents/kimi.js terminalPatterns).
+      if (/Membership expired/i.test(text))
+        return { kind: "not_recoverable", text, reason: "billing" };
       return undefined;
     case "glm":
       if (/Rate limit reached for requests|temporarily overloaded/i.test(text))
@@ -545,6 +553,9 @@ function byProfile(
         )
       )
         return { kind: "not_recoverable", text, reason: "billing" };
+      // Zen's free tier used up (unsnooze 1.20.0, src/agents/opencode.js and test/opencode.test.js).
+      // The text gives no reset, so the person is asked for a time.
+      if (/^Free usage exceeded\b/m.test(text)) return usage(text);
       // OpenCode Zen's free tier: a daily limit, though worded like a short one.
       if (/^Rate limit exceeded\. Please try again later\.$/m.test(text)) return usage(text);
       return undefined;

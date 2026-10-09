@@ -3,7 +3,7 @@ import { parseResetText, zonedToEpoch } from "./claude/limits.js";
 /**
  * Reset times in any agent's words. Agents and providers word them differently:
  *
- *  - Claude:      "resets 4:50pm (Europe/Samara)", "resets Jan 2, 2027, 3pm"
+ *  - Claude:      "resets 4:50pm (Europe/Samara)", "resets Jan 2, 2027, 3pm", older banner "Your limit will reset at 3pm (UTC)"
  *  - Codex:       "try again at 6:34 PM.", "Try again at Sep 15th, 2026 9:25 AM.", "Oct 20, 2026, 7:38 AM"
  *  - Copilot:     "reset in 1 hour 30 minutes", "reset on October 7, 2026 at 3:47 PM" (UTC, unlabelled),
  *                 "wait 1 hours 48 minutes for your limit to reset", "in under a minute"
@@ -158,9 +158,19 @@ function monthNameHint(text: string, now: number, options: ResetOptions): number
   return t !== undefined && t > now - 60_000 ? t : undefined;
 }
 
-/** Claude's own wording, "resets 4:50pm (Europe/Samara)" and its date forms. */
+/**
+ * Claude's own wording, "resets 4:50pm (Europe/Samara)" and its date forms, and the older banner's
+ * "Your limit will reset at 3pm (UTC)" (an am/pm time, so Z.AI's "reset at 2026-09-23 …" and Qwen's
+ * "reset at 07-27 …" stay with their own readers).
+ */
 function claudeHint(text: string, now: number): number | undefined {
-  return parseResetText(text, now)?.resetAt;
+  const direct = parseResetText(text, now)?.resetAt;
+  if (direct !== undefined) return direct;
+  const older =
+    /\blimit will reset at\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)\b(?:\s*\([^)]+\)|\s+(?:UTC|GMT)\b)?)/i.exec(
+      text,
+    );
+  return older ? parseResetText(`resets ${older[1]}`, now)?.resetAt : undefined;
 }
 
 /**
