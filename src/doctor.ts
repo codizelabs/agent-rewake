@@ -12,11 +12,13 @@ import {
   AGENT_NAME,
   agentPanelKey,
   type LaunchCommand,
+  launchCommand,
   missingLaunchFiles,
   pinnedVersion,
   planInstall,
   quitZed,
   unwrappedEntry,
+  wrapsClaudeAdapter,
 } from "./install.js";
 import { agentName, detectSetup } from "./setup.js";
 import { launcherVersion } from "./timers/launcher.js";
@@ -384,6 +386,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
     const plan = planInstall({
       dir: zedDir,
       launch: ctx.launch,
+      claudeLaunch: launchCommand(),
       keybinding: false,
       env,
       stateDir: state,
@@ -428,7 +431,8 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   const wrappedEntries = Object.values(servers).filter(
     (e): e is Record<string, unknown> => isRecord(e) && unwrappedEntry(e) !== undefined,
   );
-  if (stable && wrappedEntries.some((e) => e.command !== stable))
+  // (The Claude adapter's entries are the exception: they start from the package, which holds it.)
+  if (stable && wrappedEntries.some((e) => e.command !== stable && !wrapsClaudeAdapter(e)))
     add({
       area: "Rewake",
       level: "todo",

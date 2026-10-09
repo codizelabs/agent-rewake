@@ -83,11 +83,12 @@ describe("Zed's entries start Rewake from its own folder", () => {
     expect(readFileSync(launcherPath(state), "utf8")).toBe("console.log('v-built');\n");
     expect(existsSync(nodeShimPath(state))).toBe(true);
     const servers = entries();
-    expect(servers["claude-acp"]).toEqual({
-      type: "custom",
-      command: nodeShimPath(state),
-      args: [launcherPath(state), "--wrap-registry", "claude-acp"],
-    });
+    // The Claude adapter is Rewake's own dependency, found next to the package Rewake starts from:
+    // Rewake's one-file copy has no node_modules beside it and could not start it. Its entry keeps
+    // starting from the package; the other agents' entries use Rewake's own folder.
+    expect(servers["claude-acp"]?.command).not.toBe(nodeShimPath(state));
+    expect(servers["claude-acp"]?.args).not.toContain(launcherPath(state));
+    expect(servers["claude-acp"]?.args.slice(-2)).toEqual(["--wrap-registry", "claude-acp"]);
     expect(servers["custom-one"]?.command).toBe(nodeShimPath(state));
     expect(servers["custom-one"]?.args[0]).toBe(launcherPath(state));
   });
@@ -250,6 +251,23 @@ describe("doctor and the stable start", () => {
       join(zed, "settings.json"),
       JSON.stringify({
         agent_servers: {
+          "codex-acp": {
+            type: "custom",
+            command: process.execPath,
+            args: [bundle, "--wrap-registry", "codex-acp"],
+          },
+        },
+      }),
+    );
+    const f = run();
+    expect(texts(f, "todo").join()).toContain("through npm or one Node.js folder");
+  });
+
+  it("does not ask for that when only the Claude adapter's entry starts from the package", () => {
+    writeFileSync(
+      join(zed, "settings.json"),
+      JSON.stringify({
+        agent_servers: {
           "claude-acp": {
             type: "custom",
             command: process.execPath,
@@ -258,8 +276,7 @@ describe("doctor and the stable start", () => {
         },
       }),
     );
-    const f = run();
-    expect(texts(f, "todo").join()).toContain("through npm or one Node.js folder");
+    expect(texts(run(), "todo").join()).not.toContain("through npm or one Node.js folder");
   });
 
   it("says nothing of the kind for a stable entry, and names its version", () => {
