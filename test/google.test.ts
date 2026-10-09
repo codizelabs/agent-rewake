@@ -429,9 +429,10 @@ describe("Gemini CLI", () => {
       },
     });
     expect(outcome).toBe("failed");
-    expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatch(/refused a step that needs your approval/);
-    expect(notes[0]).toMatch(/never approves for you/);
+    // The first notice says the run started; the last says why it ended.
+    const last = notes.at(-1) ?? "";
+    expect(last).toMatch(/refused a step that needs your approval/);
+    expect(last).toMatch(/never approves for you/);
   });
 
   it("doesn't count its own resume run as the session being open", async () => {
