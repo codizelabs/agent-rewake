@@ -44,6 +44,7 @@ import {
   terminalAgents,
 } from "./install/detect.js";
 import { choosePlaces, type Place, placesFrom } from "./install/select.js";
+import { zedLaunch } from "./install/zed-launch.js";
 import {
   keyChord,
   launchCommand,
@@ -293,9 +294,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       id: string,
       o: { yes: boolean; dryRun: boolean; out: (t: string) => void },
     ): Promise<number> => {
-      if (id === "zed")
+      if (id === "zed") {
+        const zed = zedLaunch(stateDir(env), process.argv[1] ?? "");
         return runInstall({
           uninstall,
+          launch: zed.launch,
+          prepare: zed.prepare,
           ...(only.length > 0 && { only }),
           yes: o.yes,
           dryRun: o.dryRun,
@@ -303,6 +307,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
           env,
           out: o.out,
         });
+      }
       const common = {
         uninstall,
         yes: o.yes,
@@ -460,7 +465,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       process.stderr.write("agent-rewake: usage: agent-rewake setup zed\n");
       return 2;
     }
-    process.stdout.write(setupZedText());
+    process.stdout.write(setupZedText(env));
     return 0;
   }
 
@@ -552,7 +557,7 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
         hold: new Wakefulness().supported && keepAwake !== "never" ? keepAwake : "none",
       };
     },
-    launch: launchCommand(),
+    launch: zedLaunch(stateDir(env), process.argv[1] ?? "").launch,
     version: VERSION,
     nodeVersion: process.versions.node,
   };
@@ -628,8 +633,15 @@ function toolsRefused(state: string): string[] {
  * The exact Zed configuration for this installation, for people who prefer to
  * edit Zed's files by hand. `agent-rewake install` writes the same entries.
  */
-function setupZedText(): string {
-  const launch = launchCommand();
+function setupZedText(env: NodeJS.ProcessEnv): string {
+  // The entries name files in Rewake's own folder, so they are made now: pasted by hand, they work.
+  const zed = zedLaunch(stateDir(env), process.argv[1] ?? "");
+  let launch = zed.launch;
+  try {
+    zed.prepare();
+  } catch {
+    launch = launchCommand();
+  }
   const agent = {
     agent_servers: {
       [CLAUDE_REGISTRY_ID]: wrappedEntry({}, { kind: "registry", id: CLAUDE_REGISTRY_ID }, launch),

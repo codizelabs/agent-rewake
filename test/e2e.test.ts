@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { parse } from "jsonc-parser";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // End-to-end tests against the built single-file bundle, the way Zed runs it.
@@ -186,7 +187,16 @@ describe("agent-rewake bundle", () => {
     });
     expect(setup).toContain('"Agent Rewake: schedules"');
     expect(setup).toContain('"task::Spawn"');
-    expect(setup).toContain(asJson(bundle)); // a JSON string: Windows backslashes are escaped
+    // Zed's entries name Rewake's own stable files (Windows keeps the Node.js and script paths).
+    // JSON strings: Windows backslashes are escaped.
+    const bin = join(home, "cli-state", "bin");
+    if (process.platform === "win32") expect(setup).toContain(asJson(bundle));
+    else {
+      expect(setup).toContain(asJson(join(bin, "agent-rewake.mjs")));
+      expect(setup).toContain(asJson(join(bin, "rewake-node")));
+      expect(setup).not.toContain("npx-cli");
+      expect(setup).not.toContain('"--yes"');
+    }
   });
 
   it("adds itself to Zed's agents and takes itself out again, asking first", () => {
@@ -212,8 +222,27 @@ describe("agent-rewake bundle", () => {
     const settings = readFileSync(join(zed, "settings.json"), "utf8");
     expect(settings).toContain("// mine");
     expect(settings).toContain('"--wrap-registry",');
-    expect(settings).toContain(asJson(bundle));
     expect(settings).not.toContain('"Agent Rewake"');
+    if (process.platform === "win32") expect(settings).toContain(asJson(bundle));
+    else {
+      // The entry names Rewake's own stable files, not this Node.js or npm.
+      const bin = join(home, "doctor-state", "bin");
+      const entry = (
+        parse(settings, [], { allowTrailingComma: true }) as {
+          agent_servers: Record<string, { command: string; args: string[] }>;
+        }
+      ).agent_servers["claude-acp"];
+      expect(entry?.command).toBe(join(bin, "rewake-node"));
+      expect(entry?.args).toEqual([join(bin, "agent-rewake.mjs"), "--wrap-registry", "claude-acp"]);
+      expect(settings).not.toContain("npx");
+      expect(settings).not.toContain(asJson(bundle));
+      // And it starts: the same command Zed runs, in a bare environment.
+      const started = spawnSync(entry?.command ?? "", [entry?.args[0] ?? "", "--version"], {
+        encoding: "utf8",
+        env: { HOME: home },
+      });
+      expect(started.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+    }
     expect(readFileSync(join(zed, "tasks.json"), "utf8")).toContain("Agent Rewake: schedules");
 
     // doctor says which agents have Rewake, and that Zed starts it with a thread in the Agent Panel.
@@ -254,6 +283,9 @@ describe("agent-rewake bundle", () => {
       "Its own folder, with your scheduled messages, is still on disk",
     );
     const restored = readFileSync(join(zed, "settings.json"), "utf8");
+    // Hooks and timers use the same files, so uninstall leaves them in place.
+    if (process.platform !== "win32")
+      expect(existsSync(join(home, "doctor-state", "bin", "agent-rewake.mjs"))).toBe(true);
     expect(restored).not.toContain("--wrap-registry");
     expect(restored).toContain('"type": "registry"');
     expect(cli("install", "--bogus").status).toBe(2);
