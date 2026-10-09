@@ -6,6 +6,7 @@ import { DEFAULT_RESUME_PROMPT } from "../core/threads.js";
 import { formatAt } from "../core/time.js";
 import { rewake } from "../util/command.js";
 import { type AgentProcess, stillRunning } from "../util/proc.js";
+import { SECRET_NAME } from "../util/secrets.js";
 import type { HostAdapter, HostFacts, SendResult } from "./host.js";
 import { type SessionLimit, type SessionRecord, SessionRecords } from "./sessions.js";
 
@@ -56,8 +57,6 @@ export interface ClosedHost {
 
 /** Folders every agent may be told to use through the environment. */
 const COMMON_VARS = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
-/** A name that looks secret is never recorded, whatever a host's list says. */
-const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
 
 /** What to record from a hook's environment for this host. */
 export function sessionEnv(

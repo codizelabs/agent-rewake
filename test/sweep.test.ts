@@ -212,6 +212,39 @@ describe("notifications", () => {
     expect(script).toContain("CreateTextNode('It''s due at 3:05 PM')");
     expect(psString("a'b\nc")).toBe("'a''b c'");
   });
+
+  it("doubles every quote character PowerShell ends a string with, not only the ASCII one", () => {
+    // U+2018 to U+201B end a single-quoted PowerShell string like '.
+    for (const q of ["‘", "’", "‚", "‛"]) {
+      const lit = psString(`x${q}); Start-Process calc; (${q}`);
+      expect(lit).toBe(`'x${q}${q}); Start-Process calc; (${q}${q}'`);
+      // Every quote character inside the literal comes in pairs.
+      const inner = lit.slice(1, -1);
+      expect(inner.match(/['‘’‚‛]/g)?.length).toBe(4);
+    }
+    const script = Buffer.from(
+      osNotifierScriptArg("Agent Rewake", "Codex in the ’); calc; (’ folder"),
+      "base64",
+    ).toString("utf16le");
+    expect(script).toContain("CreateTextNode('Codex in the ’’); calc; (’’ folder')");
+  });
+});
+
+function osNotifierScriptArg(title: string, body: string): string {
+  let arg = "";
+  osNotifier("win32", (_c, a) => {
+    arg = a[5] ?? "";
+    return 0;
+  })(title, body);
+  return arg;
+}
+
+describe("AppleScript text", () => {
+  it("keeps quotes, backslashes and line breaks inside the string", () => {
+    expect(appleString('a" & (do shell script "x") & "\\ b\r\nc')).toBe(
+      '"a\\" & (do shell script \\"x\\") & \\"\\\\ b c"',
+    );
+  });
 });
 
 describe("one owner per session", () => {

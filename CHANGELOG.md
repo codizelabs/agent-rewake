@@ -6,6 +6,9 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Fixed
 
+- **A folder name with curly quotes can no longer break a Windows notification:** every quote character PowerShell treats as a quote is now escaped in the notification text.
+- **Planned resumes no longer keep your API keys:** timers started through `at`, `systemd` or Rewake's own waiter now run with a cleaned environment, so keys from the session that planned them aren't saved on disk or used to skip the missing-key check.
+- **Text from an agent can no longer send commands to your terminal through Rewake's lists:** thread titles, folder names and message text are shown with escape and other control characters replaced, in `agent-rewake schedules`, its Markdown snapshot and the schedules page.
 - **Codex: a later, empty usage bucket no longer hides when the limit resets:** Codex reports usage per limit bucket, and an empty "premium" snapshot after a full "codex" one made Rewake say it didn't know when the limit resets. Rewake now picks the bucket that describes the limit, and falls back to the reset time in Codex's own message.
 - **Codex: a crashed send can no longer be counted as sent because of an older resume:** after a second usage limit in the same thread, the first resume's identical message was still in the thread's file, so a send that crashed could be marked as sent. Rewake now counts only messages written after that attempt started.
 - **Claude Code: a continue refused just after the reset is tried again:** when the first request after a reset was refused and no new reset time was given, nothing retried and the session stayed stopped. Rewake now tries again shortly, once. If that is refused too, it stops, as it does for a limit that keeps coming back.

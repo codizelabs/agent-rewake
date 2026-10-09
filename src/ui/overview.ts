@@ -3,6 +3,7 @@ import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.j
 import { ThreadStore } from "../core/threads.js";
 import { formatWhen, TEXT_LOCALE } from "../core/time.js";
 import { rewake } from "../util/command.js";
+import { printable } from "../util/printable.js";
 import { VERSION } from "../version.js";
 
 /** User-facing status words. */
@@ -50,10 +51,10 @@ export function overview(stateDir: string, all = false): ProjectGroup[] {
       const settings = threads.get(s.sessionId);
       t = {
         sessionId: s.sessionId,
-        title: settings?.title ?? `Thread ${s.sessionId.slice(0, 8)}`,
+        title: printable(settings?.title ?? `Thread ${s.sessionId.slice(0, 8)}`),
         agentId: settings?.agentId,
         agent: settings?.agentName ?? settings?.agentId ?? "—",
-        cwd: s.cwd || settings?.cwd || "",
+        cwd: printable(s.cwd || settings?.cwd || ""),
         autoResume: settings?.autoResume ?? false,
         schedules: [],
       };
@@ -66,7 +67,11 @@ export function overview(stateDir: string, all = false): ProjectGroup[] {
     const key = projectKey(t.cwd);
     let p = byProject.get(key);
     if (!p) {
-      p = { cwd: t.cwd, name: t.cwd ? basename(t.cwd) : "(unknown project)", threads: [] };
+      p = {
+        cwd: t.cwd,
+        name: t.cwd ? printable(basename(t.cwd)) : "(unknown project)",
+        threads: [],
+      };
       byProject.set(key, p);
     }
     p.threads.push(t);
@@ -84,7 +89,7 @@ export function projectKey(cwd: string, p: NodeJS.Platform = process.platform): 
 }
 
 export function oneLine(text: string, max = 70): string {
-  const t = text.replace(/\s+/g, " ").trim();
+  const t = printable(text).replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
