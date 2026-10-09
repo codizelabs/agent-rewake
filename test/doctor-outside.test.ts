@@ -25,6 +25,8 @@ const facts = (o: Partial<OutsideFacts> = {}): OutsideFacts => ({
   previews: [{ id: "copilot-cli", name: "GitHub Copilot CLI" }],
   hosts: new Map([["copilot-cli", { name: "GitHub Copilot CLI" } as HostAdapter]]),
   hasTimer: true,
+  // The helper files exist and work, and every agent has been seen: those checks are in health.test.ts.
+  health: { exists: () => true, run: () => ({ status: 0 }), sessionFiles: () => 1 },
   when,
   ...o,
 });

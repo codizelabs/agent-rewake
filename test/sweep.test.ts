@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -87,7 +95,7 @@ describe("sweep", () => {
     const live = add(NOW + 7_200_000);
     add(NOW - 1000, {}); // a Zed schedule: the add-on delivers it
     const { d, fired, armed } = deps(new Set([live]));
-    expect(sweep(d)).toEqual({ fired: 1, armed: 1 });
+    expect(sweep(d)).toEqual({ fired: 1, armed: 1, removed: 0 });
     expect(fired).toEqual([due]);
     expect(armed).toEqual([lost]);
   });
@@ -97,7 +105,7 @@ describe("sweep", () => {
     // hook, `doctor`, a login) arms the right moment.
     const id = add(NOW + 5 * 60_000, { host: "test", earlyRearms: 3 });
     const { d, fired, armed } = deps();
-    expect(sweep(d)).toEqual({ fired: 0, armed: 1 });
+    expect(sweep(d)).toEqual({ fired: 0, armed: 1, removed: 0 });
     expect(armed).toEqual([id]);
     expect(fired).toEqual([]);
   });
@@ -111,14 +119,37 @@ describe("sweep", () => {
       attempts: [{ n: 1, idempotencyKey: "k", startedAt: NOW - 60_000 }],
     });
     const { d, fired } = deps();
-    expect(sweep(d)).toEqual({ fired: 1, armed: 0 });
+    expect(sweep(d)).toEqual({ fired: 1, armed: 0, removed: 0 });
     expect(fired).toEqual([stale]);
+  });
+
+  it("takes out timers whose resume is gone or finished, and keeps the live ones", () => {
+    const live = add(NOW + 7_200_000);
+    const sent = add(NOW - 60_000, { host: "test", status: "sent" });
+    const gone = "0f6c3a1e-6b1d-4d7a-9a51-2b8c4f1e9d10";
+    mkdirSync(join(dir, "timers"), { recursive: true });
+    for (const id of [live, sent, gone]) writeFileSync(join(dir, "timers", `${id}.systemd`), "");
+    const stopped: string[] = [];
+    const { d } = deps(new Set([live]));
+    const run = d.timers?.run;
+    if (d.timers && run)
+      d.timers.run = (command, args, input) => {
+        if (args[0] === "--user" && args[1] === "stop") stopped.push(args[2] ?? "");
+        return run(command, args, input);
+      };
+    expect(sweep(d).removed).toBe(2);
+    expect(stopped.sort()).toEqual(
+      [gone, sent].map((id) => `codizelabs-agent-rewake-${id}.timer`).sort(),
+    );
+    expect(existsSync(join(dir, "timers", `${live}.systemd`))).toBe(true);
+    expect(existsSync(join(dir, "timers", `${sent}.systemd`))).toBe(false);
+    expect(existsSync(join(dir, "timers", `${gone}.systemd`))).toBe(false);
   });
 
   it("does nothing when no integration outside Zed is installed", () => {
     add(NOW - 1000);
     const { d, fired } = deps();
-    expect(sweep({ ...d, hosts: new Map() })).toEqual({ fired: 0, armed: 0 });
+    expect(sweep({ ...d, hosts: new Map() })).toEqual({ fired: 0, armed: 0, removed: 0 });
     expect(fired).toEqual([]);
   });
 });

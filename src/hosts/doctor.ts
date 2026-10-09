@@ -5,6 +5,7 @@ import type { TimerKind } from "../timers/timers.js";
 import { waiterNote } from "../timers/waiter.js";
 import { rewake } from "../util/command.js";
 import { claudeCodeRecords } from "./claude-code/records.js";
+import { diagnoseHealth, type HealthFacts } from "./health.js";
 import type { HostAdapter } from "./host.js";
 import { claudeRetrySettings, hooksTurnedOff } from "./policy.js";
 import { AGENT_VERSIONS, newerThanTested, tooOld, untestedText } from "./versions.js";
@@ -30,6 +31,8 @@ export interface OutsideFacts {
   timerKind?: TimerKind;
   /** Linux in WSL (for the waiter's fix). */
   wsl?: boolean;
+  /** Stand-ins for the helper-file checks (tests); real files are looked at by default. */
+  health?: Pick<HealthFacts, "exists" | "run" | "sessionFiles">;
   /** The agents' terminal programs here, with their versions (src/install/detect.ts terminalAgents). */
   agents?: { id: PlaceId; version?: string }[];
   when: (at: number, now: number) => string;
@@ -57,6 +60,15 @@ export function diagnoseOutside(f: OutsideFacts): Finding[] {
       add({ level: "info", text: untestedText(a.id, a.version) });
   }
   if (f.previews.length === 0) return out;
+  // The helper files and the Node.js finder the hooks and timers run, and agents never seen running.
+  out.push(
+    ...diagnoseHealth({
+      stateDir: f.stateDir,
+      platform: f.platform,
+      previews: f.previews,
+      ...f.health,
+    }),
+  );
 
   for (const p of f.previews) {
     const off = hooksTurnedOff(p.id, f.env, f.home);
