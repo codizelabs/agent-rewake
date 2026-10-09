@@ -25,13 +25,6 @@ const root = join(import.meta.dirname, "..");
 const bundle = join(root, "dist", "agent-rewake.js");
 const fakeAgent = join(root, "test", "fixtures", "fake-agent.mjs");
 
-beforeAll(() => {
-  execFileSync(process.execPath, [join(root, "scripts", "build.mjs")], {
-    cwd: root,
-    stdio: "ignore",
-  });
-});
-
 let home: string;
 beforeAll(() => {
   home = mkdtempSync(join(tmpdir(), "rewake-e2e-"));

@@ -233,10 +233,6 @@ describe.runIf(enabled)("Codex CLI, offline: limit → automatic resume", () => 
     const state = join(home, "state");
     mkdirSync(work);
     mkdirSync(codexHome);
-    execFileSync(process.execPath, [join(root, "scripts", "build.mjs")], {
-      cwd: root,
-      stdio: "ignore",
-    });
     const launchd = process.platform === "darwin" ? fakeLaunchctl(home) : undefined;
     let mock: Mock | undefined;
     const env: NodeJS.ProcessEnv = {

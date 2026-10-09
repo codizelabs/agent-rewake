@@ -3,6 +3,7 @@
 // bundle or a fake agent get more time there instead of timing out at the default 5 seconds.
 export default {
   test: {
+    globalSetup: ["test/global-setup.ts"],
     setupFiles: ["test/setup.ts"],
     include: ["test/**/*.test.ts"],
     testTimeout: process.platform === "win32" ? 20_000 : 5_000,

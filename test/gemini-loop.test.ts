@@ -172,10 +172,6 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
         telemetry: { enabled: false },
       }),
     );
-    execFileSync(process.execPath, [join(root, "scripts", "build.mjs")], {
-      cwd: root,
-      stdio: "ignore",
-    });
     let mock: Mock | undefined;
     let armed: string | undefined;
     const terminals: ReturnType<typeof terminal>[] = [];

@@ -30,10 +30,6 @@ describe.runIf(bin)("Copilot CLI, offline: limit → resume", () => {
     const state = join(dir, "state");
     const work = join(dir, "work");
     mkdirSync(work, { recursive: true });
-    execFileSync(process.execPath, [join(root, "scripts", "build.mjs")], {
-      cwd: root,
-      stdio: "ignore",
-    });
     let mock: Mock | undefined;
     try {
       mock = await startMock();

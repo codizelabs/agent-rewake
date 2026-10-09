@@ -91,10 +91,6 @@ describe.runIf(enabled)("Zed's Agent Panel, offline: limit → resume (Claude)",
     const home = mkdtempSync(join(tmpdir(), "rewake-loop-"));
     const work = join(home, "work");
     mkdirSync(work);
-    execFileSync(process.execPath, [join(root, "scripts", "build.mjs")], {
-      cwd: root,
-      stdio: "ignore",
-    });
     let mock: Mock | undefined;
     let d: ReturnType<typeof drive> | undefined;
     try {

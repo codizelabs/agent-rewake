@@ -291,13 +291,6 @@ async function continuedOnce(
 }
 
 describe.runIf(enabled)("Claude Code's terminal, offline: limit → continue (the mod)", () => {
-  beforeAll(() => {
-    execFileSync(process.execPath, [join(root, "scripts", "build.mjs")], {
-      cwd: root,
-      stdio: "ignore",
-    });
-  });
-
   it.concurrent("continues the same session once after the reset, with the terminal left open", async () => {
     const home = mkdtempSync(join(tmpdir(), "rewake-cc-loop-"));
     let mock: Mock | undefined;
