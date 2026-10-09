@@ -462,7 +462,7 @@ describe("Gemini CLI", () => {
   });
 
   it("writes linkable hooks with millisecond timeouts", () => {
-    const json = JSON.parse(geminiHooksJson("/n", "/l.mjs"));
+    const json = JSON.parse(geminiHooksJson("/n", "/l.mjs", "linux"));
     expect(Object.keys(json.hooks)).toEqual([
       "SessionStart",
       "SessionEnd",
@@ -475,6 +475,19 @@ describe("Gemini CLI", () => {
       command: '"/n" "/l.mjs" hook gemini-cli AfterAgent',
       timeout: 5000,
     });
+  });
+
+  it("on Windows, writes hooks PowerShell can run: the call operator and single quotes", () => {
+    const json = JSON.parse(
+      geminiHooksJson(
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Users\\O'Neil $x\\.agent-rewake\\bin\\agent-rewake.mjs",
+        "win32",
+      ),
+    );
+    expect(json.hooks.SessionStart[0].hooks[0].command).toBe(
+      "& 'C:\\Program Files\\nodejs\\node.exe' 'C:\\Users\\O''Neil $x\\.agent-rewake\\bin\\agent-rewake.mjs' hook gemini-cli SessionStart",
+    );
   });
 
   it("checks that Gemini's hooks are on, links with Gemini's own command, and never answers its question", async () => {

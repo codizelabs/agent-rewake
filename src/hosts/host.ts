@@ -2,6 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { statSync } from "node:fs";
 import type { Schedule } from "../core/store.js";
 import { errorLine } from "../util/error-line.js";
+import { killTree } from "../util/spawn.js";
 
 /**
  * What an integration outside Zed (Codex, Copilot CLI, Grok, Gemini CLI, Antigravity) provides so
@@ -104,13 +105,21 @@ export function onResumeRun(listener: ((pid: number) => void) | undefined): void
 /**
  * Stop a resume run that is still going after `ms` (hung). Returns a check, read when the child
  * exits, of whether it was stopped this way. Also reports the run's start (`onResumeRun`).
+ *
+ * The whole process tree is stopped: on Windows `kill()` ends only the direct child, and an
+ * agent started as `node <script>` often runs its own programs (a native binary, shells, tool
+ * servers), which would keep working on the session after Rewake said it stopped.
  */
-export function resumeDeadline(child: ChildProcess, ms = RESUME_TIMEOUT_MS): () => boolean {
+export function resumeDeadline(
+  child: ChildProcess,
+  ms = RESUME_TIMEOUT_MS,
+  stop: (child: ChildProcess) => void = (c) => killTree(c),
+): () => boolean {
   if (child.pid !== undefined) runStarted?.(child.pid);
   let stopped = false;
   const timer = setTimeout(() => {
     stopped = true;
-    child.kill();
+    stop(child);
   }, ms);
   child.once("exit", () => clearTimeout(timer));
   child.once("error", () => clearTimeout(timer));
