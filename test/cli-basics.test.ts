@@ -207,6 +207,13 @@ describe("doctor --json and --report (G65, G67)", () => {
     expect((await run(["doctor", "--json", "--report"])).code).toBe(2);
   });
 
+  it("schedules --explain is an option it knows, and asks for an id", async () => {
+    const r = await run(["schedules", "--explain"]);
+    expect(r.err).not.toContain("unknown option");
+    expect(r.err).toContain("usage: agent-rewake schedules --explain <id>");
+    expect(r.code).toBe(2);
+  });
+
   it("--report writes one redacted file, prints the issue link, and sends nothing", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     registerHost("codex");
