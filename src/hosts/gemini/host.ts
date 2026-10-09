@@ -321,7 +321,7 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
             : undefined;
           if (limit) {
             const l = withApiKeyReset(limit, deps.apiKey?.(ctx.env) === true, ctx.now);
-            onLimit(geminiHost, id, cwd, l, d);
+            onLimit(geminiHost, id, cwd, l, d, t);
             // Offered in the session, where the person is: /rewake answers without a model call.
             if (!l.billing)
               return JSON.stringify({ systemMessage: offerText(l.resetsAt, ctx.now) });
