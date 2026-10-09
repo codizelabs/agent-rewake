@@ -94,7 +94,8 @@ export type FailCause =
   | "deleted"
   | "timeout"
   | "missing-key"
-  | "window-closed";
+  | "window-closed"
+  | "needs-approval";
 
 export interface NoticeFacts {
   /** "thread" (Codex, Zed) or "session" (Copilot, Grok): the host's own word. */
@@ -155,6 +156,8 @@ export function notice(
         return `${agent}: the time you chose has come, but Rewake couldn't continue the ${n} (was its window closed or reloaded?). ${cap(reopen)} to continue.`;
       if (f.cause === "deleted")
         return `${agent}: Rewake couldn't continue the ${n} because it no longer exists.`;
+      if (f.cause === "needs-approval")
+        return `${agent}: Rewake continued the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but ${f.agentName} refused a step that needs your approval, so the work may be unfinished. Rewake never approves for you. ${cap(reopen)} to see where it stopped, and approve it there.`;
       return `${agent}: Rewake couldn't continue the ${n}. ${cap(reopen)} to continue.`;
   }
 }
@@ -387,6 +390,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           "timeout",
           "missing-key",
           "window-closed",
+          "needs-approval",
         ].includes(result.detail ?? "")
           ? (result.detail as FailCause)
           : undefined;

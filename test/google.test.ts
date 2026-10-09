@@ -319,6 +319,122 @@ describe("Gemini CLI", () => {
     expect(at).toBeLessThanOrEqual(Date.now() + 2 * H);
   });
 
+  it("knows a quota error that carries only the server's words, with the reset it gives", () => {
+    // The structured error path writes `[API Error: <message>]` with no status name.
+    expect(
+      classifyGeminiError(
+        "[API Error: You exceeded your current quota, please check your plan and billing details.\nSuggested retry after 3600s.]",
+        NOW,
+      ),
+    ).toEqual({ kind: "other", billing: false, resetsAt: NOW + H });
+    expect(
+      classifyGeminiError(
+        "[API Error: Quota is used up for now. Please retry in 1234.5s.\nPlease wait and try again later. To increase your limits, request a quota increase through AI Studio, or switch to another /auth method]",
+        NOW,
+      ),
+    ).toEqual({ kind: "other", billing: false, resetsAt: NOW + 1_234_500 });
+    // The API-key suffix alone says it's a quota error, with no time.
+    expect(
+      classifyGeminiError(
+        "[API Error: Rate limit exceeded. Try again later.\nPlease wait and try again later. To increase your limits, request a quota increase through AI Studio, or switch to another /auth method]",
+        NOW,
+      ),
+    ).toEqual({ kind: "other", billing: false });
+    expect(
+      classifyGeminiError("[API Error: Resource has been exhausted (e.g. check quota).]", NOW),
+    ).toMatchObject({ billing: false });
+    // A short retry is Gemini CLI's own to ride out.
+    expect(
+      classifyGeminiError(
+        "[API Error: You exceeded your current quota. Please retry in 30s.]",
+        NOW,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("sees a limit in a turn another extension started (stop_hook_active)", async () => {
+    const notes: string[] = [];
+    const handler = geminiHooks({
+      closed: (ctx) => deps(notes, [])(ctx.env, ctx.now),
+      program: () => FAKE,
+    });
+    const transcript = join(dir, ".gemini", "tmp", "abc", "chats", "session-2.jsonl");
+    mkdirSync(join(transcript, ".."), { recursive: true });
+    writeFileSync(
+      transcript,
+      `${JSON.stringify({ sessionId: SID, kind: "main" })}\n${JSON.stringify({ type: "error", content: "[API Error: You exceeded your current quota.\nSuggested retry after 7200s.]" })}\n`,
+    );
+    const out = await runHook(
+      handler,
+      "AfterAgent",
+      JSON.stringify({
+        session_id: SID,
+        transcript_path: transcript,
+        cwd: join(dir, "shop"),
+        hook_event_name: "AfterAgent",
+        stop_hook_active: true,
+      }),
+      { GEMINI_SESSION_ID: SID },
+      state,
+      NOW,
+    );
+    expect(out).toContain("systemMessage");
+    expect(new SessionRecords(state, "gemini-cli").get(SID)).toMatchObject({
+      limit: { resetsAt: NOW + 2 * H },
+    });
+  });
+
+  it("says so when a resumed run had a tool refused for needing approval", async () => {
+    const r = new SessionRecords(state, "gemini-cli").update(SID, dir, NOW, (x) => ({
+      ...x,
+      program: FAKE,
+    }));
+    if (!r) throw new Error("no session record");
+    expect(await resumeGemini(r, "Continue.", { ...process.env, FAKE_RESUME: "refused" })).toEqual({
+      ok: false,
+      reason: "failed",
+      detail: "needs-approval",
+    });
+  });
+
+  it("tells the person, not 'sent', when a resumed run was refused a tool", async () => {
+    const work = join(dir, "shop");
+    mkdirSync(work);
+    new SessionRecords(state, "gemini-cli").update(SID, work, NOW, (r) => ({
+      ...r,
+      program: FAKE,
+      limit: { seenAt: NOW, kind: "other", billing: false, resetsAt: NOW + H },
+    }));
+    await runContinue({
+      hosts: [geminiHost],
+      deps: deps([], [])({}, NOW),
+      interactive: true,
+      out: () => {},
+      ask: async () => "",
+    });
+    const id = new ScheduleStore(state).list()[0]?.scheduleId ?? "";
+    const notes: string[] = [];
+    const outcome = await fire(id, {
+      stateDir: state,
+      now: () => NOW + H + 61_000,
+      hosts: new Map([
+        [
+          "gemini-cli",
+          closedAdapter(geminiHost, state, { ...process.env, FAKE_RESUME: "refused" }),
+        ],
+      ]),
+      notify: (_t, b) => {
+        notes.push(b);
+        return true;
+      },
+    });
+    expect(outcome).toBe("failed");
+    // The first notice says the run started; the last says why it ended.
+    const last = notes.at(-1) ?? "";
+    expect(last).toMatch(/refused a step that needs your approval/);
+    expect(last).toMatch(/never approves for you/);
+  });
+
   it("doesn't count its own resume run as the session being open", async () => {
     const handler = geminiHooks({
       closed: (ctx) => deps([], [])(ctx.env, ctx.now),
