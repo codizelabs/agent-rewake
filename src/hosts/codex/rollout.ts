@@ -54,6 +54,8 @@ interface Window {
   resets_at?: number;
 }
 interface RateLimits {
+  /** Which limit this snapshot is for ("codex", "premium", …): Codex sends one per bucket. */
+  limit_id?: string | null;
   primary?: Window | null;
   secondary?: Window | null;
   rate_limit_reached_type?: string | null;
@@ -91,6 +93,27 @@ function pickReset(rl: RateLimits | undefined, nowSec: number): Partial<CodexLim
   return { resetsAt: (w.resets_at ?? 0) * 1000, window };
 }
 
+/**
+ * The snapshot that describes the limit when Codex sent several (one per `limit_id`): a later
+ * bucket can carry no windows at all (research: community Codex tools show a "codex" snapshot at
+ * 100% followed by an empty "premium" one). The one with a full window, else the one closest to
+ * full; with no windows anywhere, the last snapshot.
+ */
+function chooseSnapshot(
+  snapshots: Map<string, RateLimits>,
+  last: RateLimits | undefined,
+  nowSec: number,
+): RateLimits | undefined {
+  const withWindows = [...snapshots.values()].filter((s) => {
+    const r = pickReset(s, nowSec);
+    return r.resetsAt !== undefined || r.resetPassed === true;
+  });
+  if (withWindows.length === 0) return last;
+  const fullest = (s: RateLimits) =>
+    Math.max(...[s.primary, s.secondary].map((w) => (w ? (w.used_percent ?? 0) : 0)));
+  return withWindows.reduce((a, b) => (fullest(b) > fullest(a) ? b : a));
+}
+
 function isBilling(rl: RateLimits | undefined): boolean {
   if (!rl) return false;
   const t = rl.rate_limit_reached_type ?? "";
@@ -110,6 +133,8 @@ const BILLING_MESSAGE =
  */
 export function findCodexLimit(tail: string, now: number = Date.now()): CodexLimit {
   const nowSec = Math.floor(now / 1000);
+  // The latest snapshot of each limit bucket in this turn, and the latest of all.
+  let snapshots = new Map<string, RateLimits>();
   let rateLimits: RateLimits | undefined;
   let verdict: CodexLimit = { limited: false };
   for (const line of tail.split("\n")) {
@@ -122,12 +147,15 @@ export function findCodexLimit(tail: string, now: number = Date.now()): CodexLim
     }
     const p = rec.payload;
     if (rec.type !== "event_msg" || !p || typeof p !== "object") continue;
-    if (p.type === "token_count" && p.rate_limits && typeof p.rate_limits === "object")
+    if (p.type === "token_count" && p.rate_limits && typeof p.rate_limits === "object") {
       rateLimits = p.rate_limits as RateLimits;
+      snapshots.set(rateLimits.limit_id ?? "codex", rateLimits);
+    }
     if (p.type === "task_started" || p.type === "turn_started") {
       // A new turn: the limit, and the snapshot that described it, belong to the one before.
       verdict = { limited: false };
       rateLimits = undefined;
+      snapshots = new Map();
     }
     if (p.type === "task_complete" || p.type === "turn_complete") {
       const error = p.error as { codex_error_info?: unknown; message?: unknown } | null | undefined;
@@ -135,16 +163,19 @@ export function findCodexLimit(tail: string, now: number = Date.now()): CodexLim
         const completed = typeof p.completed_at === "number" ? p.completed_at * 1000 : now;
         const message = typeof error.message === "string" ? normalize(error.message) : "";
         const fromText = message ? parseResetHint(message, now) : undefined;
+        const snapshot = chooseSnapshot(snapshots, rateLimits, nowSec);
+        const fromSnapshot = snapshot ? pickReset(snapshot, nowSec) : {};
+        // The message's own reset time is the fallback when no snapshot has a window to read.
+        const reset =
+          fromSnapshot.resetsAt !== undefined || fromSnapshot.resetPassed
+            ? fromSnapshot
+            : fromText !== undefined && fromText > now
+              ? { resetsAt: fromText }
+              : {};
         verdict = {
           limited: true,
           at: completed,
-          ...(isBilling(rateLimits) || BILLING_MESSAGE.test(message)
-            ? { billing: true }
-            : rateLimits
-              ? pickReset(rateLimits, nowSec)
-              : fromText !== undefined && fromText > now
-                ? { resetsAt: fromText }
-                : {}),
+          ...(isBilling(snapshot) || BILLING_MESSAGE.test(message) ? { billing: true } : reset),
         };
       } else verdict = { limited: false };
     }
