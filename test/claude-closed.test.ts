@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -83,6 +84,9 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 /** The plugin's copy of a limit record that nobody answered (mod/hooks/register.js `mirror`). */
+/** A process id that was just in use and has ended: nothing runs under it now. */
+const DEAD_PID = spawnSync(process.execPath, ["-e", ""]).pid ?? 2_000_000_000;
+
 function modCopy(over: Record<string, unknown> = {}, episode: Record<string, unknown> = {}) {
   const ep = {
     state: "armed",
@@ -101,7 +105,9 @@ function modCopy(over: Record<string, unknown> = {}, episode: Record<string, unk
     sessionId: SID,
     cwd: work,
     open: true,
-    agents: [{ pid: 4242, name: "claude" }],
+    // The process that had the session open: gone, so the session is closed (a made-up id could
+    // belong to a live process on a busy runner).
+    agents: [{ pid: DEAD_PID, name: "claude" }],
     program: FAKE,
     ...(limit && { limit }),
     env: { CLAUDE_CONFIG_DIR: config, ANTHROPIC_BASE_URL: "https://gateway.example" },
