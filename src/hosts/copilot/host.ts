@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { classifyCopilotError } from "../../core/limits/agents.js";
+import { classifyCopilotError, copilotCode } from "../../core/limits/agents.js";
 import { recogniseForHost } from "../../core/limits/recognise.js";
 import {
   type ClosedDeps,
@@ -55,6 +55,8 @@ export function resumeCopilot(
   return new Promise((resolve) => {
     let limited = false;
     let resetsAt: number | undefined;
+    /** A quota error that waiting won't lift (money): the run's message, "" when it gave none. */
+    let quotaStop: string | undefined;
     // The message goes in on stdin, never as `-p <text>`: an argument is readable from `ps` by
     // anything else on the machine. Copilot CLI runs non-interactively on piped stdin with no
     // prompt argument ("combine with -i, -p, or piped stdin", `copilot --help`, 1.0.92; checked
@@ -85,11 +87,42 @@ export function resumeCopilot(
       try {
         const e = JSON.parse(line) as {
           type?: string;
-          data?: { errorType?: string; message?: unknown };
-        };
-        if (e.type === "session.error" && e.data?.errorType === "rate_limit") {
+          data?: {
+            errorType?: string;
+            errorCode?: unknown;
+            message?: unknown;
+            retryAfterSeconds?: unknown;
+          };
+        } | null;
+        const d = e?.data;
+        const now = Date.now();
+        // "Seconds until the rate limit resets, when known": the SDK's `auto_mode_switch.requested`
+        // event, which follows a rate-limit error (github/copilot-sdk @503bc70,
+        // `nodejs/src/generated/session-events.ts:11922`). Whether `-p` prints it is not checked
+        // against a real CLI. It beats any date parsed from the message.
+        const retry =
+          typeof d?.retryAfterSeconds === "number" &&
+          Number.isFinite(d.retryAfterSeconds) &&
+          d.retryAfterSeconds > 0
+            ? now + d.retryAfterSeconds * 1000
+            : undefined;
+        if (e?.type === "auto_mode_switch.requested" && retry !== undefined) {
           limited = true;
-          resetsAt = classifyCopilotError(e.data.message, Date.now())?.resetsAt;
+          resetsAt = retry;
+        } else if (e?.type === "session.error" && d?.errorType === "rate_limit") {
+          limited = true;
+          resetsAt = retry ?? resetsAt ?? classifyCopilotError(d.message, now)?.resetsAt;
+        } else if (e?.type === "session.error" && d?.errorType === "quota") {
+          // The quota codes (`quota_exceeded`, `session_quota_exceeded`, `billing_not_configured`,
+          // SDK `session-events.ts:2014`): a limit that resets is waited out; money is not.
+          const code = typeof d.errorCode === "string" ? d.errorCode : "";
+          const v = copilotCode(JSON.stringify({ code })) ?? classifyCopilotError(d.message, now);
+          if (v && !v.billing) {
+            limited = true;
+            resetsAt = retry ?? v.resetsAt;
+          } else {
+            quotaStop = typeof d.message === "string" ? d.message : "";
+          }
         }
       } catch {
         // Not JSON: progress text.
@@ -100,6 +133,8 @@ export function resumeCopilot(
     child.on("exit", (code) => {
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       if (limited) resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
+      else if (quotaStop !== undefined)
+        resolve({ ok: false, reason: "failed", detail: "quota", ...withMessage(quotaStop) });
       else if (code === 0) resolve({ ok: true });
       else if (SESSION_GONE.test(err)) resolve({ ok: false, reason: "closed", detail: "deleted" });
       else
