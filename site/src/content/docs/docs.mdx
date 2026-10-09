@@ -561,6 +561,7 @@ Everything here is also in the Rewake menu.
 | `AGENT_REWAKE_OWNER` | Internal: set by Rewake on the agents it runs in Zed, so they're never resumed twice |
 | `AGENT_REWAKE_TEST_TIMING` | Internal, for Rewake's own tests: shorter waits (`margin=0,jitter=0,heartbeat=1000`), only together with `AGENT_REWAKE_STATE_DIR`; `doctor` says when it's set |
 | `AGENT_REWAKE_TEST_ALLOW_HTTP` | Internal, for Rewake's own tests: lets a test serve a fake agent download over plain http. Real downloads must be https |
+| `AGENT_REWAKE_TEST_NO_OS_TIMERS` | Internal, for Rewake's own tests: Rewake does not create launchd, systemd, `at` or Task Scheduler jobs and does not start its waiter, so a test can't leave one behind |
 | `AGENT_REWAKE_FIRE` | Internal: set by Rewake on an agent it starts to continue a session, so that run isn't taken for you typing |
 
 </details>

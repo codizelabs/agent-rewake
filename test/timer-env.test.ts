@@ -60,6 +60,9 @@ describe("the environment timer commands get", () => {
   it.runIf(posix)(
     "reaches `at` and the detached waiter without the arming session's keys",
     async () => {
+      // This one runs the real timer host against fake `at` and waiter programs in a temp folder
+      // (nothing real is created), so it opts out of the switch that keeps tests off OS jobs.
+      delete process.env.AGENT_REWAKE_TEST_NO_OS_TIMERS;
       // A fake `at` and a fake waiter that write the environment they were given to a file.
       const bin = join(dir, "bin");
       const script = (name: string) => {

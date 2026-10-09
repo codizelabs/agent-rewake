@@ -107,7 +107,8 @@ describe.runIf(enabled)("OS timer", () => {
           `const name = process.argv[3];`,
           `const h = defaultTimerHost(${JSON.stringify(dir)}, process.execPath, ${JSON.stringify(stub)});`,
           // launchd's load-time run comes before the time: ignore it, as fire does.
-          `if (Date.now() < ${at} - 1000) process.exit(0);`,
+          // Each job's own time: the re-armed job's load-time run (launchd) must not count either.
+          `if (Date.now() < (name === ${JSON.stringify(id)} ? ${at} : ${rearmAt}) - 1000) process.exit(0);`,
           `appendFileSync(${JSON.stringify(marker)}, "fire " + name + "\\n");`,
           `if (name === ${JSON.stringify(id)}) {`,
           `  const r = armTimer(${JSON.stringify(id)}, ${rearmAt}, h, 1);`,

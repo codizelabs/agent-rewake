@@ -86,6 +86,22 @@ export function timerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 /** Commands that store or hand on their environment. */
 const SCRUBBED = new Set(["at", "systemd-run"]);
 
+/**
+ * The programs that create, list or remove real OS jobs. Rewake's own tests set
+ * AGENT_REWAKE_TEST_NO_OS_TIMERS so a test can never leave a launchd, systemd, at or Task Scheduler
+ * job behind in the person's session (and never starts the waiter): these then answer "no".
+ */
+const OS_JOB_COMMANDS = new Set([
+  "launchctl",
+  "systemctl",
+  "systemd-run",
+  "at",
+  "atq",
+  "atrm",
+  "schtasks",
+]);
+const noOsJobs = () => process.env.AGENT_REWAKE_TEST_NO_OS_TIMERS === "1";
+
 export function defaultTimerHost(stateDir: string, node: string, cli: string): TimerHost {
   return {
     platform: process.platform,
@@ -93,6 +109,8 @@ export function defaultTimerHost(stateDir: string, node: string, cli: string): T
     node,
     cli,
     run: (command, args, input) => {
+      if (noOsJobs() && OS_JOB_COMMANDS.has(command))
+        return { status: 1, stdout: "", stderr: "OS timers are off for tests" };
       const r = spawnSync(command, args, {
         encoding: "utf8",
         timeout: 5000,
@@ -103,6 +121,7 @@ export function defaultTimerHost(stateDir: string, node: string, cli: string): T
       return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
     },
     detached: (command, args) => {
+      if (noOsJobs()) return;
       try {
         spawn(command, args, {
           detached: true,

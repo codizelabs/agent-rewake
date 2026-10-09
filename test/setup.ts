@@ -15,3 +15,8 @@ beforeEach(() => {
   // Resumes that start one after another in a test don't wait for their turn (src/timers/slots.ts).
   setStagger(0);
 });
+
+// A test must never leave a real OS job (launchd, systemd, at, Task Scheduler) in the session of
+// whoever runs the tests: the timers are off, except in the jobs that test them for real.
+if (process.env.REWAKE_OS_TIMERS !== "1" && process.env.REWAKE_E2E !== "1")
+  process.env.AGENT_REWAKE_TEST_NO_OS_TIMERS = "1";
