@@ -329,6 +329,8 @@ Credit, spend and billing limits are never resumed: waiting doesn't fix them, an
 
 To repeat on any schedule, pick **Custom time…** and type a cron expression such as `0 9 * * 1-5`; Rewake shows what it understood and the next runs before saving.
 
+If the agent is at its usage limit when a scheduled message is due, Rewake waits for the reset and sends it then, even when the reset is days away, and says so in the thread; it doesn't ask. When the agent doesn't say when it resets, Rewake tries again after the wait set in Settings (an hour unless you changed it), for up to a day.
+
 You can also ask the agent ("check the CI run again in 30 minutes"). It proposes the message, and you approve or edit it in the thread.
 
 **When it's sent:** the message appears in the thread as yours and the agent replies there. If the agent is busy, it waits for the reply to finish. If Zed or your computer wasn't running and it's more than 15 minutes late, it's marked **Missed** and Rewake asks whether to send it now.

@@ -856,6 +856,59 @@ describe("resume after a usage limit", () => {
     h.addon.stop();
   });
 
+  it("holds a scheduled message until the plan resets, even days away, without asking", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "/rewake in 1h Run the tests");
+    await settle();
+    h.advance(HOUR);
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt").at(-1);
+    // As Claude sends it: a spend cap is a billing_error, with the plan's weekly reset at the end.
+    h.agent({
+      id: sent?.id,
+      error: {
+        code: -32603,
+        message:
+          "Internal error: You’ve hit your individual spend limit · run /usage-credits to ask your admin for a higher limit · your weekly limit resets Oct 8 at 6am",
+        data: { errorKind: "billing_error" },
+      },
+    });
+    await settle();
+    const reset = new Date(2026, 9, 8, 6, 0, 0, 0).getTime();
+    const s = h.store.list()[0];
+    expect(s).toMatchObject({ status: "scheduled", attempts: [{ n: 1 }] });
+    expect(s?.dueAt).toBeGreaterThan(reset);
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(
+      /^Rewake: Claude is at its usage limit until .+\. Your scheduled message goes when it resets\.$/,
+    );
+    h.addon.stop();
+  });
+
+  it("tries a scheduled message again later when the limit gives no reset time, without asking", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "/rewake in 1h Run the tests");
+    await settle();
+    h.advance(HOUR);
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt").at(-1);
+    h.agent({
+      id: sent?.id,
+      error: {
+        code: -32603,
+        message: "Internal error: You've hit your session limit",
+        data: { errorKind: "rate_limit" },
+      },
+    });
+    await settle();
+    expect(h.store.list()[0]).toMatchObject({ status: "scheduled", dueAt: T0 + 2 * HOUR });
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(/Your scheduled message will be tried again at /);
+    h.addon.stop();
+  });
+
   it("shows a message once when it's sent again after a usage limit", async () => {
     const h = await harness(dir, { claude: true });
     h.prompt(2, "/rewake in 1h Run the tests");
