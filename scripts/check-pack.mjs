@@ -40,7 +40,8 @@ if (unexpected.length || forbidden.length) {
 }
 // Size budget (plan §10A.3 bundle-budget): a near-zero-dependency bundle stays small, and the
 // Claude Code mod stays readable. Raise these on purpose, never by accident.
-const BUDGET = { bundle: 768 * 1024, mod: 64 * 1024 };
+// 780 KB from 768 KB: keep-awake for Linux and Windows (the commands and their messages).
+const BUDGET = { bundle: 780 * 1024, mod: 64 * 1024 };
 const size = (re) => pack.files.filter((f) => re.test(f.path)).reduce((n, f) => n + f.size, 0);
 const bundle = size(/^dist\/agent-rewake\.js$/);
 const mod = size(/^dist\/hosts\/claude-code\//);
