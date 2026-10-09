@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LATE_MS, MAX_REARMS } from "../src/core/resume.js";
 import { registerHost, type Schedule, ScheduleStore } from "../src/core/store.js";
 import {
@@ -660,5 +661,101 @@ describe("a failed resume keeps the agent's own reason", () => {
       status: "failed",
       failureMessage: "No session matched 'abc'.",
     });
+  });
+});
+
+describe("fire sends exactly once, whoever else runs it", () => {
+  /** Another live process holding this resume's lock (a second timer, a sweep's `fire`). */
+  const holdLock = (id: string) => {
+    const locks = join(dir, "locks");
+    mkdirSync(locks, { recursive: true });
+    const file = `${createHash("sha256").update(`fire:${id}`).digest("hex").slice(0, 32)}.lock`;
+    writeFileSync(
+      join(locks, file),
+      JSON.stringify({ pid: process.pid, hostname: hostname(), token: "other", createdAt: NOW }),
+    );
+  };
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("two runs at once: one sends, the other finds it busy", async () => {
+    const r = resume();
+    const { deps, sent } = setup();
+    const outcomes = await Promise.all([fire(r.scheduleId, deps), fire(r.scheduleId, deps)]);
+    expect(outcomes.sort()).toEqual(["busy", "sent"]);
+    expect(sent).toHaveLength(1);
+    expect(store.get(r.scheduleId)).toMatchObject({ status: "sent", attempts: [{ n: 1 }] });
+  });
+
+  it("re-reads under the lock: one another run sent in the meantime isn't sent again", async () => {
+    const r = resume();
+    // What this run read before taking the lock; by then another run had sent it.
+    const before = store.get(r.scheduleId) as Schedule;
+    store.put({ ...before, status: "sent" });
+    vi.spyOn(ScheduleStore.prototype, "get").mockImplementationOnce(() => before);
+    const { deps, sent, calls } = setup();
+    expect(await fire(r.scheduleId, deps)).toBe("gone");
+    expect(sent).toEqual([]);
+    expect(calls).toContainEqual([
+      "systemctl",
+      "--user",
+      "stop",
+      `codizelabs-agent-rewake-${r.scheduleId}.timer`,
+    ]);
+  });
+
+  it("an early run that can't take the lock does nothing, not even arm", async () => {
+    const r = resume({ dueAt: NOW + 2 * 3_600_000 });
+    holdLock(r.scheduleId);
+    const { deps, sent, calls } = setup({ now: NOW });
+    expect(await fire(r.scheduleId, deps)).toBe("early");
+    expect(sent).toEqual([]);
+    expect(calls.some((c) => c[0] === "systemd-run")).toBe(false);
+    expect(store.get(r.scheduleId)?.earlyRearms).toBeUndefined();
+  });
+
+  it("a due run that can't take the lock sends nothing", async () => {
+    const r = resume();
+    holdLock(r.scheduleId);
+    const { deps, sent } = setup();
+    expect(await fire(r.scheduleId, deps)).toBe("busy");
+    expect(sent).toEqual([]);
+    expect(store.get(r.scheduleId)?.status).toBe("scheduled");
+  });
+
+  it("a cut-off send whose lock another run holds is left to that run", async () => {
+    const r = resume({
+      status: "sending",
+      attempts: [{ n: 1, idempotencyKey: "k", startedAt: NOW, outcome: "sending" }],
+    });
+    holdLock(r.scheduleId);
+    const { deps, notes } = setup({ now: NOW + SENDING_STALE_MS + 1 });
+    expect(await fire(r.scheduleId, deps)).toBe("busy");
+    expect(notes).toEqual([]);
+    expect(store.get(r.scheduleId)?.status).toBe("sending");
+  });
+
+  it("a cut-off send another run settled in the meantime isn't reported twice", async () => {
+    const r = resume({
+      status: "sending",
+      attempts: [{ n: 1, idempotencyKey: "k", startedAt: NOW, outcome: "sending" }],
+    });
+    const before = store.get(r.scheduleId) as Schedule;
+    store.put({ ...before, status: "needs_attention" });
+    vi.spyOn(ScheduleStore.prototype, "get").mockImplementationOnce(() => before);
+    const { deps, notes } = setup({ now: NOW + SENDING_STALE_MS + 1 });
+    expect(await fire(r.scheduleId, deps)).toBe("gone");
+    expect(notes).toEqual([]);
+  });
+
+  it("gives up on a send still limited after the last re-arm, and says so", async () => {
+    const r = resume({ rearms: MAX_REARMS });
+    const { deps, notes } = setup({
+      send: { ok: false, reason: "limited", resetsAt: NOW + 3_600_000 },
+    });
+    expect(await fire(r.scheduleId, deps)).toBe("failed");
+    expect(store.get(r.scheduleId)?.status).toBe("failed");
+    expect(notes[0]).toContain("is still at its usage limit, so Rewake didn't continue.");
   });
 });

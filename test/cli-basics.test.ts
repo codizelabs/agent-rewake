@@ -29,6 +29,8 @@ import { VERSION } from "../src/version.js";
 
 let dir: string;
 let env: NodeJS.ProcessEnv;
+/** Whether bash runs here (not on every Windows): the completion script's test needs it. */
+const hasBash = spawnSync("bash", ["--version"]).error === undefined;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "rewake-cli-"));
@@ -168,24 +170,38 @@ describe("completion (G65)", () => {
     }
   });
 
-  it("the bash script is valid bash and completes commands, flags and places", () => {
-    const script = join(dir, "c.bash");
-    writeFileSync(script, completionScript("bash"));
-    const syntax = spawnSync("bash", ["-n", script]);
-    if (syntax.error) return; // no bash here (Windows)
-    expect(syntax.status).toBe(0);
-    const driver = join(dir, "drive.bash");
-    writeFileSync(
-      driver,
-      `source "${script}"
+  it.skipIf(!hasBash)(
+    "the bash script is valid bash and completes commands, flags and places",
+    () => {
+      const script = join(dir, "c.bash");
+      writeFileSync(script, completionScript("bash"));
+      const syntax = spawnSync("bash", ["-n", script], { encoding: "utf8" });
+      expect(syntax.error).toBeUndefined();
+      expect(syntax.status, syntax.stderr).toBe(0);
+      const driver = join(dir, "drive.bash");
+      writeFileSync(
+        driver,
+        `source "${script}"
 t() { COMP_WORDS=("$@"); COMP_CWORD=$(( $# - 1 )); COMPREPLY=(); _agent_rewake; echo "\${COMPREPLY[*]}"; }
 t agent-rewake hi
 t agent-rewake install --sk
 t agent-rewake uninstall --only cu
 `,
+      );
+      const out = spawnSync("bash", [driver], { encoding: "utf8" }).stdout.trim().split("\n");
+      expect(out).toEqual(["history", "--skip", "cursor"]);
+    },
+  );
+});
+
+describe("continue", () => {
+  it("refuses an unknown option with its usage, and changes nothing", async () => {
+    const r = await run(["continue", "--bogus"]);
+    expect(r.code).toBe(2);
+    expect(r.err).toBe(
+      "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel [<id>]]\n",
     );
-    const out = spawnSync("bash", [driver], { encoding: "utf8" }).stdout.trim().split("\n");
-    expect(out).toEqual(["history", "--skip", "cursor"]);
+    expect(r.out).toBe("");
   });
 });
 
