@@ -146,3 +146,46 @@ describe("how each system is told to hold", () => {
     30_000,
   );
 });
+
+/** The Claude Code plugin keeps its own copy of the hold commands (mod/hooks/logic.js). */
+const modPath = "../src/hosts/claude-code/mod/hooks/logic.js";
+const mod = (await import(modPath)) as {
+  holdArgv: (kind: string, mode: string, pid: string, program: string) => string[];
+  mainsFrom: (kind: string, out: string) => boolean;
+  parseWake: (out: string) => { kind: string; pid: string; program: string } | undefined;
+  WINDOWS_POWERSHELL: string;
+  WINDOWS_MAINS: string;
+};
+
+describe("the Claude Code plugin's hold", () => {
+  it("runs the same commands as Rewake's own", () => {
+    const cases = [
+      ["darwin", "/usr/bin/caffeinate"],
+      ["linux", "/usr/bin/systemd-inhibit"],
+      ["win32", mod.WINDOWS_POWERSHELL],
+    ] as const;
+    for (const mode of ["plugged-in", "always"] as const) {
+      for (const [kind, program] of cases) {
+        const own = holdCommand(kind, mode, 4242, program);
+        expect([own?.program, ...(own?.args ?? [])]).toEqual(
+          mod.holdArgv(kind, mode, "4242", program),
+        );
+      }
+    }
+  });
+
+  it("reads Windows power the way Rewake does, and asks the same question", () => {
+    for (const out of ["", "none", "1", "2", "6", "7", "8", "9", "1 2", "3"]) {
+      expect(mod.mainsFrom("win32", out)).toBe(onMains("win32", { windows: () => out }));
+    }
+    expect(mod.WINDOWS_MAINS).toContain("Get-CimInstance Win32_Battery");
+  });
+
+  it("holds only where the computer has a hold program", () => {
+    expect(mod.parseWake("4242\nDarwin\n/usr/bin/caffeinate\n")?.kind).toBe("darwin");
+    expect(mod.parseWake("4242\nLinux\n/bin/systemd-inhibit\n")?.kind).toBe("linux");
+    expect(mod.parseWake("4242\nLinux\n")).toBeUndefined();
+    expect(mod.parseWake("4242\nDarwin\n")).toBeUndefined();
+    expect(mod.parseWake("x\nLinux\n/usr/bin/systemd-inhibit\n")).toBeUndefined();
+  });
+});

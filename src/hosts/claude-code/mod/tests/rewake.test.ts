@@ -26,8 +26,10 @@ function harness(
     store?: Record<string, unknown>;
     config?: string;
     settings?: string;
-    /** Whether this machine has caffeinate (the mod asks once, through the shell). */
-    caffeinate?: boolean;
+    /** Which computer this is (the mod asks once). "none" is Linux without systemd-inhibit. */
+    system?: "darwin" | "linux" | "win32" | "none";
+    /** Linux and Windows: on battery power instead of mains. */
+    battery?: boolean;
     /** How Claude Code was started (`CLAUDE_CODE_ENTRYPOINT`). */
     entrypoint?: string;
     /** Other variables of Claude Code's environment. */
@@ -46,13 +48,20 @@ function harness(
     spawned: [] as string[][],
     commands: [] as string[],
   };
-  on("process.run", (_: unknown, e: Ev) => ({
-    value: String((e.argv as string[]).at(-1)).includes("ps -o comm=")
-      ? { exitCode: 0, stdout: "4242\n/usr/local/bin/claude\n/usr/local/bin/claude\n", stderr: "" }
-      : opts.caffeinate === false
-        ? { exitCode: 1, stdout: "", stderr: "" }
-        : { exitCode: 0, stdout: "4242\n", stderr: "" },
-  }));
+  const system = opts.system ?? "darwin";
+  on("process.run", (_: unknown, e: Ev) => {
+    const last = String((e.argv as string[]).at(-1));
+    const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: "" } });
+    if (last.includes("ps -o comm="))
+      return ok("4242\n/usr/local/bin/claude\n/usr/local/bin/claude\n");
+    if (last.includes("ParentProcessId")) return ok("4242\n");
+    if (last.includes("Win32_Battery")) return ok(opts.battery ? "1\n" : "2\n");
+    if (last.includes("/sys/class/power_supply")) return ok(opts.battery ? "battery\n" : "mains\n");
+    if (system === "win32") return { value: { exitCode: 127, stdout: "", stderr: "" } };
+    if (system === "linux") return ok("4242\nLinux\n/usr/bin/systemd-inhibit\n");
+    if (system === "none") return ok("4242\nLinux\n");
+    return ok("4242\nDarwin\n/usr/bin/caffeinate\n");
+  });
   // The kit runs no processes: record the request, then refuse it (the mod drops the hold).
   on("process.spawn", async function* (_: unknown, e: Ev) {
     seen.spawned.push(e.argv as string[]);
@@ -748,12 +757,101 @@ test("doesn't keep the Mac awake where it can't", async ($, on) => {
     setting: false,
     windows: () => fiveHour("2026-10-06T11:00:00Z"),
     store: { prefs: { autoContinue: "always" } },
-    caffeinate: false,
+    system: "none",
   });
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await $.classic.StopFailure(limit());
   await clock.advance(1);
   expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
+  expect(seen.spawned).toEqual([]);
+});
+
+const LINUX_HOLD = [
+  "/usr/bin/systemd-inhibit",
+  "--what=idle",
+  "--who=Agent Rewake",
+  "--why=A planned resume is due",
+  "--mode=block",
+  "sh",
+  "-c",
+  'while kill -0 "$0" 2>/dev/null; do sleep 5; done',
+  "4242",
+];
+
+async function armedOn(
+  opts: { system: "linux" | "win32"; battery?: boolean; settings?: string },
+  $: Parameters<Parameters<typeof test>[1]>[0],
+  on: Parameters<Parameters<typeof test>[1]>[1],
+) {
+  const { clock, seen } = harness(on, {
+    setting: false,
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+    ...(opts.settings ? { config: JSON.stringify({ stateDir: "/state" }) } : {}),
+    ...opts,
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  return seen;
+}
+
+test("keeps a Linux computer awake with systemd-inhibit, tied to Claude Code, on mains power", async ($, on) => {
+  const seen = await armedOn({ system: "linux" }, $, on);
+  expect(seen.spawned).toEqual([LINUX_HOLD]);
+  expect(seen.status.at(-1)).toContain("keeping this computer awake");
+});
+
+test("keeps a Windows computer awake with PowerShell, tied to Claude Code, on mains power", async ($, on) => {
+  const seen = await armedOn({ system: "win32" }, $, on);
+  expect(seen.spawned).toHaveLength(1);
+  const [program, ...args] = seen.spawned[0] ?? [];
+  expect(program).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  expect(args.slice(0, 5)).toEqual([
+    "-NoProfile",
+    "-NonInteractive",
+    "-WindowStyle",
+    "Hidden",
+    "-Command",
+  ]);
+  expect(args[5]).toContain("SetThreadExecutionState(0x80000001)");
+  expect(args[5]).toContain("Get-Process -Id 4242 ");
+});
+
+test("on battery, the default holds nothing on Linux", async ($, on) => {
+  const seen = await armedOn({ system: "linux", battery: true }, $, on);
+  expect(seen.spawned).toEqual([]);
+});
+
+test("on battery, the default holds nothing on Windows", async ($, on) => {
+  const seen = await armedOn({ system: "win32", battery: true }, $, on);
+  expect(seen.spawned).toEqual([]);
+});
+
+test('"always" holds on battery on Linux', async ($, on) => {
+  const seen = await armedOn(
+    { system: "linux", battery: true, settings: JSON.stringify({ keepAwake: "always" }) },
+    $,
+    on,
+  );
+  expect(seen.spawned).toEqual([LINUX_HOLD]);
+});
+
+test('"never" holds nothing on Linux', async ($, on) => {
+  const seen = await armedOn(
+    { system: "linux", settings: JSON.stringify({ keepAwake: "never" }) },
+    $,
+    on,
+  );
+  expect(seen.spawned).toEqual([]);
+});
+
+test('"never" holds nothing on Windows', async ($, on) => {
+  const seen = await armedOn(
+    { system: "win32", settings: JSON.stringify({ keepAwake: "never" }) },
+    $,
+    on,
+  );
   expect(seen.spawned).toEqual([]);
 });
 

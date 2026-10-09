@@ -32,16 +32,20 @@ import {
   featureOf,
   HOUR,
   helpText,
+  holdArgv,
+  LINUX_MAINS,
   limitOf,
   MAX_REARMS,
   MAX_REHITS,
   MINUTE,
+  mainsFrom,
   mustAsk,
   nativeLikely,
   notHere,
   parseCommand,
   parseProcess,
   parseProgram,
+  parseWake,
   parseWhen,
   personAtPrompt,
   REHIT_WINDOW_MS,
@@ -52,6 +56,10 @@ import {
   surfaceOf,
   WAITING_EXPIRES_MS,
   WAKE_HORIZON_MS,
+  WAKE_PROBE,
+  WINDOWS_MAINS,
+  WINDOWS_POWERSHELL,
+  WINDOWS_PROBE,
   when,
 } from "./logic.js";
 
@@ -98,9 +106,9 @@ const ME = Math.random().toString(36).slice(2);
 const CLAIM_MS = 5 * MINUTE;
 /** Rewake's keep-awake setting: "plugged-in" (default), "always" or "never". */
 let keepAwake = "plugged-in";
-/** Claude Code's PID when this Mac has caffeinate; null where Rewake can't keep it awake. */
-let wakePid;
-/** The running hold: { mode, stream }. */
+/** { kind, pid, program }: Claude Code's PID and the hold program (macOS, Linux with systemd-inhibit, Windows); null where there is none. */
+let wakeTarget;
+/** The running hold: { key, stream }. */
 let wakeHold;
 
 const limitKey = (id) => `limit:${id}`;
@@ -227,9 +235,53 @@ async function arm($, id, ep) {
 }
 
 /**
- * Keep this Mac from idling to sleep while a continue is due within a few hours: Rewake's own, or
- * Claude Code's (its wait holds nothing while the session sits idle). `caffeinate -w` ties the hold
- * to Claude Code, so it ends with it even after a crash. Returns whether a hold is running.
+ * Finds Claude Code's PID (the parent of the shell, or of PowerShell on Windows) and the hold
+ * program: caffeinate on macOS, systemd-inhibit on Linux, PowerShell on Windows. Null where the
+ * computer has none.
+ */
+async function findWake($) {
+  try {
+    const r = await $.process.run(["/bin/sh", "-c", WAKE_PROBE]);
+    if (r.exitCode === 0) return parseWake(r.stdout) ?? null;
+  } catch {
+    // No /bin/sh: Windows.
+  }
+  try {
+    const r = await $.process.run([
+      WINDOWS_POWERSHELL,
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      WINDOWS_PROBE,
+    ]);
+    const pid = r.stdout.trim();
+    return r.exitCode === 0 && /^\d+$/.test(pid)
+      ? { kind: "win32", pid, program: WINDOWS_POWERSHELL }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a Linux or Windows computer is on mains power; unknown counts as mains. */
+async function onMains($, kind) {
+  try {
+    const r = await $.process.run(
+      kind === "linux"
+        ? ["/bin/sh", "-c", LINUX_MAINS]
+        : [WINDOWS_POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", WINDOWS_MAINS],
+    );
+    return mainsFrom(kind, r.stdout);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Keep this computer from idling to sleep while a continue is due within a few hours: Rewake's own,
+ * or Claude Code's (its wait holds nothing while the session sits idle). The hold is tied to Claude
+ * Code's process, so it ends with it even after a crash. "plugged-in" holds only on mains power
+ * (macOS's `caffeinate -s` does that itself). Returns whether a hold is running.
  */
 async function updateWake($, ep, now) {
   const due = ep?.state === "armed" ? ep.fireAt : ep?.state === "native" ? ep.resetAt : undefined;
@@ -238,34 +290,30 @@ async function updateWake($, ep, now) {
     due !== undefined &&
     due > now - STALE_MS &&
     due - now <= WAKE_HORIZON_MS;
-  const mode = keepAwake === "always" ? "-i" : "-s";
-  if (wakeHold && (!want || wakeHold.mode !== mode)) {
+  if (want && wakeTarget === undefined) wakeTarget = await findWake($);
+  const t = want ? wakeTarget : undefined;
+  const hold =
+    t && (keepAwake === "always" || t.kind === "darwin" || (await onMains($, t.kind)))
+      ? holdArgv(t.kind, keepAwake, t.pid, t.program)
+      : undefined;
+  const key = hold?.join("\n");
+  if (wakeHold && wakeHold.key !== key) {
     void wakeHold.stream.return?.();
     wakeHold = undefined;
   }
-  if (!want || wakeHold) return wakeHold !== undefined;
-  if (wakePid === undefined) {
-    try {
-      // The shell's parent is Claude Code; no caffeinate (Linux, Windows) means no hold here.
-      const r = await $.process.run(["/bin/sh", "-c", "test -x /usr/bin/caffeinate && echo $PPID"]);
-      wakePid = r.exitCode === 0 && /^\d+$/.test(r.stdout.trim()) ? r.stdout.trim() : null;
-    } catch {
-      wakePid = null;
-    }
-  }
-  if (wakePid === null) return false;
-  const stream = $.process.spawn({ argv: ["/usr/bin/caffeinate", mode, "-w", wakePid] });
-  const hold = { mode, stream };
-  wakeHold = hold;
+  if (!hold || wakeHold) return wakeHold !== undefined;
+  const stream = $.process.spawn({ argv: hold });
+  const running = { key, stream };
+  wakeHold = running;
   void (async () => {
     try {
       for await (const _ of stream) {
-        // caffeinate writes nothing; the loop is the hold's life.
+        // The hold writes nothing; the loop is the hold's life.
       }
     } catch {
       // It couldn't start: no hold.
     }
-    if (wakeHold === hold) wakeHold = undefined;
+    if (wakeHold === running) wakeHold = undefined;
   })();
   return true;
 }
@@ -273,7 +321,10 @@ async function updateWake($, ep, now) {
 async function refreshStatus($, id, now) {
   const ep = await $.store.get(limitKey(id));
   const sched = (await $.store.get(schedKey(id))) ?? [];
-  const awake = (await updateWake($, ep, now)) ? " · keeping this Mac awake" : "";
+  const holding = await updateWake($, ep, now);
+  const awake = holding
+    ? ` · keeping this ${wakeTarget?.kind === "darwin" ? "Mac" : "computer"} awake`
+    : "";
   if (ep?.state === "armed" && ep.fireAt !== undefined) {
     $.ui.status(`Continues at ${at(ep.fireAt, now)}${awake} · /rewake cancel`);
   } else if (ep?.state === "offered") {
