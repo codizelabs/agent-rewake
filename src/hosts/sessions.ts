@@ -9,7 +9,7 @@ import { ensurePrivateDir } from "../util/paths.js";
  * What Rewake's hooks remember about an agent's session, one small file per session:
  * `<stateDir>/hosts/<host>/sessions/<sessionId>.json`. Metadata only: never prompt, reply or error
  * text. Used by the hosts whose sessions Rewake resumes after they're closed (Copilot CLI, Grok,
- * Gemini CLI, Antigravity CLI): whether the session is open, when the person last typed, and the
+ * Gemini CLI, Qwen Code, Antigravity CLI): whether the session is open, when the person last typed, and the
  * last usage limit seen with its reset time.
  */
 export interface SessionRecord {
