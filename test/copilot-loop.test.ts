@@ -44,6 +44,11 @@ describe.runIf(bin)("Copilot CLI, offline: limit → resume", () => {
         COPILOT_PROVIDER_API_KEY: "sk-test-not-a-real-key",
         COPILOT_MODEL: "gpt-4.1",
         COPILOT_AUTO_UPDATE: "false",
+        // Rewake's hooks run from the bundle in this environment: they must not arm a real OS job
+        // either (test/setup.ts).
+        ...(process.env.AGENT_REWAKE_TEST_NO_OS_TIMERS === "1" && {
+          AGENT_REWAKE_TEST_NO_OS_TIMERS: "1",
+        }),
       };
       // Rewake's own installer writes the hooks, pointing at the built bundle's stable copy.
       expect(
@@ -99,10 +104,14 @@ describe.runIf(bin)("Copilot CLI, offline: limit → resume", () => {
         hosts: new Map([["copilot-cli", closedAdapter(copilotHost, state, env)]]),
         notify: () => true,
       });
-      process.stderr.write(
-        `DBG ${JSON.stringify(new SessionRecords(state, "copilot-cli").get(sessionId))} ${JSON.stringify(new ScheduleStore(state).get(resume.scheduleId)?.attempts)}\n`,
-      );
-      expect(outcome).toBe("sent");
+      // On failure, the session record and the attempts say why.
+      expect(
+        outcome,
+        JSON.stringify({
+          record: new SessionRecords(state, "copilot-cli").get(sessionId),
+          attempts: new ScheduleStore(state).get(resume.scheduleId)?.attempts,
+        }),
+      ).toBe("sent");
       expect(mock.requests().length).toBeGreaterThan(before);
       expect(new ScheduleStore(state).get(resume.scheduleId)?.status).toBe("sent");
       // Rewake's own resume run isn't taken for the person typing in the session.

@@ -14,6 +14,7 @@ import type { Wake } from "../src/util/keep-awake.js";
 import { Logger } from "../src/util/log.js";
 import type { SleepSettings } from "../src/util/sleep-settings.js";
 import { VERSION } from "../src/version.js";
+import { until } from "./support.js";
 
 const HOUR = 3_600_000;
 const T0 = new Date(2026, 9, 4, 14, 0, 0, 0).getTime(); // 4 Oct 2026 14:00 local
@@ -1275,25 +1276,42 @@ describe("the Rewake menu in the thread toolbar", () => {
     }
   });
 
-  it("says a resume is already scheduled, adds messages after it, and sends each when the reply before it finishes", async () => {
+  // Each step writes the schedule durably (file and folder fsync, src/core/store.ts), about 28 times
+  // in all: on a CI runner's virtual disk that alone can near 5 s. Every step waits for its own
+  // result instead of a fixed pause, and the test gets the time the Windows runners get.
+  it("says a resume is already scheduled, adds messages after it, and sends each when the reply before it finishes", {
+    timeout: 20_000,
+  }, async () => {
     const h = await harness(dir, { claude: true });
     await hitLimit(h, 2);
     h.client({ id: forms(h)[0]?.id, result: { action: "accept", content: { prompt: "Resume" } } });
-    await settle();
+    const adds = (n: number) => {
+      const options = latestOptions(h);
+      return (
+        options !== undefined &&
+        menuOf(options)?.options.some((o) => o.name === "Add a message after the resume…") ===
+          true &&
+        h.texts().filter((t) => t.startsWith("Rewake: Added.")).length === n
+      );
+    };
+    await until(() => adds(0), "the resume and its menu entry");
+    let added = 0;
     for (const [id, text] of [
       [7, "Then run the tests"],
       [8, "Then write the changelog"],
     ] as const) {
       const menu = menuOf(latestOptions(h));
       expect(menu.options.map((o) => o.name)).toContain("Add a message after the resume…");
+      const asked = forms(h).length;
       pick(h, id, menu, "resume");
-      await settle();
+      await until(() => forms(h).length > asked, "the form asking for a message");
       const ask = forms(h).at(-1);
       expect((ask?.params as { message: string } | undefined)?.message).toMatch(
         /^A resume is already scheduled for 17:01 today: "Resume"(, followed by 1 more message)?\. Add a message to send after (it|them)\? Each is sent when the reply before it finishes\.$/,
       );
       h.client({ id: ask?.id, result: { action: "accept", content: { message: text } } });
-      await settle();
+      added++;
+      await until(() => adds(added), `"Added." for message ${added}`);
     }
     expect(h.store.list()).toHaveLength(1);
     expect(h.store.list()[0]?.followUps).toEqual([
@@ -1310,21 +1328,19 @@ describe("the Rewake menu in the thread toolbar", () => {
         ?.text;
     h.advance(3 * HOUR + 60_000);
     h.addon.tick();
-    await settle();
-    expect(sentText()).toBe("Resume");
+    await until(() => sentText() === "Resume", "the resume to be sent");
     const before = prompts().length;
     h.addon.tick(); // nothing more goes while the reply is running
-    await settle();
+    await settle(); // a check that nothing happens: only a pause can show that
     expect(prompts()).toHaveLength(before);
+    for (const next of ["Then run the tests", "Then write the changelog"]) {
+      h.agent({ id: prompts().at(-1)?.id, result: { stopReason: "end_turn" } });
+      await until(() => sentText() === next, `"${next}" to be sent`);
+    }
     h.agent({ id: prompts().at(-1)?.id, result: { stopReason: "end_turn" } });
-    await settle();
-    expect(sentText()).toBe("Then run the tests");
-    h.agent({ id: prompts().at(-1)?.id, result: { stopReason: "end_turn" } });
-    await settle();
-    expect(sentText()).toBe("Then write the changelog");
-    h.agent({ id: prompts().at(-1)?.id, result: { stopReason: "end_turn" } });
-    await settle();
-    expect(h.store.list().map((x) => x.status)).toEqual(["sent", "sent", "sent"]);
+    const statuses = () => h.store.list().map((x) => x.status);
+    await until(() => statuses().every((s) => s === "sent"), "every message to be sent", 4_000, 20);
+    expect(statuses()).toEqual(["sent", "sent", "sent"]);
     h.addon.stop();
   });
 
