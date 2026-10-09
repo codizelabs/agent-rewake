@@ -17,7 +17,7 @@ import {
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult, withMessage } from "../host.js";
+import { FOLDER_GONE, folderGone, resumeDeadline, type SendResult, withMessage } from "../host.js";
 import { type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -117,6 +117,7 @@ export function resumeAgy(
       reason: "unsupported",
       detail: "no Antigravity CLI found",
     });
+  if (folderGone(r.cwd)) return Promise.resolve(FOLDER_GONE);
   const program = nodeAware(r.program, process.execPath);
   // KNOWN GAP: the message is still an argument here, so another process on this machine can read
   // it from `ps`. Every other host now avoids that (stdin for Copilot CLI and Gemini CLI, a 0600

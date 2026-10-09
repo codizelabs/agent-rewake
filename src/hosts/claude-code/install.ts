@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import type { RewakePlace } from "../../core/command.js";
 import { writeFileAtomic } from "../../core/store.js";
 import {
+  chooseProgram,
   claudeDesktopPrograms,
   claudePrograms,
   compareVersions,
@@ -205,8 +206,9 @@ export interface ClaudeInstallOptions {
   runner?: (path: string) => Run;
 }
 
+/** The Claude Code to install with: the first terminal copy on PATH (the one `doctor` judges). */
 export function pickClaude(programs: Program[]): Program | undefined {
-  return [...programs].sort((a, b) => compareVersions(b.version ?? "0", a.version ?? "0"))[0];
+  return chooseProgram(programs);
 }
 
 export async function runClaudeInstall(o: ClaudeInstallOptions): Promise<number> {

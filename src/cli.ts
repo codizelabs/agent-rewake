@@ -32,7 +32,9 @@ import { jetbrainsFound, runJetbrainsInstall } from "./hosts/jetbrains/install.j
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
 import { AGENT_VERSIONS } from "./hosts/versions.js";
 import {
+  agentCopies,
   agyPrograms,
+  chooseProgram,
   codexPrograms,
   compareVersions,
   copilotPrograms,
@@ -529,7 +531,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     hooks: addon.hooks(),
     setup: (router) => addon.attach(router),
     onAgentRestarted: (inFlight) => void addon.onAgentRestarted(inFlight),
+    onFailOpen: () => addon.failOpen(),
     handleSignals: true,
+    handleProcessErrors: true,
   });
   addon.stop();
   return code;
@@ -549,6 +553,7 @@ function doctor(env: NodeJS.ProcessEnv, details: boolean): number {
         (f) => !ids.has(f.id),
       );
     },
+    copies: () => agentCopies({ env, home: homedir(), platform: process.platform }),
     previews: () => previewNames(env),
     sleep: () => {
       const keepAwake = loadSettings(stateDir(env)).keepAwake;
@@ -1067,9 +1072,7 @@ async function runHookCommand(
       },
       codexPath: () => {
         const programs = codexPrograms({ env, home: homedir(), platform: process.platform });
-        const cli = programs.filter((p) => p.surface === "terminal");
-        const pool = cli.length > 0 ? cli : programs;
-        return pool.sort((a, b) => compareVersions(b.version ?? "0", a.version ?? "0"))[0]?.path;
+        return chooseProgram(programs)?.path;
       },
     });
     const reply = await runHook(handler, event, await readStdin(), env, state, Date.now());

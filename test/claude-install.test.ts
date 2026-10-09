@@ -162,13 +162,23 @@ describe("install --only claude-code", () => {
     expect(r.calls.filter((c) => !c.startsWith("plugin test"))).toEqual([]);
   });
 
-  it("picks the newest Claude Code", () => {
+  it("picks the copy that runs first on PATH, whatever its version", () => {
     expect(
       pickClaude([
         { path: "/a", surface: "terminal", version: "2.1.282" },
         { path: "/b", surface: "terminal", version: "2.1.292" },
       ])?.path,
-    ).toBe("/b");
+    ).toBe("/a");
+  });
+
+  it("picks the desktop app's copy only when there is no terminal copy", () => {
+    const app = { path: "/app", surface: "desktop app", version: "2.1.289" };
+    expect(
+      pickClaude([app, { path: "/old", surface: "desktop app", version: "2.1.280" }])?.path,
+    ).toBe("/app");
+    expect(pickClaude([app, { path: "/t", surface: "terminal", version: "2.1.282" }])?.path).toBe(
+      "/t",
+    );
   });
 });
 
@@ -187,22 +197,30 @@ describe("shippedMod", () => {
 });
 
 describe("several Claude Codes", () => {
-  it("installs with the newest, and says when another is too old to load the plugin", async () => {
+  it("installs with the copy first on PATH, and says when another is too old to load the plugin", async () => {
     const r = await install({
       programs: [
-        { path: "/usr/local/bin/claude", surface: "terminal", version: "2.1.282" },
-        {
-          path: "/Claude/claude.app/Contents/MacOS/claude",
-          surface: "desktop app",
-          version: "2.1.289",
-        },
+        { path: "/usr/local/bin/claude", surface: "terminal", version: "2.1.292" },
+        { path: "/opt/old/bin/claude", surface: "terminal", version: "2.1.282" },
       ],
     });
     expect(r.code).toBe(0);
-    expect(r.output).toContain("will add its plugin to Claude Code 2.1.289");
+    expect(r.output).toContain("will add its plugin to Claude Code 2.1.292");
     expect(r.output).toContain(
       'Claude Code in your terminal is 2.1.282, too old to load the plugin (it needs 2.1.287). Update it with "claude update" so Rewake works there too.',
     );
+  });
+
+  it("judges the same copy as doctor: the first on PATH, even when a newer one is installed", async () => {
+    const r = await install({
+      programs: [
+        { path: "/opt/old/bin/claude", surface: "terminal", version: "2.1.282" },
+        { path: "/usr/local/bin/claude", surface: "terminal", version: "2.1.292" },
+      ],
+    });
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("Claude Code 2.1.282 is too old for Rewake");
+    expect(r.calls).toEqual([]);
   });
 });
 

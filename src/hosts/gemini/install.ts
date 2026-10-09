@@ -4,7 +4,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse } from "jsonc-parser";
 import { writeFileAtomic } from "../../core/store.js";
-import { compareVersions, geminiPrograms, type Program } from "../../install/detect.js";
+import {
+  chooseProgram,
+  compareVersions,
+  geminiPrograms,
+  type Program,
+} from "../../install/detect.js";
 import {
   unknownVersionText,
   type VersionProbe,
@@ -143,9 +148,7 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? geminiPrograms({ env: o.env, home, platform: process.platform });
   const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
-  const picked = [...programs].sort((a, b) =>
-    compareVersions(b.version ?? "0", a.version ?? "0"),
-  )[0];
+  const picked = chooseProgram(programs);
   const gemini = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   const run =
     o.run ??

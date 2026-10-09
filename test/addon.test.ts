@@ -367,6 +367,23 @@ describe("delivery", () => {
     h.addon.stop();
   });
 
+  it("passes on a message it was holding when Rewake fails open, so the thread isn't left waiting", async () => {
+    const h = await harness();
+    h.prompt(2, "/rewake in 1h Scheduled");
+    await settle();
+    h.advance(HOUR);
+    h.addon.tick();
+    await settle();
+    h.prompt(3, "typed meanwhile");
+    await settle();
+    expect(h.toAgent.filter((m) => m.method === "session/prompt")).toHaveLength(1);
+    h.addon.failOpen();
+    await settle();
+    const forwarded = h.toAgent.filter((m) => m.method === "session/prompt");
+    expect(forwarded).toHaveLength(2);
+    expect(forwarded[1]?.id).toBe(3);
+  });
+
   it("/rewake stop cancels a running scheduled reply", async () => {
     const h = await harness();
     h.prompt(2, "/rewake in 1h Scheduled");
