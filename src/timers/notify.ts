@@ -21,9 +21,13 @@ export function appleString(s: string): string {
     .replace(/"/g, '\\"')}"`;
 }
 
-/** A PowerShell single-quoted string literal: quotes doubled, line breaks as spaces. */
+/**
+ * A PowerShell single-quoted string literal: line breaks as spaces, every quote character
+ * doubled. PowerShell treats the typographic single quotes U+2018 to U+201B like the ASCII one,
+ * so a folder name holding one must not be able to end the string.
+ */
 export function psString(s: string): string {
-  return `'${s.replace(/[\r\n]+/g, " ").replace(/'/g, "''")}'`;
+  return `'${s.replace(/[\r\n]+/g, " ").replace(/['‘’‚‛]/g, (c) => c + c)}'`;
 }
 
 /** Windows PowerShell's app id: toasts need a registered app, and every Windows has this one. */
