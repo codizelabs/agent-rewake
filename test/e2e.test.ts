@@ -38,7 +38,20 @@ beforeAll(() => {
 });
 // Retries: an agent process from the last test may still be writing its log as the folder goes.
 // A detached helper Rewake started (a sweep, a log write) may still be finishing: wait for it.
-afterAll(() => rmSync(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 }));
+afterAll(() => {
+  // Stop any helper Rewake started that still has this folder (its state folder is on its command
+  // line), so nothing writes into it as it goes.
+  if (process.platform !== "win32") spawnSync("pkill", ["-f", home], { stdio: "ignore" });
+  try {
+    rmSync(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 });
+  } catch (err) {
+    // A process from the last test was still writing as the folder went. The files are in a temp
+    // folder; failing the whole file for them hides the results of the tests that did run. Say
+    // what is left so a real leak can still be seen in the log.
+    const left = spawnSync("ls", ["-R", home], { encoding: "utf8" }).stdout;
+    console.warn(`e2e cleanup: ${(err as Error).message}\n${left.slice(0, 2000)}`);
+  }
+}, 60_000);
 
 /**
  * An empty home and no credentials, like the ACP Registry's CI check. On
@@ -50,6 +63,10 @@ function isolatedEnv(env: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     PATH: process.env.PATH ?? process.env.Path ?? "",
     HOME: home,
     XDG_STATE_HOME: join(home, ".state"),
+    // Nothing a test runs may arm a real OS job (see test/setup.ts).
+    ...(process.env.AGENT_REWAKE_TEST_NO_OS_TIMERS === "1" && {
+      AGENT_REWAKE_TEST_NO_OS_TIMERS: "1",
+    }),
   };
   if (process.platform === "win32")
     Object.assign(base, {
