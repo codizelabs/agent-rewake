@@ -78,7 +78,10 @@ describe("the environment timer commands get", () => {
       const h = defaultTimerHost(dir, "/n", "/c");
       h.run("at", ["-t", "202601010000"], "x\n");
       h.detached(waiter, []);
-      for (let i = 0; i < 100 && !existsSync(join(dir, "fake-waiter.env")); i++)
+      // The shell creates the file empty before `env` fills it: wait for content, not existence.
+      const filled = (name: string) =>
+        existsSync(join(dir, name)) && readFileSync(join(dir, name), "utf8").length > 0;
+      for (let i = 0; i < 200 && !filled("fake-waiter.env"); i++)
         await new Promise((r) => setTimeout(r, 50));
       for (const name of ["at", "fake-waiter"]) {
         const text = readFileSync(join(dir, `${name}.env`), "utf8");
