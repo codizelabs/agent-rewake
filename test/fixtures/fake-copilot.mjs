@@ -34,6 +34,12 @@ if (outcome === "limited") {
   );
   process.exit(1);
 }
+if (outcome === "events") {
+  // FAKE_COPILOT_EVENTS: a JSON array of the events to print, then exit 1.
+  for (const e of JSON.parse(process.env.FAKE_COPILOT_EVENTS ?? "[]"))
+    process.stdout.write(`${JSON.stringify(e)}\n`);
+  process.exit(1);
+}
 if (outcome === "fail") process.exit(2);
 if (outcome === "gone") {
   process.stderr.write(`Error: Session ${args[0]?.split("=")[1] ?? ""} not found\n`);

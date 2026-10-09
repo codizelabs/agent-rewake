@@ -17,7 +17,7 @@ import {
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult } from "../host.js";
+import { resumeDeadline, type SendResult, withMessage } from "../host.js";
 import { type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -133,16 +133,23 @@ export function resumeAgy(
       {
         cwd: r.cwd || undefined,
         env: { ...env, AGY_CLI_DISABLE_AUTO_UPDATE: "true" },
-        stdio: ["ignore", "pipe", "ignore"],
+        stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       },
     );
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < 1 << 20) out += d.toString("utf8");
     });
+    // Since agy 1.2.6 a turn that ends on a model or API failure prints `AGY_ERROR: {...}` on
+    // stderr and exits 3 (research impl-google L5, from Google's changelog; the line's field names
+    // are not known, so only its text is read).
+    let err = "";
+    child.stderr.on("data", (d: Buffer) => {
+      if (err.length < 1 << 16) err += d.toString("utf8");
+    });
     const timedOut = resumeDeadline(child);
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
-    child.on("exit", () => {
+    child.on("exit", (code) => {
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       // Judged by the response, not the exit status: Antigravity has reported a resumed
       // conversation's old quota error after a successful turn, and exited 0 on a new one.
@@ -160,7 +167,19 @@ export function resumeAgy(
         return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       }
       if (response.trim()) return resolve({ ok: true });
-      resolve({ ok: false, reason: "failed", detail: "no response" });
+      // No response: the quota text may be only on stderr (`AGY_ERROR`), and the next try waits
+      // for its reset.
+      if (ANTIGRAVITY_QUOTA.test(err)) {
+        const stop = { terminationReason: "error", error: err };
+        const resetsAt = classifyAntigravityStop(stop, Date.now())?.resetsAt;
+        return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
+      }
+      resolve({
+        ok: false,
+        reason: "failed",
+        detail: code === 3 ? "exit 3" : "no response",
+        ...withMessage(err),
+      });
     });
   });
 }
