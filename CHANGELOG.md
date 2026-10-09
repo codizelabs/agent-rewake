@@ -6,6 +6,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Fixed
 
+- **Codex: a later, empty usage bucket no longer hides when the limit resets:** Codex reports usage per limit bucket, and an empty "premium" snapshot after a full "codex" one made Rewake say it didn't know when the limit resets. Rewake now picks the bucket that describes the limit, and falls back to the reset time in Codex's own message.
 - **Codex: a crashed send can no longer be counted as sent because of an older resume:** after a second usage limit in the same thread, the first resume's identical message was still in the thread's file, so a send that crashed could be marked as sent. Rewake now counts only messages written after that attempt started.
 - **Claude Code: a continue refused just after the reset is tried again:** when the first request after a reset was refused and no new reset time was given, nothing retried and the session stayed stopped. Rewake now tries again shortly, once. If that is refused too, it stops, as it does for a limit that keeps coming back.
 - **`agent-rewake doctor` warns when Claude Code is set to keep retrying at a usage limit:** `CLAUDE_CODE_RETRY_WATCHDOG`, or `CLAUDE_CODE_MAX_RETRIES` of 10 or more, set in the environment Claude Code starts with or in the `env` section of its `settings.json`, may keep the turn from ending, so Rewake may never see the limit. Doctor names the variable and where it's set.

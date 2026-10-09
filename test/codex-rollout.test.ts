@@ -34,6 +34,42 @@ const session = {
 const weekly = { used_percent: 41, window_minutes: 10080, resets_at: sec(NOW + 5 * 86_400_000) };
 
 describe("findCodexLimit", () => {
+  it("reads the reset from the bucket that has windows when a later bucket has none", () => {
+    // Codex sends one snapshot per limit bucket: "codex" at 100%, then an empty "premium" one.
+    const tail = [
+      started,
+      tokens({ limit_id: "codex", primary: session, secondary: weekly }),
+      tokens({ limit_id: "premium", primary: null, secondary: null }),
+      limited,
+    ].join("\n");
+    expect(findCodexLimit(tail, NOW)).toEqual({
+      limited: true,
+      at: sec(NOW - 60_000) * 1000,
+      resetsAt: session.resets_at * 1000,
+      window: "session",
+    });
+  });
+
+  it("falls back to the reset in the message when no snapshot has a window", () => {
+    const withText = line({
+      type: "task_complete",
+      turn_id: "t1",
+      last_agent_message: null,
+      error: {
+        message: "You've hit your usage limit. Try again in 3 hours.",
+        codex_error_info: "usage_limit_exceeded",
+      },
+      completed_at: sec(NOW - 60_000),
+    });
+    const tail = [started, tokens({ limit_id: "premium", primary: null }), withText].join("\n");
+    // Before, the empty snapshot hid the message's reset: "doesn't know when the limit resets".
+    expect(findCodexLimit(tail, NOW)).toEqual({
+      limited: true,
+      at: sec(NOW - 60_000) * 1000,
+      resetsAt: NOW + 3 * 3_600_000,
+    });
+  });
+
   it("finds a usage limit with the reset of the full window", () => {
     const tail = [
       started,
