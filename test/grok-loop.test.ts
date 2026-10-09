@@ -156,10 +156,6 @@ describe.runIf(enabled)("Grok Build in a terminal, offline: limit → continue (
     const desk = join(home, "desk");
     mkdirSync(work);
     stubs(desk);
-    execFileSync(process.execPath, [join(root, "scripts", "build.mjs")], {
-      cwd: root,
-      stdio: "ignore",
-    });
     let mock: Mock | undefined;
     try {
       mock = await startMock();
