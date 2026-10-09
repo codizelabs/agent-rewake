@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // A stand-in for `gemini` and `agy` resume runs in tests: records its arguments, folder and
 // whatever arrived on stdin in $FAKE_RESUME_LOG, and answers like the real one (FAKE_RESUME =
-// ok | limited | limited-stderr | silent). limited-stderr is Gemini CLI 0.62.0 with `-o json`:
-// the error on stderr, exit 429 & 255.
+// ok | limited | limited-stderr | refused | silent). limited-stderr is Gemini CLI 0.62.0 with `-o json`:
+// the error on stderr, exit 429 & 255. refused is a headless Gemini CLI that denied a tool needing
+// approval: the report on stderr, exit 0.
 import { appendFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
@@ -38,6 +39,13 @@ if (outcome === "limited-stderr") {
     `${JSON.stringify({ session_id: "s", error: { type: "Error", message: "Individual quota reached. Resets in 7200s.", code: 429 } }, null, 2)}\n`,
   );
   process.exit(173);
+}
+if (outcome === "refused") {
+  process.stderr.write(
+    "Error executing tool run_shell_command: Tool execution denied by policy.\n",
+  );
+  process.stdout.write(`${JSON.stringify({ response: "I couldn't run that command." })}\n`);
+  process.exit(0);
 }
 if (outcome === "silent") process.exit(0);
 process.stdout.write(`${JSON.stringify({ response: "Continuing from where I left off." })}\n`);

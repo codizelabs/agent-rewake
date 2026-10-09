@@ -94,8 +94,11 @@ export function classifyCopilotError(
 
 // ---- Gemini CLI ---------------------------------------------------------------------------------
 
+// Gemini CLI writes `[API Error: <message>]` without the status name, so a 429 often carries only
+// the server's words ("You exceeded your current quota…", "Resource has been exhausted…") or the
+// suffix it adds for API-key sign-ins (googleQuotaErrors.ts, errorParsing.ts).
 export const GEMINI_LIMIT =
-  /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|Usage limit reached|exhausted your (daily quota|capacity)|Individual quota reached|quota will reset/i;
+  /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|Usage limit reached|exhausted your (daily quota|capacity)|Individual quota reached|quota will reset|You exceeded your current quota|Resource has been exhausted|request a quota increase through AI Studio/i;
 
 /** "1h2m3s", "16h39m20s", "0s" → milliseconds. */
 export function durationMs(d: string): number | undefined {
@@ -125,6 +128,8 @@ export function classifyGeminiError(text: string, now: number): SessionLimit | u
   const after = /(?:reset after|resets in)\s+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)/i.exec(text);
   const ms = after?.[1] ? durationMs(after[1]) : undefined;
   let resetsAt = ms !== undefined ? now + ms : undefined;
+  // "Suggested retry after 3600s." / "Please retry in 1234.5s.": the shared rules read these.
+  if (resetsAt === undefined && g.kind === "usage_limit") resetsAt = g.resetAt;
   if (resetsAt === undefined) {
     const iso = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})/.exec(
       text,
