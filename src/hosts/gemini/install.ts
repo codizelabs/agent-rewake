@@ -21,6 +21,7 @@ import { rewake } from "../../util/command.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { VERSION } from "../../version.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
+import { hookCommand } from "../hook-command.js";
 import { newerThanTested, untestedText, versionOf } from "../versions.js";
 import { REWAKE_MARKER } from "./host.js";
 
@@ -76,7 +77,17 @@ export function geminiApiKeyAuth(env: NodeJS.ProcessEnv, home: string): boolean 
   return (s?.security?.auth?.selectedType ?? s?.selectedAuthType) === "gemini-api-key";
 }
 
-export function geminiHooksJson(node: string, launcher: string): string {
+/**
+ * On Windows, Gemini CLI runs a command hook through PowerShell (`powershell.exe` or `pwsh.exe`
+ * with `-Command`; gemini-cli packages/core/src/hooks/hookRunner.ts and utils/shell-utils.ts
+ * `getShellConfiguration`), so its commands there use PowerShell's call operator (hook-command.ts).
+ */
+export function geminiHooksJson(
+  node: string,
+  launcher: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const shell = platform === "win32" ? "powershell" : "posix";
   // Gemini CLI prints a hook's name after the message it adds: "[Agent Rewake]", not an internal id.
   const NAMES: Record<string, string> = {
     SessionStart: "Agent Rewake (session start)",
@@ -93,7 +104,7 @@ export function geminiHooksJson(node: string, launcher: string): string {
             {
               type: "command",
               name: NAMES[event] ?? "Agent Rewake",
-              command: `"${node}" "${launcher}" hook gemini-cli ${event}`,
+              command: hookCommand(node, launcher, `hook gemini-cli ${event}`, shell),
               timeout: 5000,
             },
           ],

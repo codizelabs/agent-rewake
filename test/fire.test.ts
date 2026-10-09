@@ -483,7 +483,52 @@ describe("a headless continue, while it runs", () => {
     expect(store.get(r.scheduleId)?.status).toBe("stopped");
     expect(notes).toHaveLength(1);
   });
+
+  it("stops the agent's whole process tree when the person asks, not just the agent", async () => {
+    const r = resume();
+    const { deps } = setup();
+    deps.stopPollMs = 20;
+    const stoppedPids: number[] = [];
+    deps.stopRun = (pid) => {
+      stoppedPids.push(pid);
+      process.kill(pid);
+    };
+    running(deps, 60_000);
+    const outcome = fire(r.scheduleId, deps);
+    while (store.get(r.scheduleId)?.attempts[0]?.pid === undefined)
+      await new Promise((ok) => setTimeout(ok, 10));
+    store.update(
+      r.scheduleId,
+      (x) => ({ ...x, attempts: x.attempts.map((a) => ({ ...a, stopped: true })) }),
+      NOW,
+    );
+    expect(await outcome).toBe("skipped");
+    expect(stoppedPids).toEqual([store.get(r.scheduleId)?.attempts[0]?.pid]);
+  });
 });
+
+/** A node process that starts a long-running child of its own and prints that child's id. */
+function withGrandchild() {
+  const child = spawn(process.execPath, [
+    "-e",
+    `const c = require("node:child_process").spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+     console.log(c.pid);
+     setTimeout(() => {}, 60000);`,
+  ]);
+  const grandchild = new Promise<number>((ok) =>
+    child.stdout.once("data", (d) => ok(Number(String(d).trim()))),
+  );
+  return { child, grandchild };
+}
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 describe("resumeDeadline", () => {
   it("stops a resume run that goes on too long, and says so", async () => {
@@ -499,6 +544,32 @@ describe("resumeDeadline", () => {
     await new Promise((r) => child.once("exit", r));
     expect(timedOut()).toBe(false);
   });
+
+  it("stops the run through the tree stopper, not the child's own kill", async () => {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"]);
+    const stopped: (number | undefined)[] = [];
+    const timedOut = resumeDeadline(child, 100, (c) => {
+      stopped.push(c.pid);
+      c.kill();
+    });
+    await new Promise((r) => child.once("exit", r));
+    expect(timedOut()).toBe(true);
+    expect(stopped).toEqual([child.pid]);
+  });
+
+  // Windows only: elsewhere a signal to the child alone is what Rewake has always sent.
+  it.runIf(process.platform === "win32")(
+    "on Windows, also ends the programs the agent started",
+    async () => {
+      const { child, grandchild } = withGrandchild();
+      const pid = await grandchild;
+      expect(alive(pid)).toBe(true);
+      resumeDeadline(child, 100);
+      await new Promise((r) => child.once("exit", r));
+      for (let i = 0; i < 50 && alive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
+      expect(alive(pid)).toBe(false);
+    },
+  );
 });
 
 describe("agentProcess", () => {

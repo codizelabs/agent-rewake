@@ -15,6 +15,7 @@ import { type HostAdapter, type HostFacts, onResumeRun, RESUME_TIMEOUT_MS } from
 import { rewake } from "../util/command.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
+import { killPidTree } from "../util/spawn.js";
 import type { Notifier } from "./notify.js";
 import { type SlotOptions, takeSlot } from "./slots.js";
 import {
@@ -88,6 +89,8 @@ export interface FireDeps {
   timerGen?: number;
   /** Tests: how often a running continue looks for a stop. */
   stopPollMs?: number;
+  /** Tests: how a running continue is stopped (default: the agent and everything it started). */
+  stopRun?: (pid: number) => void;
   /** Tests: the limits on resumes starting together (src/timers/slots.ts). */
   slots?: Omit<SlotOptions, "stateDir">;
 }
@@ -400,11 +403,8 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           watch = setInterval(() => {
             if (!store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped) return;
             clearInterval(watch);
-            try {
-              process.kill(pid);
-            } catch {
-              // Already ended.
-            }
+            // The whole tree: on Windows, ending the agent alone leaves what it started running.
+            (deps.stopRun ?? killPidTree)(pid);
           }, deps.stopPollMs ?? STOP_POLL_MS);
         });
         try {

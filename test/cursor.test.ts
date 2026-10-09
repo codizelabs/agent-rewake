@@ -8,7 +8,12 @@ import { recogniseForHost } from "../src/core/limits/recognise.js";
 import { ScheduleStore } from "../src/core/store.js";
 import { armClosed, type ClosedDeps, onLimit, onSessionEnd } from "../src/hosts/closed.js";
 import { CURSOR_ID, cursorHooks, cursorHost, transcriptError } from "../src/hosts/cursor/host.js";
-import { cursorInstalled, planCursor, WAIT_SECONDS } from "../src/hosts/cursor/install.js";
+import {
+  cursorFound,
+  cursorInstalled,
+  planCursor,
+  WAIT_SECONDS,
+} from "../src/hosts/cursor/install.js";
 import { runHook } from "../src/hosts/hook.js";
 import "../src/hosts/index.js";
 import { SessionRecords } from "../src/hosts/sessions.js";
@@ -69,6 +74,30 @@ describe("Cursor's hooks file", () => {
     expect(planCursor(file, "/n", "/l.mjs", false)).toMatchObject({
       error: expect.stringContaining("isn't valid JSON"),
     });
+  });
+
+  it("reads a hooks file saved with a byte-order mark, as Windows editors may write it", () => {
+    const file = join(dir, "hooks.json");
+    writeFileSync(
+      file,
+      `\uFEFF${JSON.stringify({ version: 1, hooks: { stop: [{ command: "./my-audit.sh" }] } })}`,
+    );
+    const plan = planCursor(file, "/n", "/l.mjs", false);
+    if ("error" in plan) throw new Error(plan.error);
+    expect(JSON.parse(plan.changes[0]?.after ?? "{}").hooks.stop[0]).toEqual({
+      command: "./my-audit.sh",
+    });
+  });
+
+  it("on Windows, finds Cursor's command on a copied environment's Path", () => {
+    const exists = (p: string) =>
+      p === "C:\\Users\\o\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin\\cursor.cmd";
+    const env = {
+      Path: "C:\\Windows;C:\\Users\\o\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin",
+      PATHEXT: ".EXE;.CMD",
+    };
+    expect(cursorFound(env, "C:\\Users\\o", "win32", exists)).toBe(true);
+    expect(cursorFound({ Path: "C:\\Windows" }, "C:\\Users\\o", "win32", exists)).toBe(false);
   });
 
   it("is found in ~/.cursor/hooks.json", () => {
