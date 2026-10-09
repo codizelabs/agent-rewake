@@ -134,6 +134,11 @@ export function classifyPromptError(
   ) {
     return { kind: "session_lost", text };
   }
+  // The plan's reset suffix wins over whatever comes before it, and over the error kind: Claude
+  // sends a spend or credit cap as "billing_error" even when the plan comes back at that reset.
+  const planResets = PLAN_LIMIT_RESETS.test(text);
+  if (errorKind === "billing_error" && planResets)
+    return { kind: "usage_limit", text, limitType: limitTypeOf(undefined, text) };
   if (errorKind && NOT_RECOVERABLE_KINDS.has(errorKind))
     return {
       kind: "not_recoverable",
@@ -154,8 +159,6 @@ export function classifyPromptError(
   }
 
   const isLimitText = USAGE_LIMIT_ERROR_PREFIXES.some((p) => text.startsWith(p));
-  // The plan's reset suffix wins over whatever comes before it.
-  const planResets = PLAN_LIMIT_RESETS.test(text);
   if (
     isLimitText &&
     !planResets &&
