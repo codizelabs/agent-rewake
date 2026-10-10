@@ -23,8 +23,6 @@ export interface Mock {
     reply?: string;
     /** Refuses unconditionally, regardless of `until`, until cleared with `limitForce: false`. */
     limitForce?: boolean;
-    /** Answer model requests after this many ms (default 0). */
-    think?: number;
     /** Answer model requests after six seconds, as a model does (default off). */
     think?: boolean;
   }): void;
