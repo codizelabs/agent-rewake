@@ -9,15 +9,21 @@ import { describe, expect, it } from "vitest";
  * and an install from a local folder; here, that the pointers stay right.
  */
 const root = join(import.meta.dirname, "..");
-const read = (path: string) => JSON.parse(readFileSync(join(root, path), "utf8")) as Record<string, any>;
+type Manifest = {
+  name: string;
+  owner?: unknown;
+  plugins?: { name: string; source: string }[];
+};
+const read = (path: string) => JSON.parse(readFileSync(join(root, path), "utf8")) as Manifest;
 
 describe("the root Claude Code marketplace", () => {
   const market = read(".claude-plugin/marketplace.json");
   const plugin = read("src/hosts/claude-code/mod/.claude-plugin/plugin.json");
 
   it("lists the plugin by the name and source it really has", () => {
-    expect(market.plugins).toHaveLength(1);
-    const [entry] = market.plugins;
+    const entries = market.plugins ?? [];
+    expect(entries).toHaveLength(1);
+    const entry = entries[0] as { name: string; source: string };
     expect(entry.name).toBe(plugin.name);
     expect(existsSync(join(root, entry.source, ".claude-plugin", "plugin.json"))).toBe(true);
   });
