@@ -430,8 +430,8 @@ describe("no second 'Apply these changes?' for a decision already made (--all, o
   });
 
   it("--all with no terminal and no --yes still refuses: the safety net is unchanged", async () => {
-    // Zed is the one place that is always there to find, whatever else this computer has installed.
-    writeFileSync(join(dir, "zed", "settings.json"), JSON.stringify({}));
+    // One place to find on any computer: Devin Desktop is detected from a folder in the home folder.
+    mkdirSync(join(dir, ".windsurf"));
     const r = await run(["install", "--all"]);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/Not a terminal, so nothing was (changed|written)/);
