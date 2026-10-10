@@ -116,7 +116,7 @@ describe("the agents matrix", () => {
     const readmeStatuses = [...table.matchAll(/\| ([^|\n]+) \|\n/g)]
       .map((m) => (m[1] ?? "").trim())
       .filter((s) => s !== "Status" && !s.startsWith("---"));
-    expect(readmeStatuses.length).toBe(9);
+    expect(readmeStatuses.length).toBe(11);
     for (const s of new Set(readmeStatuses)) expect(statuses, s).toContain(s);
   });
 

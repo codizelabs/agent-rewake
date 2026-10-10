@@ -1,7 +1,12 @@
 import { spawn } from "node:child_process";
+import { continueOnly, type RewakePlace } from "../../core/command.js";
 import { classifyQwenFailure } from "../../core/limits/agents.js";
 import { recogniseForHost } from "../../core/limits/recognise.js";
+import { RESET_MARGIN_MS } from "../../core/resume.js";
+import { ScheduleStore } from "../../core/store.js";
+import { formatAt } from "../../core/time.js";
 import {
+  armClosed,
   type ClosedDeps,
   type ClosedHost,
   ensureProgram,
@@ -10,6 +15,7 @@ import {
   onPrompt,
   onSessionEnd,
   onSessionStart,
+  pendingFor,
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
@@ -21,7 +27,7 @@ import {
   sendPromptOnStdin,
   withMessage,
 } from "../host.js";
-import { type SessionRecord, safeSessionId } from "../sessions.js";
+import { type SessionRecord, SessionRecords, safeSessionId } from "../sessions.js";
 
 /**
  * Alibaba's Qwen Code in a terminal (a preview, never tried against a real Qwen Code limit; hooks.md,
@@ -123,6 +129,63 @@ export interface QwenHookDeps {
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
+/**
+ * `/rewake` typed into a Qwen Code session: continue after a limit, at the reset or a chosen
+ * time, list or cancel. Qwen Code's `UserPromptSubmit` hook can block a prompt with
+ * `{"decision":"block","reason":…}` (hooks.md of QwenLM/qwen-code at 6788c03, checked 2026-10-10)
+ * — the reason is shown to the person and the prompt never reaches the model. Delivery of the
+ * actual resume is unchanged: it's armed the same way `agent-rewake continue` already arms one
+ * (armClosed, src/hosts/closed.ts), and fires through the normal closed-session path once Qwen
+ * Code exits.
+ */
+const QWEN_PLACE: RewakePlace = { name: "Qwen Code", typed: "/rewake", features: new Set() };
+/** The slash is optional, as in Codex's bare `rewake` and Cursor's `/rewake`. */
+const REWAKE = /^\s*\/?rewake(?:\s+([\s\S]*?))?\s*$/i;
+
+/** Qwen Code's own hook response: shown to the person instead of sending the text to the model. */
+function block(reason: string): string {
+  return JSON.stringify({ decision: "block", reason });
+}
+
+function handleRewake(id: string, args: string, ctx: HookContext, d: ClosedDeps): string {
+  const records = new SessionRecords(ctx.stateDir, QWEN_ID);
+  const c = continueOnly(QWEN_PLACE, args, ctx.now);
+  if (c.kind === "reply") return block(c.text);
+  if (c.kind === "list") {
+    const next = pendingFor(ctx.stateDir, QWEN_ID, id).sort((a, b) => a.dueAt - b.dueAt)[0];
+    return block(
+      next
+        ? `Rewake will continue this session ${formatAt(next.dueAt, ctx.now)}, once it's closed. To cancel: /rewake cancel`
+        : "Rewake: Nothing is set to continue this session. At a usage limit, close it and type /rewake to continue after the reset.",
+    );
+  }
+  if (c.kind === "cancel") {
+    const pending = pendingFor(ctx.stateDir, QWEN_ID, id);
+    const store = new ScheduleStore(ctx.stateDir);
+    for (const s of pending) if (store.cancel(s.scheduleId, ctx.now)) d.disarm(s.scheduleId);
+    return block(
+      pending.length > 0
+        ? "Rewake: Cancelled. This session won't be continued on its own."
+        : "Rewake: Nothing is set to continue this session.",
+    );
+  }
+  const r = records.get(id);
+  const limit = r?.limit;
+  if (!r || !limit)
+    return block("Rewake: this session isn't at a usage limit, so there's nothing to continue.");
+  if (limit.billing)
+    return block(
+      "Rewake can't continue after this limit: this limit is about credits or spending, which waiting doesn't fix.",
+    );
+  const at = c.at ?? (limit.resetsAt !== undefined ? limit.resetsAt + RESET_MARGIN_MS : undefined);
+  if (at === undefined)
+    return block("Rewake doesn't know when this resets yet. Try /rewake 3:30pm.");
+  armClosed(qwenHost, r, at, d);
+  return block(
+    `Rewake will continue this session ${formatAt(at, ctx.now)}, once it's closed. Keep this computer on and awake until then. Typing again before then cancels it.`,
+  );
+}
+
 /** A session file Qwen keeps: `<base>/projects/<folder>/chats/<id>.jsonl`. */
 const isQwenTranscript = (p: unknown) =>
   typeof p === "string" && /[\\/]projects[\\/][^\\/]+[\\/]chats[\\/][^\\/]+\.jsonl$/.test(p);
@@ -146,6 +209,12 @@ export function qwenHooks(deps: QwenHookDeps): HookHandler {
         case "SessionStart":
           onSessionStart(qwenHost, id, cwd, d, deps.program(ctx.env));
           break;
+        case "UserPromptSubmit": {
+          const prompt = str(ctx.input.submitted_prompt) || str(ctx.input.prompt);
+          const m = REWAKE.exec(prompt);
+          if (m) return handleRewake(id, m[1] ?? "", ctx, d);
+          break;
+        }
         case "Stop":
           // A turn ended without an error: the person carried on after any limit.
           onPrompt(qwenHost, id, cwd, d);

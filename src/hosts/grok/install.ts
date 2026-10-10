@@ -106,7 +106,7 @@ export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
         `Agent Rewake (preview) will ${installed ? "update" : "add"} its hooks file for Grok Build${grok.version ? ` (version ${grok.version} found)` : ""}:`,
         `  ${file}`,
         "",
-        `It adds ${GROK_EVENTS.length} hooks that note when a session starts, ends, gets a message or hits Grok's weekly usage limit. Rewake doesn't resume after a spending cap. Nothing else in Grok's settings changes.`,
+        `It adds ${GROK_EVENTS.length} hooks that note when a session starts, ends, gets a message or hits Grok's weekly usage limit. At a usage limit, type "/rewake" in the session to continue after the reset, choose a time, or cancel. Rewake doesn't resume after a spending cap. Nothing else in Grok's settings changes.`,
         "",
       ].join("\n"),
     );

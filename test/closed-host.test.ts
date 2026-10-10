@@ -86,6 +86,20 @@ describe("Rewake's own resume run (FIRE_ENV)", () => {
     onSessionEnd(host([]), SID, "/work", deps({}, armed, notes));
     expect(armed).toHaveLength(1);
   });
+
+  it("says when an automatically-armed resume's history is large", () => {
+    saveSettings(state, { ...DEFAULT_SETTINGS, newThreads: "on" });
+    const records = new SessionRecords(state, "copilot-cli");
+    records.update(SID, "/work", NOW, (r) => ({
+      ...r,
+      open: true,
+      historyBytes: 7 * 1024 * 1024,
+      limit: { kind: "session", billing: false, resetsAt: NOW + H, seenAt: NOW },
+    }));
+    const notes: string[] = [];
+    onSessionEnd(host([]), SID, "/work", deps({}, [], notes));
+    expect(notes[0]).toMatch(/ This session is large \(about 7 MB of history\); continuing it/);
+  });
 });
 
 describe("a resume whose session record is gone", () => {

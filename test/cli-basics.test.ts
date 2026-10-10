@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { main } from "../src/cli.js";
+import { alreadyConfirmedChoice, main, multiPlaceLine } from "../src/cli.js";
 import { registerHost, ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import {
@@ -24,7 +24,9 @@ import {
   INTERNAL,
   PLACES,
 } from "../src/help.js";
+import { NPX_COMMAND, setRewakeCommand } from "../src/util/command.js";
 import { readInstalled } from "../src/util/installed.js";
+import { withoutStyle } from "../src/util/style.js";
 import { VERSION } from "../src/version.js";
 
 let dir: string;
@@ -370,5 +372,78 @@ describe("installed N days ago comes from a local record (G70)", () => {
     await new Promise((r) => setTimeout(r, 15));
     await run(["install", "--yes"]);
     expect(readInstalled(state)).toEqual(first);
+  });
+});
+
+describe("no second 'Apply these changes?' for a decision already made (--all, or the screen)", () => {
+  // --all is typed on purpose, the same as answering the screen's own question: plan §4.1 is one
+  // decision (which places), not two. A live person confirmed it just now (a real terminal); a
+  // script with no one there still needs --yes, the same safety net as before.
+  //
+  // The interactive case (a live person, a real terminal) is covered directly below, as a pure
+  // function (`alreadyConfirmedChoice`), not by driving `main()` with a faked
+  // `process.stdin.isTTY`: doing that once, while writing this test, let an unrelated host's own
+  // prompt reach a real, blocking stdin read with no terminal behind it, and the test hung.
+  it("a live person in a real terminal: the fix this is about", () => {
+    expect(alreadyConfirmedChoice(true, false, true)).toBe(true);
+  });
+  it("not picked at all (--only, naming a place by hand): never skips the question", () => {
+    expect(alreadyConfirmedChoice(false, false, true)).toBe(false);
+    expect(alreadyConfirmedChoice(false, true, true)).toBe(false);
+  });
+  it("picked, and --yes was also given: skips it, same as always", () => {
+    expect(alreadyConfirmedChoice(true, true, false)).toBe(true);
+  });
+  it("picked, but no terminal and no --yes: nobody was there to decide, so it still asks for --yes", () => {
+    expect(alreadyConfirmedChoice(true, false, false)).toBe(false);
+  });
+
+  // The owner hit this for real: --all on a machine with six real agents printed every agent's
+  // own full breakdown (every file path, one bullet per agent) before even getting to "Apply
+  // these changes?". Names only now, not each place's own wall of text — that's still exactly
+  // one flag away, `install --dry-run`, for whoever wants it. Tested as a pure function, not by
+  // running --all for real: which places it finds depends on what's actually installed on the
+  // machine running the test (none of them, on CI), so that wouldn't be a reliable test anywhere.
+  const strip = withoutStyle;
+
+  it("several places: their names only, not each one's own file paths and bullets", () => {
+    setRewakeCommand(NPX_COMMAND);
+    const text = strip(multiPlaceLine(["Zed", "Claude Code", "Codex", "GitHub Copilot CLI"], true));
+    expect(text).toBe(
+      "\nAgent Rewake will set up Zed, Claude Code, Codex and GitHub Copilot CLI.\n" +
+        `See every line: ${NPX_COMMAND} install --dry-run\n`,
+    );
+    expect(text).not.toContain("settings.json");
+    expect(text).not.toContain("Add Rewake to");
+    setRewakeCommand(undefined);
+  });
+
+  it("colours the names by default; NO_COLOR drops colour (keeps bold) but keeps the wording identical", () => {
+    setRewakeCommand(NPX_COMMAND);
+    const withColor = multiPlaceLine(["Zed", "Codex"], false);
+    const plain = multiPlaceLine(["Zed", "Codex"], true);
+    expect(withColor).toContain("\x1b[36m"); // accent (cyan), colour on
+    expect(plain).not.toContain("\x1b[36m"); // NO_COLOR: no cyan...
+    expect(plain).toContain("\x1b[1m"); // ...but still bold, so the names still stand out
+    expect(strip(withColor)).toBe(strip(plain));
+    setRewakeCommand(undefined);
+  });
+
+  it("--all with no terminal and no --yes still refuses: the safety net is unchanged", async () => {
+    // One place to find on any computer: Devin Desktop is detected from a folder in the home folder.
+    mkdirSync(join(dir, ".windsurf"));
+    const r = await run(["install", "--all"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/Not a terminal, so nothing was (changed|written)/);
+    expect(readInstalled(join(dir, "state"))).toBeUndefined();
+  });
+
+  it("naming a place (--only), not the screen or --all, is unaffected: still refuses without --yes", async () => {
+    const r = await run(["install", "--only", "zed"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      "Not a terminal, so nothing was written. Run again with --yes to apply.",
+    );
+    expect(readInstalled(join(dir, "state"))).toBeUndefined();
   });
 });

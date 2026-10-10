@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, saveSettings } from "../src/core/settings.js";
+import { ScheduleStore } from "../src/core/store.js";
 import type { ClosedDeps } from "../src/hosts/closed.js";
 import {
   billingReset,
@@ -307,6 +308,108 @@ describe("Grok's hooks", () => {
     const h = harness();
     await h.event("StopFailure", { error: "rate_limit", subagentType: "explore" });
     expect(new SessionRecords(state, "grok").get(SID)).toBeUndefined();
+  });
+
+  describe("/rewake typed into the session", () => {
+    const type = async (h: ReturnType<typeof harness>, prompt: string) =>
+      JSON.parse((await h.event("UserPromptSubmit", { prompt })) ?? "{}") as {
+        decision?: string;
+        reason?: string;
+      };
+
+    it("says there's nothing to continue before any limit", async () => {
+      const h = harness();
+      const r = await type(h, "/rewake");
+      expect(r.decision).toBe("block");
+      expect(r.reason).toBe(
+        "Rewake: this session isn't at a usage limit, so there's nothing to continue.",
+      );
+    });
+
+    it("says it doesn't know the reset time yet when the limit gave none", async () => {
+      const h = harness();
+      await h.event("StopFailure", {
+        error: "rate_limit",
+        lastAssistantMessage: "You’ve reached your free Grok Build usage limit.",
+      });
+      const r = await type(h, "/rewake");
+      expect(r.reason).toBe("Rewake doesn't know when this resets yet. Try /rewake 3:30pm.");
+    });
+
+    it("arms a continue at the known reset, and the slash is optional", async () => {
+      billing(100);
+      const h = harness();
+      await h.event("StopFailure", {
+        error: "invalid_request",
+        errorDetails: "402",
+        lastAssistantMessage: "You hit your weekly limit.",
+      });
+      const r = await type(h, "rewake");
+      expect(r.reason).toMatch(/^Rewake will continue this session .*, once it's closed\. /);
+      expect(new ScheduleStore(state).list()[0]).toMatchObject({
+        dueAt: Date.parse(END) + 60_000,
+        status: "scheduled",
+      });
+    });
+
+    it("arms a continue at a chosen time", async () => {
+      const h = harness();
+      await h.event("StopFailure", {
+        error: "rate_limit",
+        lastAssistantMessage: "You’ve reached your free Grok Build usage limit.",
+      });
+      const r = await type(h, "/rewake in 1h");
+      expect(r.reason).toMatch(/^Rewake will continue this session /);
+      expect(new ScheduleStore(state).list()[0]?.dueAt).toBe(NOW + 60 * 60_000);
+    });
+
+    it("refuses to continue a limit that waiting won't lift", async () => {
+      const h = harness();
+      await h.event("StopFailure", {
+        error: "invalid_request",
+        errorDetails: "402",
+        lastAssistantMessage: "You've hit the credit limit for your plan.",
+      });
+      const r = await type(h, "/rewake");
+      expect(r.reason).toBe(
+        "Rewake can't continue after this limit: this limit is about credits or spending, which waiting doesn't fix.",
+      );
+    });
+
+    it("lists what's planned, and says when nothing is", async () => {
+      const h = harness();
+      await h.event("StopFailure", {
+        error: "rate_limit",
+        lastAssistantMessage: "You’ve reached your free Grok Build usage limit.",
+      });
+      expect((await type(h, "/rewake list")).reason).toBe(
+        "Rewake: Nothing is set to continue this session. At a usage limit, close it and type /rewake to continue after the reset.",
+      );
+      await type(h, "/rewake in 1h");
+      const r = await type(h, "/rewake list");
+      expect(r.reason).toMatch(/^Rewake will continue this session .* To cancel: \/rewake cancel$/);
+    });
+
+    it("cancels what's planned", async () => {
+      const h = harness();
+      await h.event("StopFailure", {
+        error: "rate_limit",
+        lastAssistantMessage: "You’ve reached your free Grok Build usage limit.",
+      });
+      await type(h, "/rewake in 1h");
+      const cancelled = await type(h, "/rewake cancel");
+      expect(cancelled.reason).toBe(
+        "Rewake: Cancelled. This session won't be continued on its own.",
+      );
+      const again = await type(h, "/rewake cancel");
+      expect(again.reason).toBe("Rewake: Nothing is set to continue this session.");
+    });
+
+    it("doesn't match ordinary text, so it falls through to the usual typed-in-session handling", async () => {
+      const h = harness();
+      const out = await h.event("UserPromptSubmit", { prompt: "please rewrite this function" });
+      expect(out).toBeUndefined();
+    });
   });
 });
 
