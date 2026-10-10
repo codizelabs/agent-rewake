@@ -825,6 +825,19 @@ describe("Gemini CLI: /rewake, answered without a model call", () => {
     expect(ask("whenever")).toBe('Rewake: Didn\'t understand "whenever". Try /rewake 3:30pm.');
   });
 
+  it("says when its history is large", () => {
+    const records = new SessionRecords(state, "gemini-cli");
+    records.update(SID, join(dir, "shop"), NOW, (r) => ({
+      ...r,
+      program: FAKE,
+      historyBytes: 7 * 1024 * 1024,
+      limit: { seenAt: NOW, kind: "daily", billing: false, resetsAt: NOW + H },
+    }));
+    expect(ask("")).toMatch(
+      / This session is large \(about 7 MB of history\); continuing it re-reads that and uses your plan\.$/,
+    );
+  });
+
   it("speaks the shared /rewake grammar, and says in one line what Gemini CLI can't do", () => {
     const records = new SessionRecords(state, "gemini-cli");
     records.update(SID, join(dir, "shop"), NOW, (r) => ({

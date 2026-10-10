@@ -8,6 +8,7 @@ import {
   armClosed,
   type ClosedDeps,
   type ClosedHost,
+  largeHistoryText,
   onLimit,
   onPrompt,
   onSessionEnd,
@@ -188,8 +189,9 @@ function handleRewake(id: string, args: string, ctx: HookContext, d: ClosedDeps)
       `Rewake can only continue a Cursor chat within 4 hours of its usage limit. Try a time before ${formatAt(maxAt, ctx.now)}.`,
     );
   armClosed(cursorHost, r, at, d);
+  const large = largeHistoryText(cursorHost, r.historyBytes);
   return block(
-    `Rewake will continue this chat ${formatAt(at, ctx.now)}. Keep this window open until then. Typing again before then cancels it.`,
+    `Rewake will continue this chat ${formatAt(at, ctx.now)}. Keep this window open until then. Typing again before then cancels it.${large ? ` ${large}` : ""}`,
   );
 }
 

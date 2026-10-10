@@ -355,7 +355,13 @@ export function onSessionEnd(
   });
   if (decision.action === "arm") {
     armClosed(host, r, decision.fireAt, d);
-    d.notify("Agent Rewake", armedText(host, r.cwd, decision.fireAt, d.now));
+    const large = largeHistoryText(host, r.historyBytes);
+    d.notify(
+      "Agent Rewake",
+      large
+        ? `${armedText(host, r.cwd, decision.fireAt, d.now)} ${large}`
+        : armedText(host, r.cwd, decision.fireAt, d.now),
+    );
     return;
   }
   if (decision.action !== "offer") return;
@@ -386,7 +392,11 @@ function followLaterReset(host: ClosedHost, r: SessionRecord, d: ClosedDeps): vo
     }
     store.update(s.scheduleId, (x) => ({ ...x, dueAt: at }), d.now);
     d.arm(s.scheduleId, at);
-    d.notify("Agent Rewake", armedText(host, r.cwd, at, d.now));
+    const large = largeHistoryText(host, r.historyBytes);
+    d.notify(
+      "Agent Rewake",
+      large ? `${armedText(host, r.cwd, at, d.now)} ${large}` : armedText(host, r.cwd, at, d.now),
+    );
   }
 }
 

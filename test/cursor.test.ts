@@ -366,6 +366,18 @@ describe("Cursor's hooks: a limit, the person's choice, the continue", () => {
       expect(r.user_message).toBe("Rewake doesn't know when this resets yet. Try /rewake 3:30pm.");
     });
 
+    it("says when its history is large", async () => {
+      atLimit();
+      new SessionRecords(state, CURSOR_ID).update(CHAT, "/work/shop", clock, (x) => ({
+        ...x,
+        historyBytes: 7 * 1024 * 1024,
+      }));
+      const r = await type("/rewake in 1h");
+      expect(r.user_message).toMatch(
+        / This chat is large \(about 7 MB of history\); continuing it re-reads that and uses your plan\.$/,
+      );
+    });
+
     it("arms a continue at a chosen time, within 4 hours, and the slash is optional", async () => {
       atLimit();
       const r = await type("/rewake in 1h");

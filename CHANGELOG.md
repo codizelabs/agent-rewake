@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- **A large session's history warning now shows up when Rewake continues it automatically, not only when you run `agent-rewake continue` by hand:** the note ("This session is large (about N MB of history); continuing it re-reads that and uses your plan.") now also appears in the notification when a closed session is auto-armed, and in Cursor's and Gemini CLI's own `/rewake` replies when they arm a continue themselves.
+
 ### Added
 
 - **Keeping the computer awake while a resume is due now also works on Linux and Windows:** on Linux with systemd Rewake uses `systemd-inhibit`, on Windows a hidden PowerShell holding the system awake, both tied to Rewake's process so they end with it, and "while plugged in" is honoured on both. Only macOS has been tried by hand.
