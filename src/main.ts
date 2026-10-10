@@ -30,50 +30,49 @@ if (tooOld) {
   process.exit(1);
 }
 
-Promise.all([
-  import("./cli.js"),
-  import("./errors/report.js"),
-  import("./util/paths.js"),
-]).then(([{ main }, { flushPendingReports, reportError }, { stateDir }]) => {
-  /** An uncaught exception or rejection, wherever it escaped from: ledgered, queued if opted in. */
-  function reportCrash(name: string, error: unknown): void {
-    try {
-      reportError(stateDir(process.env), { name, error, tags: { place: "cli" } });
-    } catch {
-      // Observability must never crash the crash handler.
+Promise.all([import("./cli.js"), import("./errors/report.js"), import("./util/paths.js")]).then(
+  ([{ main }, { flushPendingReports, reportError }, { stateDir }]) => {
+    /** An uncaught exception or rejection, wherever it escaped from: ledgered, queued if opted in. */
+    function reportCrash(name: string, error: unknown): void {
+      try {
+        reportError(stateDir(process.env), { name, error, tags: { place: "cli" } });
+      } catch {
+        // Observability must never crash the crash handler.
+      }
     }
-  }
 
-  // Belt and braces: a bug anywhere in a command that escapes as a truly uncaught exception or
-  // rejection is recorded before the process exits, instead of being lost. Node's default
-  // behaviour (exit non-zero) is preserved: a handler here suppresses that default, so each one
-  // reports (fast, local, synchronous fs only — never the network) and then exits itself.
-  process.on("uncaughtException", (err) => {
-    reportCrash("process.uncaughtException", err);
-    process.stderr.write(`agent-rewake: ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
-  });
-  process.on("unhandledRejection", (reason) => {
-    reportCrash("process.unhandledRejection", reason);
-    process.stderr.write(
-      `agent-rewake: ${reason instanceof Error ? reason.message : String(reason)}\n`,
-    );
-    process.exit(1);
-  });
+    // Belt and braces: a bug anywhere in a command that escapes as a truly uncaught exception or
+    // rejection is recorded before the process exits, instead of being lost. Node's default
+    // behaviour (exit non-zero) is preserved: a handler here suppresses that default, so each one
+    // reports (fast, local, synchronous fs only — never the network) and then exits itself.
+    process.on("uncaughtException", (err) => {
+      reportCrash("process.uncaughtException", err);
+      process.stderr.write(`agent-rewake: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    });
+    process.on("unhandledRejection", (reason) => {
+      reportCrash("process.unhandledRejection", reason);
+      process.stderr.write(
+        `agent-rewake: ${reason instanceof Error ? reason.message : String(reason)}\n`,
+      );
+      process.exit(1);
+    });
 
-  async function run(): Promise<number> {
-    const argv = process.argv.slice(2);
-    const code = await main(argv);
-    if (FLUSH_AFTER.has(argv[0] ?? "")) await flushPendingReports(stateDir(process.env));
-    return code;
-  }
+    async function run(): Promise<number> {
+      const argv = process.argv.slice(2);
+      const code = await main(argv);
+      if (FLUSH_AFTER.has(argv[0] ?? "")) await flushPendingReports(stateDir(process.env));
+      return code;
+    }
 
-  return run().then(exitAfterFlush, (err: unknown) => {
-    reportCrash("cli.main_rejected", err);
+    return run().then(exitAfterFlush, (err: unknown) => {
+      reportCrash("cli.main_rejected", err);
+      process.stderr.write(`agent-rewake: ${err instanceof Error ? err.message : String(err)}\n`);
+      exitAfterFlush(1);
+    });
+  },
+  (err: unknown) => {
     process.stderr.write(`agent-rewake: ${err instanceof Error ? err.message : String(err)}\n`);
     exitAfterFlush(1);
-  });
-}, (err: unknown) => {
-  process.stderr.write(`agent-rewake: ${err instanceof Error ? err.message : String(err)}\n`);
-  exitAfterFlush(1);
-});
+  },
+);

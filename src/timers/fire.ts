@@ -312,6 +312,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       if (place === undefined) return wait(now + MIN_ARM_MS, "no-free-place", false);
       // On an error, carried on without a place: throttling is best effort.
       if (place !== "error") slot.release = place;
+    }
     // The person's 12- or 24-hour clock, for notifications, and whether to keep the computer awake.
     const settings = loadSettings(deps.stateDir);
     const key = `${id}:${s.dueAt}`;

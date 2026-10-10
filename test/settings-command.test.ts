@@ -157,6 +157,7 @@ describe("settings <name> <value>", () => {
     autoWhenPromptsSkipped: true,
     keepAwake: "never",
     resumePrompt: "Go on",
+    errorReports: "off",
   } as const;
 
   it.each([
