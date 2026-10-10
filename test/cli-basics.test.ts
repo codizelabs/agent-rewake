@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { main } from "../src/cli.js";
+import { alreadyConfirmedChoice, main } from "../src/cli.js";
 import { registerHost, ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import {
@@ -370,5 +370,45 @@ describe("installed N days ago comes from a local record (G70)", () => {
     await new Promise((r) => setTimeout(r, 15));
     await run(["install", "--yes"]);
     expect(readInstalled(state)).toEqual(first);
+  });
+});
+
+describe("no second 'Apply these changes?' for a decision already made (--all, or the screen)", () => {
+  // --all is typed on purpose, the same as answering the screen's own question: plan §4.1 is one
+  // decision (which places), not two. A live person confirmed it just now (a real terminal); a
+  // script with no one there still needs --yes, the same safety net as before.
+  //
+  // The interactive case (a live person, a real terminal) is covered directly below, as a pure
+  // function (`alreadyConfirmedChoice`), not by driving `main()` with a faked
+  // `process.stdin.isTTY`: doing that once, while writing this test, let an unrelated host's own
+  // prompt reach a real, blocking stdin read with no terminal behind it, and the test hung.
+  it("a live person in a real terminal: the fix this is about", () => {
+    expect(alreadyConfirmedChoice(true, false, true)).toBe(true);
+  });
+  it("not picked at all (--only, naming a place by hand): never skips the question", () => {
+    expect(alreadyConfirmedChoice(false, false, true)).toBe(false);
+    expect(alreadyConfirmedChoice(false, true, true)).toBe(false);
+  });
+  it("picked, and --yes was also given: skips it, same as always", () => {
+    expect(alreadyConfirmedChoice(true, true, false)).toBe(true);
+  });
+  it("picked, but no terminal and no --yes: nobody was there to decide, so it still asks for --yes", () => {
+    expect(alreadyConfirmedChoice(true, false, false)).toBe(false);
+  });
+
+  it("--all with no terminal and no --yes still refuses: the safety net is unchanged", async () => {
+    const r = await run(["install", "--all"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/Not a terminal, so nothing was (changed|written)/);
+    expect(readInstalled(join(dir, "state"))).toBeUndefined();
+  });
+
+  it("naming a place (--only), not the screen or --all, is unaffected: still refuses without --yes", async () => {
+    const r = await run(["install", "--only", "zed"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      "Not a terminal, so nothing was written. Run again with --yes to apply.",
+    );
+    expect(readInstalled(join(dir, "state"))).toBeUndefined();
   });
 });

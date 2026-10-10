@@ -17,9 +17,12 @@ import { ThreadStore } from "../src/core/threads.js";
 import {
   AGENT_NAME,
   applyPlan,
+  describeFull,
+  describeShort,
   keyChord,
   type LaunchCommand,
   launchCommand,
+  type Plan,
   pinnedVersion,
   planInstall,
   planUninstall,
@@ -402,6 +405,85 @@ describe("agent-rewake uninstall", () => {
     );
     applyPlan(planUninstall(dir));
     expect(json("keymap.json")).toEqual([{ bindings: { "ctrl-k": "editor::Mine" } }]);
+  });
+});
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping the ANSI codes themselves
+const strip = (s: string) => s.replace(/\x1b\[\d*m/g, "");
+
+describe("what's shown before 'Apply these changes?'", () => {
+  // Five agents, as a real multi-agent install plan would build it: one summary bullet each, all
+  // but the agent name near-identical. This is the actual shape that made the old screen long.
+  const fiveAgents: Plan = {
+    changes: [
+      {
+        file: "/home/kashan/.config/zed/settings.json",
+        existed: true,
+        before: "",
+        after: "",
+        summary: [
+          'Add Rewake to "claude-acp" (Claude Agent). Its threads, settings and login stay as they are',
+          'Add Rewake to "codex-acp" (Codex). Its threads, settings and login stay as they are',
+          'Add Rewake to "gemini-acp" (Gemini CLI). Its threads, settings and login stay as they are',
+          'Add Rewake to "grok-acp" (Grok Build). Its threads, settings and login stay as they are',
+          'Add Rewake to "copilot-acp" (GitHub Copilot CLI). Its threads, settings and login stay as they are',
+          "    Rewake runs as: node /abs/path/to/dist/agent-rewake.js proxy",
+        ],
+      },
+      {
+        file: "/home/kashan/.config/zed/tasks.json",
+        existed: false,
+        before: "",
+        after: "",
+        summary: [
+          'Add the task "Agent Rewake: schedules" (opens the schedules page in Zed\'s terminal)',
+        ],
+      },
+    ],
+    notes: ['"cursor" (Cursor) left as is: it has no build for this computer'],
+  };
+
+  it("short: names the files, not every bullet inside them — no per-agent repetition", () => {
+    const text = strip(describeShort(fiveAgents, "set up Zed", true));
+    expect(text).toContain("settings.json");
+    expect(text).toContain("tasks.json");
+    expect(text).toContain("2 files");
+    // None of the five near-identical per-agent lines, and no internal command line.
+    expect(text).not.toContain("Add Rewake to");
+    expect(text).not.toContain("Rewake runs as:");
+    // Not the full path either — the person doesn't need it to decide (C1).
+    expect(text).not.toContain("/home/kashan/.config/zed/settings.json");
+    // Still says what's always true, and points at the full detail.
+    expect(text).toContain("backed up");
+    expect(text).toContain("install --dry-run");
+    // Notes (exceptions worth knowing) still show.
+    expect(text).toContain('"cursor" (Cursor) left as is');
+  });
+
+  it("full: every file's full path and every bullet, for --dry-run or on request", () => {
+    const text = strip(describeFull(fiveAgents, "set up Zed", true));
+    expect(text).toContain("/home/kashan/.config/zed/settings.json");
+    expect(text).toContain("/home/kashan/.config/zed/tasks.json");
+    for (const name of ["claude-acp", "codex-acp", "gemini-acp", "grok-acp", "copilot-acp"])
+      expect(text).toContain(`Add Rewake to "${name}"`);
+    expect(text).toContain("Rewake runs as:");
+    expect(text).toContain('"cursor" (Cursor) left as is');
+  });
+
+  it("colours file names by default, and NO_COLOR drops colour but keeps the wording identical", () => {
+    const withColor = describeShort(fiveAgents, "set up Zed", false);
+    const plain = describeShort(fiveAgents, "set up Zed", true);
+    expect(withColor).toContain("\x1b[36m"); // accent (cyan) on the file names
+    expect(plain).not.toContain("\x1b[36m");
+    expect(strip(withColor)).toBe(strip(plain));
+  });
+
+  it("nothing to apply: just the notes, no 'will set up Zed' header", () => {
+    const nothing: Plan = { changes: [], notes: ["settings.json: Rewake is already set up here"] };
+    expect(strip(describeShort(nothing, "set up Zed", true))).toBe(
+      "settings.json: Rewake is already set up here\n",
+    );
+    expect(strip(describeShort(nothing, "set up Zed", true))).not.toContain("will set up Zed");
   });
 });
 

@@ -1,4 +1,5 @@
 import { rewake } from "../util/command.js";
+import { paint, type Tone } from "../util/style.js";
 import type { Found, PlaceId } from "./detect.js";
 
 /**
@@ -71,6 +72,10 @@ function listNames(names: string[]): string {
  * found at all isn't mentioned here — there's no decision to make about something that isn't on
  * this computer, so naming it is noise, not information (C1); the checklist still lists it, for
  * whoever opens it to look.
+ *
+ * "(default: yes)" is said in words, not just the capital Y in "[Y/n]": a screen reader doesn't
+ * announce letter case, so capitalisation alone doesn't say what an empty answer does (`gh auth
+ * login`'s accessible prompter does the same, `internal/prompter/prompter.go`, cli/cli).
  */
 export function quickSetupPrompt(places: Place[]): string | undefined {
   const offered = places.filter((p) => p.state !== "too-old");
@@ -82,29 +87,7 @@ export function quickSetupPrompt(places: Place[]): string | undefined {
       ? ` (${listNames(tooOld)} ${tooOld.length === 1 ? "is" : "are"} too old to set up)`
       : "";
   const which = tooOld.length > 0 ? "the rest of them" : "all of them";
-  return `Agent Rewake found ${list} on this computer${aside}.\nInstall Rewake for ${which}? [Y/n] `;
-}
-
-/**
- * The same small palette `src/ui/page.ts` uses for the schedules page, so the picker looks like
- * the rest of Rewake's terminal output rather than its own style. `NO_COLOR` (or `TERM=dumb`)
- * turns colour into bold, the same degrade `page.ts` applies; bold, dim and reverse stay, since
- * they're not colour and every terminal, including a screen reader, can still tell the difference.
- */
-type Tone = "plain" | "bold" | "dim" | "reverse" | "accent" | "warn";
-const SGR: Record<Exclude<Tone, "plain">, string> = {
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  reverse: "\x1b[7m",
-  accent: "\x1b[36m",
-  warn: "\x1b[33m",
-};
-
-function paint(text: string, tone: Tone, noColor: boolean): string {
-  if (tone === "plain" || text === "") return text;
-  let t = tone;
-  if (noColor && (t === "accent" || t === "warn")) t = "bold";
-  return `${SGR[t]}${text}\x1b[0m`;
+  return `Agent Rewake found ${list} on this computer${aside}.\nInstall Rewake for ${which}? [Y/n] (default: yes) `;
 }
 
 /** The lines of the checklist, the cursor's line marked. */

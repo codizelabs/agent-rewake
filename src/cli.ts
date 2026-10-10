@@ -158,6 +158,21 @@ function unknownOption(command: string, rest: string[]): string | undefined {
   return rest.find((a, i) => i !== value && !known.includes(a));
 }
 
+/**
+ * Whether a person already said what to set up — the screen's own question, or typing `--all` on
+ * purpose — so a separate "Apply these changes?" would just ask the same decision again (plan
+ * §4.1: one decision, which places, not two). True only when a live person could have just
+ * decided it: a real terminal, or the raw `--yes` flag. A script with neither — `--all` with no
+ * terminal and no `--yes` — still gets the same refusal as before: nobody was there to decide.
+ */
+export function alreadyConfirmedChoice(
+  picked: boolean,
+  yes: boolean,
+  interactive: boolean,
+): boolean {
+  return picked && (yes || interactive);
+}
+
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const wrap = parseWrapArgs(argv);
   if (wrap && "error" in wrap) {
@@ -434,9 +449,14 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       process.stdout.write(t);
     };
     let code = 0;
+    // The screen's own question (or --all, typed on purpose) already is the one decision to
+    // apply: a second "Apply these changes?" asks the same thing again. It's still skipped when
+    // there's no live person to have just decided anything — a non-interactive --all still needs
+    // --yes, the same safety net as before (checked after showing what would happen, as before).
+    const alreadyConfirmed = alreadyConfirmedChoice(picked, yes, interactive);
     if (picked && !dryRun && order.length > 1) {
-      // Several places from the screen: every change first, one question, then a line each
-      // (plan §4.1: two decisions, which places and apply).
+      // Several places from the screen: every change first, then (plan §4.1: one decision,
+      // already made on the screen that chose these places) straight on to applying them.
       for (const id of order) {
         print(`\n${placeName(id)}\n`);
         await runPlace(id, {
@@ -448,17 +468,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       }
       if (!uninstall && loginWouldAdd(env, order))
         print(`\n${loginItemPlanText(process.platform)}`);
-      if (!yes) {
-        if (!interactive) {
-          print(
-            "\nNot a terminal, so nothing was changed. Run again with --yes to apply the changes above.\n",
-          );
-          return 1;
-        }
-        if (!(await ask(`\nApply these changes to ${order.length} places? [y/N] `))) {
-          print("Nothing was changed.\n");
-          return 1;
-        }
+      if (!alreadyConfirmed) {
+        print(
+          "\nNot a terminal, so nothing was changed. Run again with --yes to apply the changes above.\n",
+        );
+        return 1;
       }
       const results: [string, number, string][] = [];
       for (const id of order) {
@@ -478,7 +492,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       // Said before the place's own question, with its other changes.
       if (!uninstall && loginWouldAdd(env, order)) print(loginItemPlanText(process.platform));
       for (const id of order)
-        code = Math.max(code, await runPlace(id, { yes, dryRun, out: print }));
+        code = Math.max(
+          code,
+          await runPlace(id, { yes: yes || alreadyConfirmed, dryRun, out: print }),
+        );
     }
     if (uninstall && !dryRun) cancelResumesOf(chosen, env);
     // Noted for `doctor`'s "installed N days ago": local only, nothing is checked online.

@@ -223,15 +223,22 @@ describe("the quick question before the checklist (F3: a preset first)", () => {
   it("names the places, not what each does, and names a too-old place in its own aside", () => {
     expect(quickSetupPrompt(places)).toBe(
       "Agent Rewake found Zed, Claude Code and Grok Build on this computer " +
-        "(Codex is too old to set up).\nInstall Rewake for the rest of them? [Y/n] ",
+        "(Codex is too old to set up).\nInstall Rewake for the rest of them? [Y/n] (default: yes) ",
     );
   });
 
   it("says 'all of them' when nothing is excluded, and lists two names with 'and'", () => {
     const [zed, claude] = places;
     expect(quickSetupPrompt(zed && claude ? [zed, claude] : [])).toBe(
-      "Agent Rewake found Zed and Claude Code on this computer.\nInstall Rewake for all of them? [Y/n] ",
+      "Agent Rewake found Zed and Claude Code on this computer.\nInstall Rewake for all of them? [Y/n] (default: yes) ",
     );
+  });
+
+  // gh CLI's accessible prompter does the same ("Clone the new repository locally? (default:
+  // yes)", internal/prompter/prompter.go): a screen reader doesn't announce letter case, so
+  // the capital Y in "[Y/n]" alone doesn't say what pressing Enter does.
+  it("says the default in words, not only as a capital letter in [Y/n]", () => {
+    expect(quickSetupPrompt(places)).toContain("(default: yes)");
   });
 
   it("never mentions a place that wasn't found at all: there's no decision to make about it here (C1)", () => {
