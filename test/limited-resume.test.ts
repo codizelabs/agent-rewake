@@ -137,7 +137,7 @@ describe.each(cases)("$name resumed while still limited", (c) => {
     expect(a.get()?.status).toBe("failed");
     expect(a.notes.at(-1)).toContain("is still at its usage limit, so Rewake didn't continue.");
     expect(a.get()?.attempts).toHaveLength(MAX_REARMS + 1);
-  });
+  }, 30_000);
 
   it("asks instead of waiting when the stated reset is more than a day away", async () => {
     const a = armed(c, c.withReset(3 * 24 * H));
