@@ -19,6 +19,8 @@ import { findOnWindows, npmShimTarget } from "../util/spawn.js";
  *   - Gemini CLI: npm `@google/gemini-cli`; Homebrew.
  *   - Qwen Code: npm `@qwen-code/qwen-code`; Homebrew `qwen-code`; its own install script (where
  *     that puts `qwen` is not established, so only PATH finds it).
+ *   - OpenCode: npm `opencode-ai`; its install script `~/.opencode/bin/opencode`; Homebrew,
+ *     Chocolatey, Scoop and others only by PATH.
  *   - Antigravity: `agy` (`~/.local/bin`, Windows `%LOCALAPPDATA%\agy\bin`), `Antigravity.app`,
  *     `Antigravity IDE.app`. Its version is read only from an app's Info.plist.
  */
@@ -29,6 +31,7 @@ export type PlaceId =
   | "grok"
   | "gemini-cli"
   | "qwen-code"
+  | "opencode"
   | "antigravity"
   | "jetbrains"
   | "devin-desktop"
@@ -353,6 +356,19 @@ export function qwenPrograms(h: DetectHost): Program[] {
   });
 }
 
+/** Every OpenCode program (`opencode`), with versions from its npm package.json. */
+export function opencodePrograms(h: DetectHost): Program[] {
+  const appData = h.env.APPDATA;
+  const extra = [
+    join(h.home, ".opencode", "bin", "opencode"),
+    ...(h.platform === "win32" && appData ? [join(appData, "npm", "opencode")] : []),
+  ];
+  return programs("opencode", h, extra).map((path) => {
+    const version = npmVersion(path, "opencode-ai");
+    return { path, surface: "terminal", ...(version && { version }) };
+  });
+}
+
 /** Every Antigravity CLI program (`agy`); its version isn't recorded in a file. */
 export function agyPrograms(h: DetectHost): Program[] {
   const localAppData = h.env.LOCALAPPDATA;
@@ -417,6 +433,7 @@ export function terminalAgents(h: DetectHost): { id: PlaceId; version?: string }
     ["grok", grokPrograms(h)],
     ["gemini-cli", geminiPrograms(h)],
     ["qwen-code", qwenPrograms(h)],
+    ["opencode", opencodePrograms(h)],
   ];
   return found.flatMap(([id, ps]) => {
     const p = chooseProgram(ps);
@@ -436,6 +453,7 @@ export function agentCopies(h: DetectHost): { name: string; copies: Program[]; c
     ["Grok Build", grokPrograms(h)],
     ["Gemini CLI", geminiPrograms(h)],
     ["Qwen Code", qwenPrograms(h)],
+    ["OpenCode", opencodePrograms(h)],
     ["Antigravity", agyPrograms(h)],
   ];
   return all.flatMap(([name, copies]) => {
@@ -468,6 +486,10 @@ export function detectAgents(h: DetectHost): Found[] {
     ),
     simpleCli(h, "gemini-cli", "Gemini CLI", "gemini", "@google/gemini-cli", npmWin("gemini")),
     simpleCli(h, "qwen-code", "Qwen Code", "qwen", "@qwen-code/qwen-code", npmWin("qwen")),
+    simpleCli(h, "opencode", "OpenCode", "opencode", "opencode-ai", [
+      join(h.home, ".opencode", "bin", "opencode"),
+      ...npmWin("opencode"),
+    ]),
     antigravity(h),
   ].filter((f): f is Found => f !== undefined);
 }

@@ -19,7 +19,7 @@ import { SLEEP_DOCS_URL, type SleepSettings, sleepRisks } from "./util/sleep-set
 
 /**
  * `agent-rewake continue`: continue a closed agent session after its usage limit resets. For the
- * agents that can't ask inside the session (Copilot CLI, Grok, Gemini CLI, Qwen Code, Antigravity CLI), the
+ * agents that can't ask inside the session (Copilot CLI, Grok, Gemini CLI, Qwen Code, OpenCode, Antigravity CLI), the
  * notification at the end of a limited session names this command.
  *
  * One session waiting with a known reset: it's armed at once (the person asked to continue).
@@ -71,7 +71,7 @@ export async function runContinue(o: ContinueOptions): Promise<number> {
     saveSettings(o.deps.stateDir, { ...settings, newThreads: o.mode === "always" ? "on" : "ask" });
     o.out(
       o.mode === "always"
-        ? `From now on, when an agent stops at a usage limit that resets within a day, Rewake continues it by itself, without asking: in new Zed threads, in Claude Code, and in closed Copilot CLI, Gemini CLI, Grok Build, Qwen Code and Antigravity CLI sessions. To be asked again, everywhere: ${rewake("continue --ask")}\n`
+        ? `From now on, when an agent stops at a usage limit that resets within a day, Rewake continues it by itself, without asking: in new Zed threads, in Claude Code, and in closed Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI sessions. To be asked again, everywhere: ${rewake("continue --ask")}\n`
         : `Rewake will ask again, in every agent: after a usage limit, run "${rewake("continue")}" to continue a closed session.\n`,
     );
     return 0;

@@ -130,6 +130,7 @@ export function readSample(text: string, now: number): Map<string, Reading> {
     ["cursor", undefined],
     ["grok", "rate_limit"],
     ["qwen", "rate_limit"],
+    ["opencode", undefined],
   ] as const) {
     const v = recognise({ agent, source: "hook", text, ...(code && { code }) }, now);
     if (v?.isBilling) put(agent, { read: "billing" });

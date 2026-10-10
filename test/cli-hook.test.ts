@@ -109,6 +109,7 @@ describe("agent-rewake hook", () => {
       "grok",
       "gemini-cli",
       "qwen-code",
+      "opencode",
       "cursor",
       "antigravity",
     ])
