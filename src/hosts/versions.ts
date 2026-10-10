@@ -42,6 +42,11 @@ export const AGENT_VERSIONS: Partial<Record<PlaceId, AgentVersions>> = {
     min: "0.25.0",
     update: "npm install -g @qwen-code/qwen-code@latest (or brew upgrade qwen-code)",
   },
+  opencode: {
+    name: "OpenCode",
+    min: "1.18.35",
+    update: "opencode upgrade (or npm install -g opencode-ai@latest)",
+  },
   grok: { name: "Grok Build", min: "1.0.46", tested: "1.0.46", update: "grok update" },
 };
 

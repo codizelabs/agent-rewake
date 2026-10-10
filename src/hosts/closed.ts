@@ -13,7 +13,7 @@ import { type SessionLimit, type SessionRecord, SessionRecords } from "./session
 
 /**
  * The hosts whose sessions Rewake continues after they're closed: Claude Code, Copilot CLI, Grok,
- * Gemini CLI, Qwen Code, Antigravity CLI, Cursor. Their hooks (Claude Code's plugin) record the session (open or closed, when the person last typed,
+ * Gemini CLI, Qwen Code, OpenCode, Antigravity CLI, Cursor. Their hooks (Claude Code's plugin) record the session (open or closed, when the person last typed,
  * the last usage limit); when the person agrees, a one-shot timer runs `fire`, which resumes the
  * closed session headless with the agent's own resume command. An open session is never written
  * to (one writer): the person is told instead.

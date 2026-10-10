@@ -1,5 +1,5 @@
 import { classifyLimit, classifyText, classifyTurnEnd, grokText } from "../../adapters/profiles.js";
-import { parseResetHint } from "../../adapters/reset.js";
+import { parseDuration, parseResetHint } from "../../adapters/reset.js";
 import { normalize } from "../../adapters/text.js";
 import type { HostLimit } from "./types.js";
 
@@ -315,6 +315,56 @@ function qwenReset(text: string, now: number): number | undefined {
     if (at >= now - RESET_GRACE_MS) return Math.max(at, now);
   }
   return undefined;
+}
+
+// ---- OpenCode -------------------------------------------------------------------------------
+
+/**
+ * A usage limit from OpenCode (packages/opencode/src/session/retry.ts, the same at anomalyco/opencode
+ * 055d95bb and its v1.18.35 release). OpenCode treats a limit as a retryable error: it publishes a
+ * `session.status` of type `retry`, then waits for the server's `retry-after` before trying again, and
+ * only after five tries ends the turn with a `session.error` that holds the raw API error.
+ *
+ *   - Go plan limit: the retry message is "<name> usage limit reached. It will reset in <time>. To
+ *     continue using this model now, enable usage from your available balance", with the
+ *     time as "2 days 3 hours", "1 hour 5 minutes", "7 minutes" or "less than a minute" (empty when
+ *     the server gave no `retry-after`); the retry's `action.reason` is `account_rate_limit`. The raw
+ *     error's body names `GoUsageLimitError` and its `retry-after` header is the wait in seconds.
+ *   - Free tier used up: the message is "Free usage exceeded, subscribe to Go", the reason
+ *     `free_tier_limit`, the raw body `FreeUsageLimitError`. That is an offer to pay: billing.
+ *
+ * `code` is the retry's reason, or the error name found in the raw body; `resetsAt` is the reset the
+ * caller already knows from a header. Any other retry (a 5xx, a short throttle) is OpenCode's own to ride out.
+ */
+export function classifyOpenCodeLimit(
+  input: { code?: unknown; text?: unknown; resetsAt?: number },
+  now: number,
+): SessionLimit | undefined {
+  const text = normalize(str(input.text)).slice(0, 4096);
+  const code = str(input.code);
+  if (
+    code === "free_tier_limit" ||
+    code === "FreeUsageLimitError" ||
+    /^Free usage exceeded, subscribe to Go\b/.test(text)
+  )
+    return { kind: "billing", billing: true };
+  if (
+    code !== "account_rate_limit" &&
+    code !== "GoUsageLimitError" &&
+    !/\busage limit reached\.\s+(?:It will reset|Resets) in /i.test(text)
+  )
+    return undefined;
+  const at = input.resetsAt ?? openCodeReset(text, now);
+  return { kind: "other", billing: false, ...(at !== undefined && { resetsAt: at }) };
+}
+
+/** "It will reset in 2 hours 5 minutes." as a time; the wait is rounded up to the minute there. */
+function openCodeReset(text: string, now: number): number | undefined {
+  if (/\bIt will reset in less than a minute\b/.test(text)) return now + 60_000;
+  const m = /\bIt will reset in (\d[^.]*)\./.exec(text);
+  const wait = m?.[1] === undefined ? undefined : parseDuration(m[1]);
+  // An earlier OpenCode worded it "Resets in 4hr 10min".
+  return wait === undefined ? parseResetHint(text, now) : now + wait;
 }
 
 // ---- Cursor's own agent (its hooks and transcript) -------------------------------------------

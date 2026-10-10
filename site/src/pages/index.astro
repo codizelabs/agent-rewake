@@ -45,33 +45,33 @@ const faq: Array<{ q: string; a: string[] }> = [
   {
     q: "What happens at a usage limit in Claude Code, Codex or another terminal agent?",
     a: [
-      "With its preview installed: Claude Code asks once whether to continue the session after the reset, then continues it; when Claude Code's own continue will do that, Rewake leaves it to Claude Code. In Codex, type `rewake` in the thread at the limit (in Claude Code and Gemini CLI, `/rewake`), and the thread continues after the reset. GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code and Antigravity CLI sessions are continued once they're closed: run `npx @codizelabs/agent-rewake continue` before the reset.",
+      "With its preview installed: Claude Code asks once whether to continue the session after the reset, then continues it; when Claude Code's own continue will do that, Rewake leaves it to Claude Code. In Codex, type `rewake` in the thread at the limit (in Claude Code and Gemini CLI, `/rewake`), and the thread continues after the reset. GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI sessions are continued once they're closed: run `npx @codizelabs/agent-rewake continue` before the reset.",
     ],
   },
   {
     q: "Can it resume automatically, without asking?",
     a: [
-      "Yes, if you turn it on. In Zed: per thread from the Rewake menu (Turn on auto-resume after limits…), or for new threads in Rewake → Settings…. In Claude Code, answer that it should continue from then on; for closed Claude Code, Copilot CLI, Gemini CLI, Grok Build, Qwen Code and Antigravity CLI sessions, run `npx @codizelabs/agent-rewake continue --always` once. It still asks instead when the reset is more than 24 hours away; in Zed also when the agent gives the same reset time twice, or when you chose to exclude threads that bypass permissions.",
+      "Yes, if you turn it on. In Zed: per thread from the Rewake menu (Turn on auto-resume after limits…), or for new threads in Rewake → Settings…. In Claude Code, answer that it should continue from then on; for closed Claude Code, Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI sessions, run `npx @codizelabs/agent-rewake continue --always` once. It still asks instead when the reset is more than 24 hours away; in Zed also when the agent gives the same reset time twice, or when you chose to exclude threads that bypass permissions.",
     ],
   },
   {
     q: "Does it work with Codex, Gemini CLI and other agents?",
     a: [
-      "Yes. Rewake goes in front of every external agent Zed runs and works the same way with each: the menu, scheduling, the schedules page and resume after a limit. Claude and Codex say when the limit resets; for agents that don't (Gemini CLI, for example), you pick when to resume. Outside Zed, previews cover Codex, Gemini CLI, GitHub Copilot CLI, Grok Build, Qwen Code and Antigravity CLI in a terminal.",
+      "Yes. Rewake goes in front of every external agent Zed runs and works the same way with each: the menu, scheduling, the schedules page and resume after a limit. Claude and Codex say when the limit resets; for agents that don't (Gemini CLI, for example), you pick when to resume. Outside Zed, previews cover Codex, Gemini CLI, GitHub Copilot CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI in a terminal.",
     ],
   },
   {
     q: "Does Zed, or anything else, need to stay open?",
     a: [
       "In Zed, yes: Rewake runs inside Zed, so nothing is sent while Zed is closed or the computer is asleep. You don't need the thread on screen: you can work in other threads. After restarting Zed, open the thread once. A message more than 15 minutes late isn't sent on its own: Rewake asks you.",
-      "In Claude Code, keep Claude Code open: Rewake's plugin runs inside it, and a continue that came due while it was closed is offered when you reopen the session. For Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code and Antigravity CLI, nothing needs to stay open: the system's own timer starts Rewake at the reset. Keep the computer on and awake; if Codex is closed then, the thread continues when you next open it.",
+      "In Claude Code, keep Claude Code open: Rewake's plugin runs inside it, and a continue that came due while it was closed is offered when you reopen the session. For Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI, nothing needs to stay open: the system's own timer starts Rewake at the reset. Keep the computer on and awake; if Codex is closed then, the thread continues when you next open it.",
     ],
   },
   {
     q: "Claude Code can continue by itself now. What's left for Rewake?",
     a: [
       "In Claude Code, less than you might think, and Rewake steps aside there: when Claude Code's own \"Continue automatically at usage limit\" will most likely do it (its setting on, a reset within a day), Rewake leaves the limit to it. It asks to continue when that won't apply: in Claude Code's VS Code and Cursor panel, where that setting doesn't apply, or when the setting is off or the reset is further away.",
-      "What's left is everything outside that one case. Claude Code's own continue works in its own terminal sessions and only for Claude; whether it applies to the Claude adapter that Zed runs isn't documented. Rewake covers Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, Antigravity CLI and every external agent in Zed, from one command and one schedules page, and it sends messages later: once, repeating, or one after another after a resume. Checked 2026-10-08.",
+      "What's left is everything outside that one case. Claude Code's own continue works in its own terminal sessions and only for Claude; whether it applies to the Claude adapter that Zed runs isn't documented. Rewake covers Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode, Antigravity CLI and every external agent in Zed, from one command and one schedules page, and it sends messages later: once, repeating, or one after another after a resume. Checked 2026-10-08.",
     ],
   },
   {
@@ -157,7 +157,7 @@ const jsonLd = [
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     dateModified: updated,
     softwareRequirements:
-      "Node.js 22 or later; Zed 1.22 or later, or (previews) Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code or Antigravity CLI",
+      "Node.js 22 or later; Zed 1.22 or later, or (previews) Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode or Antigravity CLI",
   },
   {
     "@context": "https://schema.org",
@@ -189,6 +189,7 @@ const previews = [
   { name: "Gemini CLI", id: "gemini-cli", svg: geminiLogo, what: "Continues a closed session after the reset." },
   { name: "Grok Build", id: "grok-build", svg: grokLogo, what: "Continues a closed session after the reset." },
   { name: "Qwen Code", id: "qwen-code", svg: qwenLogo, what: "Continues a closed session after the reset.", tag: "Preview · not yet tried" },
+  { name: "OpenCode", id: "opencode", svg: opencodeLogo, what: "Continues a closed session after the reset.", tag: "Preview · not yet tried" },
   { name: "Antigravity CLI", id: "antigravity-cli", svg: antigravityLogo, what: "Continues a closed session after the reset.", tag: "Preview · not yet tried" },
 ];
 /**
@@ -238,8 +239,8 @@ const matrix: Array<{ where: string; guides: Array<[string, string]>; does: stri
     status: "Preview, tried on a Mac",
   },
   {
-    where: "Antigravity CLI, Qwen Code: terminal",
-    guides: [["Antigravity CLI", "antigravity-cli"], ["Qwen Code", "qwen-code"]],
+    where: "Antigravity CLI, Qwen Code, OpenCode: terminal",
+    guides: [["Antigravity CLI", "antigravity-cli"], ["Qwen Code", "qwen-code"], ["OpenCode", "opencode"]],
     does: "The same as the three above",
     later: "No",
     open: "Nothing once the session is closed; the computer on and awake",
@@ -272,6 +273,7 @@ const onlyPlaces = [
   { place: "Gemini CLI", flag: "gemini-cli" },
   { place: "Grok Build", flag: "grok" },
   { place: "Qwen Code", flag: "qwen-code" },
+  { place: "OpenCode", flag: "opencode" },
   { place: "Antigravity CLI", flag: "antigravity" },
   { place: "Cursor's own agent", flag: "cursor" },
   { place: "JetBrains IDEs", flag: "jetbrains" },
@@ -318,7 +320,7 @@ const flows: Array<{ id: string; heading: string; text: string; label: string; b
     label: "The agent's hooks record the limit; a system timer (launchd, systemd or at, Task Scheduler) runs Rewake once at the reset; the same session continues.",
     back: false,
     nodes: [
-      { title: "The agent's hooks", lines: ["Codex · Copilot CLI · Gemini CLI", "Grok Build · Qwen Code · Antigravity CLI"] },
+      { title: "The agent's hooks", lines: ["Codex · Copilot CLI · Gemini CLI", "Grok Build · Qwen Code · Antigravity CLI", "OpenCode (its plugin)"] },
       { title: "Your computer's timer", lines: ["launchd · systemd or at", "Task Scheduler"], rw: true },
       { title: "Rewake, once", lines: ["at the reset:", "continues the same session"] },
     ],
@@ -544,7 +546,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             <div class="text" data-reveal>
               <p class="kicker">Resume after a usage limit</p>
               <h2>Your session continues as soon as the limit resets.</h2>
-              <p>When the agent stops at its limit, Rewake offers to continue. In Zed, the thread asks once, with your resume message ready to edit. Claude Code asks once in the session. In Codex, you type <code>rewake</code>. A closed Claude Code, Copilot CLI, Gemini CLI, Grok Build, Qwen Code or Antigravity CLI session continues with <code>agent-rewake continue</code>. Then come back to work that kept going.</p>
+              <p>When the agent stops at its limit, Rewake offers to continue. In Zed, the thread asks once, with your resume message ready to edit. Claude Code asks once in the session. In Codex, you type <code>rewake</code>. A closed Claude Code, Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode or Antigravity CLI session continues with <code>agent-rewake continue</code>. Then come back to work that kept going.</p>
               <ul>
                 <li><strong>Automatic, if you want:</strong> say so once, and Rewake continues without asking when the reset is within a day.</li>
                 <li><strong>Follows the agent:</strong> if it's still limited, Rewake waits for the new reset time.</li>
@@ -724,7 +726,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
                 <tr><td>Claude Code open at the reset</td><td class="yes">The same session continues.</td></tr>
                 <tr><td>Claude Code closed at the reset</td><td class="no">Not sent: the continue is offered when you reopen the session.</td></tr>
                 <tr><td>Codex closed at the reset</td><td class="yes">The thread continues when you next open it.</td></tr>
-                <tr><td>A closed Claude Code, Copilot CLI, Gemini CLI, Grok Build, Qwen Code or Antigravity CLI session</td><td class="yes">The system's timer continues it at the reset. Nothing of Rewake's runs until then.</td></tr>
+                <tr><td>A closed Claude Code, Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode or Antigravity CLI session</td><td class="yes">The system's timer continues it at the reset. Nothing of Rewake's runs until then.</td></tr>
                 <tr><td>That session is open again at the reset</td><td class="no">Nothing is written into it: Rewake tells you instead.</td></tr>
                 <tr><td>The computer asleep or off at the reset</td><td class="no">Nothing is sent then. More than half an hour late, Rewake tells you instead of sending.</td></tr>
               </tbody>
@@ -760,7 +762,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             <table>
               <thead><tr><th scope="col">Option</th><th scope="col">What it covers</th><th scope="col">Where it stops</th></tr></thead>
               <tbody>
-                <tr><td><b>Agent Rewake</b></td><td>Every external agent in Zed's Agent Panel, and the same session of Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code or Antigravity CLI (previews). One command, <code>/rewake</code>, and one page for every thread</td><td>The previews are early, and a closed session needs the computer on and awake. Rewake never approves a permission prompt for you</td></tr>
+                <tr><td><b>Agent Rewake</b></td><td>Every external agent in Zed's Agent Panel, and the same session of Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode or Antigravity CLI (previews). One command, <code>/rewake</code>, and one page for every thread</td><td>The previews are early, and a closed session needs the computer on and awake. Rewake never approves a permission prompt for you</td></tr>
                 <tr><td>Claude Code's own continue</td><td>Claude, in Claude Code's own terminal sessions</td><td>That one agent only, and nothing is scheduled: no message later, no repeat, no queue. It waits inside the session, so the terminal has to stay open; after the computer sleeps for more than half an hour it asks you to press Enter, and it re-arms at most twice in a row. Rewake steps aside when it handles a limit, and covers the agents and the cases it doesn't</td></tr>
                 <tr><td>Claude Code <code>/loop</code> and scheduled tasks</td><td>Claude, inside a session that is already running</td><td>Recurring tasks end after seven days, and nothing runs once that session is gone</td></tr>
                 <tr><td>Community auto-resume scripts</td><td>Usually one agent, in a terminal or a tmux pane</td><td>They type into a pane, so keystrokes can land in the wrong window; one popular extension drops the time zone the agent gave and waits until the wrong hour; some read an undocumented usage endpoint that isn't in the public API; one needs <code>--dangerously-skip-permissions</code> to run at all, and one can be turned on to answer the agent's permission prompts for you. Several of the most-starred have gone months without a commit</td></tr>
@@ -793,7 +795,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             <div><dt>Price</dt><dd>Free</dd></div>
             <div><dt>License</dt><dd>Apache-2.0</dd></div>
             <div><dt>Status</dt><dd><a href={href("docs/#status")}>Early release ({version})</a></dd></div>
-            <div><dt>Works with</dt><dd>Every external agent in Zed 1.22 and later; <a href="#agents">previews</a> for Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code and Antigravity CLI</dd></div>
+            <div><dt>Works with</dt><dd>Every external agent in Zed 1.22 and later; <a href="#agents">previews</a> for Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI</dd></div>
             <div><dt>Needs</dt><dd>Node.js 22 or later</dd></div>
             <div><dt>Systems</dt><dd>macOS, Linux, Windows</dd></div>
             <div><dt>Your data</dt><dd>Stays on your computer</dd></div>

@@ -23,7 +23,7 @@ Rewake sends messages into your agent while you may be away, so it should be cle
 ## What Rewake never does
 
 - **It never approves anything for you.** A permission prompt during a resumed reply waits for you.
-- **It never adds a flag that skips or widens permissions.** A resumed session is never given more permission than it had. The one approval flag Rewake passes is the default mode of Gemini CLI and of Qwen Code, which never widens yours. In Zed, a setting decides whether automatic resume also covers threads that bypass permission prompts, and automatic resume itself starts as "ask when a new thread opens".
+- **It never adds a flag that skips or widens permissions.** A resumed session is never given more permission than it had. The one approval flag Rewake passes is the default mode of Gemini CLI and of Qwen Code, which never widens yours. OpenCode gets none: its auto-approve flags are never used, so what your settings mark "ask" is refused, but OpenCode's defaults allow most tools without asking, as in a session you start yourself. In Zed, a setting decides whether automatic resume also covers threads that bypass permission prompts, and automatic resume itself starts as "ask when a new thread opens".
 - **It never types into your terminal.** It reaches each agent through that agent's own plugin, hooks or resume command, and in Zed, JetBrains IDEs and Devin Desktop through the connection between the editor and the agent. It doesn't send keystrokes to a window.
 - **It never resumes a limit that waiting won't fix.** Credit, billing and spending limits get a message, not a resume.
 - **It never sends what you didn't choose.** It sends only the messages you scheduled, ones you approved in the thread, or the resume message you turned on.
@@ -38,10 +38,10 @@ Everything runs on your computer. Nothing runs in the cloud.
 |---|---|
 | Zed, JetBrains IDEs, Devin Desktop | Rewake runs as the agent's stand-in on the [Agent Client Protocol](https://agentclientprotocol.com) connection, started by the editor. It starts the real agent and passes everything through, so it only runs while the editor runs it |
 | Claude Code (terminal, VS Code, Cursor) | A plugin that Claude Code loads, inside the session, for as long as the session is open |
-| Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, Antigravity CLI | The agent's own hooks tell Rewake about a limit. At the reset, your system's own timer (launchd on macOS, Task Scheduler on Windows, a systemd user timer or `at` on Linux) runs Rewake once. On Linux without systemd or `at` (WSL, containers), Rewake runs its own background process, only while a resume is waiting |
+| Codex, GitHub Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode, Antigravity CLI | The agent's own hooks (for OpenCode, its plugin) tell Rewake about a limit. At the reset, your system's own timer (launchd on macOS, Task Scheduler on Windows, a systemd user timer or `at` on Linux) runs Rewake once. On Linux without systemd or `at` (WSL, containers), Rewake runs its own background process, only while a resume is waiting |
 | Cursor's own agent | Two hooks in `~/.cursor/hooks.json`. One waits in the background for the time you chose, while that Cursor window is open |
 
-On macOS and Linux, installing Codex, Copilot CLI, Gemini CLI, Grok Build, Qwen Code or Antigravity CLI also adds a login item, so planned resumes are set again after a restart. Hooks, timers and the login item start Rewake through a small script, `bin/rewake-node`, in Rewake's own folder.
+On macOS and Linux, installing Codex, Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode or Antigravity CLI also adds a login item, so planned resumes are set again after a restart. Hooks, timers and the login item start Rewake through a small script, `bin/rewake-node`, in Rewake's own folder.
 
 ## What it stores, and where
 
@@ -56,7 +56,7 @@ Rewake never stores an API key. If a session used a key exported in your shell p
 
 ## Your message stays off the command line
 
-A command line can be read by every other process on the computer. When Rewake continues a closed Copilot CLI, Gemini CLI or Qwen Code session, it hands the agent the message on standard input. For Grok Build, whose CLI reads no prompt from standard input, it uses a file only you can read, deleted the moment the run ends. **Antigravity CLI is the exception:** its CLI documents no other way to take a prompt, so on that preview the message is visible in the process list while the run lasts. Nothing leaves your computer either way.
+A command line can be read by every other process on the computer. When Rewake continues a closed Copilot CLI, Gemini CLI, Qwen Code or OpenCode session, it hands the agent the message on standard input. For Grok Build, whose CLI reads no prompt from standard input, it uses a file only you can read, deleted the moment the run ends. **Antigravity CLI is the exception:** its CLI documents no other way to take a prompt, so on that preview the message is visible in the process list while the run lasts. Nothing leaves your computer either way.
 
 ## What install changes, and how to undo it
 
@@ -69,6 +69,7 @@ A command line can be read by every other process on the computer. When Rewake c
 | Codex | Hooks, which Codex asks you to trust before they run |
 | Gemini CLI | Rewake's extension, added with Gemini CLI's own command |
 | Qwen Code | Hooks added to `settings.json` in Qwen Code's folder (`~/.qwen`, or `QWEN_HOME`); yours stay, and the file is backed up first |
+| OpenCode | One plugin file, `agent-rewake.js`, in OpenCode's plugin folder (`~/.config/opencode/plugins`, or under `XDG_CONFIG_HOME`); it says Rewake wrote it, and a file of that name that Rewake didn't write is never touched |
 | Copilot CLI, Grok Build | A hooks file of Rewake's own in the agent's folder. Nothing in your settings changes |
 | Antigravity CLI | A plugin folder of Rewake's own, with one hook |
 | Cursor | Two hooks added to `~/.cursor/hooks.json`; yours stay |

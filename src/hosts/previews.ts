@@ -9,6 +9,7 @@ import { devinFile, devinInstalled } from "./devin/install.js";
 import { extensionDir as geminiExtensionDir } from "./gemini/install.js";
 import { grokHooksFile } from "./grok/install.js";
 import { jetbrainsInstalled } from "./jetbrains/install.js";
+import { opencodeInstalled } from "./opencode/install.js";
 import { qwenInstalled } from "./qwen/install.js";
 
 /**
@@ -23,6 +24,7 @@ export const PREVIEW_NAMES: Partial<Record<PlaceId, string>> = {
   grok: "Grok Build",
   "gemini-cli": "Gemini CLI",
   "qwen-code": "Qwen Code",
+  opencode: "OpenCode",
   antigravity: "Antigravity CLI",
   jetbrains: "JetBrains IDEs (AI Assistant)",
   "devin-desktop": "Devin Desktop (formerly Windsurf)",
@@ -41,6 +43,7 @@ export function installedPreviews(
     ["grok", () => existsSync(grokHooksFile(env, home))],
     ["gemini-cli", () => existsSync(geminiExtensionDir(stateDir))],
     ["qwen-code", () => qwenInstalled(env, home)],
+    ["opencode", () => opencodeInstalled(env, home)],
     ["antigravity", () => existsSync(antigravityPluginDir(env, home))],
     ["jetbrains", () => jetbrainsInstalled(env, home)],
     ["devin-desktop", () => devinInstalled(devinFile(env, home, process.platform))],

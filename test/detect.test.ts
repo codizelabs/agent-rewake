@@ -100,6 +100,21 @@ describe("detectAgents", () => {
     ]);
   });
 
+  posixOnly(
+    "reads OpenCode's version from its npm package, and finds its install script's folder",
+    () => {
+      const a = join(root, "npm-o");
+      npmGlobal(a, "opencode", "opencode-ai", "1.18.35", "cli.js");
+      expect(detectAgents(host({ path: [join(a, "bin")] }))).toEqual([
+        { id: "opencode", name: "OpenCode", version: "1.18.35", surfaces: ["terminal"] },
+      ]);
+      file(join(home, ".opencode", "bin", "opencode"));
+      expect(detectAgents(host({ path: [] }))).toEqual([
+        { id: "opencode", name: "OpenCode", surfaces: ["terminal"] },
+      ]);
+    },
+  );
+
   it("finds a program by PATH even without a version file", () => {
     file(join(root, "bin", "copilot"));
     expect(detectAgents(host({ path: [join(root, "bin")] }))).toEqual([
