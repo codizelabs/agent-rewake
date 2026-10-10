@@ -194,7 +194,8 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
       const rewake = (...args: string[]) =>
         execFileSync(process.execPath, [bundle, ...args], { cwd: work, env, encoding: "utf8" });
 
-      // 1. Install, in a terminal: Gemini asks its own questions; the person answers "y".
+      // 1. Install, in a terminal: Gemini asks its own questions, answered "y"; Rewake's own
+      // error-reports question (interactive installs only) defaults to "no", left at that.
       const install = terminal(
         [process.execPath, bundle, "install", "--only", "gemini-cli", "--yes"],
         work,
@@ -202,10 +203,13 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
       );
       terminals.push(install);
       let answered = 0;
+      let declined = 0;
       expect(
         await install.until(() => {
           const asked = install.screen().match(/\[Y\/n\]/g)?.length ?? 0;
           for (; answered < asked; answered++) install.child.stdin.write("y\r");
+          const asksNo = install.screen().match(/\[y\/N\]/g)?.length ?? 0;
+          for (; declined < asksNo; declined++) install.child.stdin.write("\r");
           return /Done\.|Nothing was changed/.test(install.screen());
         }, 90_000),
       ).toBe(true);

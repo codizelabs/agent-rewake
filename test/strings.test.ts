@@ -344,6 +344,9 @@ describe("doctor", () => {
         ! To do: Rewake isn't set up yet, and Zed has no external agents yet.
           → Run: npx @codizelabs/agent-rewake install  (it offers to add Claude Agent, Claude in Zed's Agent Panel)
 
+      Error reports
+        • Note: Off (the default). 0 recorded locally in the last 200, never sent. Turn on: agent-rewake errors on
+
       1 thing to do. Start here: Run: npx @codizelabs/agent-rewake install  (it offers to add Claude Agent, Claude in Zed's Agent Panel)
       More detail for a bug report: agent-rewake doctor --details
       "
@@ -361,6 +364,9 @@ describe("doctor", () => {
       Rewake
         ✓ OK: Rewake is on for: Claude Agent.
         ✓ OK: Working: Zed last started it today at 10:00 AM, for Claude Agent.
+
+      Error reports
+        • Note: Off (the default). 0 recorded locally in the last 200, never sent. Turn on: agent-rewake errors on
 
       All set: nothing to do.
       More detail for a bug report: agent-rewake doctor --details

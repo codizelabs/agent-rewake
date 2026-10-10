@@ -29,10 +29,19 @@ export interface Settings {
    * scheduled reply runs: "plugged-in" (the default: only on mains power), "always", or "never".
    */
   keepAwake: KeepAwake;
+  /**
+   * Send Rewake's own errors to its maintainer, opt-in: "off" (the default; unset means off too)
+   * or "on". Never turned on by an install that isn't interactive, and always off when
+   * AGENT_REWAKE_ERROR_REPORTS=0, DO_NOT_TRACK=1 or CI is set (src/errors/consent.ts).
+   */
+  errorReports: ErrorReports;
+  /** `install` has already asked about error reports: never ask again, whatever was answered. */
+  errorReportsAsked?: boolean;
 }
 
 export type NewThreads = "ask" | "on" | "off";
 export type KeepAwake = "plugged-in" | "always" | "never";
+export type ErrorReports = "on" | "off";
 
 /** The values each choice takes: the rules Zed's Settings form and `agent-rewake settings` share. */
 export const CLOCKS: readonly Clock[] = ["12h", "24h"];
@@ -59,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   newThreads: "ask",
   autoWhenPromptsSkipped: true,
   keepAwake: "plugged-in",
+  errorReports: "off",
 };
 
 export function loadSettings(stateDir: string): Settings {
@@ -76,12 +86,16 @@ export function loadSettings(stateDir: string): Settings {
     const autoWhenPromptsSkipped = raw.autoWhenPromptsSkipped !== false;
     const keepAwake =
       KEEP_AWAKE_VALUES.find((v) => v === raw.keepAwake) ?? DEFAULT_SETTINGS.keepAwake;
+    const errorReports = raw.errorReports === "on" ? "on" : DEFAULT_SETTINGS.errorReports;
+    const errorReportsAsked = raw.errorReportsAsked === true;
     return {
       clock,
       newThreads,
       autoWhenPromptsSkipped,
       keepAwake,
+      errorReports,
       ...(resumePrompt && { resumePrompt }),
+      ...(errorReportsAsked && { errorReportsAsked }),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

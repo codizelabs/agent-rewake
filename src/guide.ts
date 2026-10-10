@@ -106,7 +106,7 @@ Everything above is about Zed's Agent Panel. Separately, Rewake can be set up, o
 
 ## Data and privacy
 
-Everything stays on the user's computer in Rewake's state folder (macOS: ~/Library/Application Support/agent-rewake; Linux: ~/.local/state/agent-rewake; Windows: %LOCALAPPDATA%\\agent-rewake; or AGENT_REWAKE_STATE_DIR). It holds the scheduled messages, per-thread settings, settings.json and logs with metadata only (no message text). Rewake doesn't send the user's messages or data anywhere except to the agent. Its only network use is downloading an agent's own published program when Zed hasn't downloaded it yet.
+Everything stays on the user's computer in Rewake's state folder (macOS: ~/Library/Application Support/agent-rewake; Linux: ~/.local/state/agent-rewake; Windows: %LOCALAPPDATA%\\agent-rewake; or AGENT_REWAKE_STATE_DIR). It holds the scheduled messages, per-thread settings, settings.json and logs with metadata only (no message text). Rewake doesn't send the user's messages or data anywhere except to the agent. Its network use is downloading an agent's own published program when Zed hasn't downloaded it yet, and opt-in error reports (\`agent-rewake errors on|off|status\`, off by default): only an error's kind, a scrubbed message and stack trace, versions, OS and place, never message text, file contents, tokens or paths.
 
 ## Good answers
 

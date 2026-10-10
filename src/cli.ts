@@ -7,7 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
 import { SchedulingAddon } from "./addon.js";
 import { runContinue } from "./continue.js";
-import { applySettings, loadSettings } from "./core/settings.js";
+import { applySettings, loadSettings, saveSettings } from "./core/settings.js";
 import { ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import {
   type DoctorContext,
@@ -20,6 +20,12 @@ import {
   renderJson,
 } from "./doctor.js";
 import { buildReport, ISSUE_URL, REPORT_DAYS, writeReport } from "./doctor-report.js";
+import { errorReportsEnabled } from "./errors/consent.js";
+import { DEFAULT_DSN, parseDsn } from "./errors/dsn.js";
+import { maybeAskErrorReports } from "./errors/install-question.js";
+import { readLedger } from "./errors/ledger.js";
+import { buildEvent, newEventId } from "./errors/payload.js";
+import { sendOne } from "./errors/queue.js";
 import { commandHelp, completionScript, PLACES, SHELLS, usageText } from "./help.js";
 import { runAntigravityInstall } from "./hosts/antigravity/install.js";
 import { refreshMod, runClaudeInstall } from "./hosts/claude-code/install.js";
@@ -396,6 +402,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const uninstall = first === "uninstall";
     const ask = async (q: string) => /^y(es)?$/i.test((await prompt(q)).trim());
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    if (!uninstall && !dryRun) await maybeAskErrorReports(stateDir(env), env, interactive, ask);
     /** One place's install (or uninstall), with how it asks and where it prints. */
     const runPlace = (
       id: string,
@@ -596,6 +603,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     process.stdout.write(setupZedText(env));
     return 0;
   }
+  if (first === "errors") return runErrorsCommand(argv[1] ?? "", env);
 
   const log = new Logger(env);
   let agent: AgentCommand;
@@ -1269,6 +1277,69 @@ async function runFire(name: string, env: NodeJS.ProcessEnv): Promise<number> {
   });
   log.info("fire.done", { outcome });
   return 0;
+}
+
+/**
+ * `agent-rewake errors on|off|status|test`: change or show the opt-in error-reporting setting
+ * (AGENTS.md "Consent"). `test` is hidden from --help: it sends one clearly-labelled test event so
+ * the owner can confirm the real DSN works, and only ever that one event.
+ */
+async function runErrorsCommand(sub: string, env: NodeJS.ProcessEnv): Promise<number> {
+  const dir = stateDir(env);
+  if (sub === "on" || sub === "off") {
+    const settings = loadSettings(dir);
+    saveSettings(dir, { ...settings, errorReports: sub, errorReportsAsked: true });
+    process.stdout.write(
+      sub === "on"
+        ? "Error reports: on. Rewake will send a scrubbed error report (no messages, output, file contents, tokens or paths) when it hits a bug.\n"
+        : "Error reports: off.\n",
+    );
+    return 0;
+  }
+  if (sub === "status") {
+    const settings = loadSettings(dir);
+    const enabled = errorReportsEnabled(settings, env);
+    const ledger = readLedger(dir);
+    process.stdout.write(
+      `Error reports: ${settings.errorReports}${enabled ? "" : settings.errorReports === "on" ? " (held off by an environment variable)" : ""}.\n` +
+        `${ledger.length} error${ledger.length === 1 ? "" : "s"} recorded locally in the last 200.\n`,
+    );
+    return 0;
+  }
+  if (sub === "test") {
+    const settings = loadSettings(dir);
+    const dsn = parseDsn(env.AGENT_REWAKE_SENTRY_DSN || DEFAULT_DSN);
+    if (!dsn) {
+      process.stderr.write("agent-rewake: no usable Sentry DSN.\n");
+      return 1;
+    }
+    if (!errorReportsEnabled(settings, env)) {
+      process.stderr.write(
+        "agent-rewake: error reports are off (agent-rewake errors on), so no test event was sent.\n",
+      );
+      return 1;
+    }
+    const event = buildEvent(
+      {
+        name: "Agent Rewake test event — safe to ignore",
+        level: "info",
+        tags: { place: "cli", test: true },
+        fromSource: false,
+        home: env.HOME || env.USERPROFILE || "",
+      },
+      newEventId(),
+      new Date(),
+    );
+    const ok = await sendOne(event, dsn);
+    if (!ok) {
+      process.stderr.write("agent-rewake: the test event couldn't be sent.\n");
+      return 1;
+    }
+    process.stdout.write(`Sent. Event id: ${event.event_id}\n`);
+    return 0;
+  }
+  process.stderr.write("agent-rewake: usage: agent-rewake errors on|off|status\n");
+  return 2;
 }
 
 /**

@@ -7,6 +7,8 @@ import { resolveClaudeAdapter } from "./adapters/claude/spawn.js";
 import { loadSettings } from "./core/settings.js";
 import { ScheduleStore } from "./core/store.js";
 import { TEXT_LOCALE } from "./core/time.js";
+import { errorReportsEnabled } from "./errors/consent.js";
+import { readLedger } from "./errors/ledger.js";
 import { compareVersions, type Found, otherAgentsNote, type Program } from "./install/detect.js";
 import {
   AGENT_NAME,
@@ -62,6 +64,7 @@ export type Area =
   | "Sign-in"
   | "Scheduled messages"
   | "Sleep settings"
+  | "Error reports"
   | "Outside Zed"
   | "Recently";
 
@@ -764,6 +767,20 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   }
 
   if (ctx.sleep) for (const f of sleepFindings(ctx.sleep())) add(f);
+
+  // ---- Error reports (opt-in; see src/errors) -------------------------------------------------
+  {
+    const settings = loadSettings(state);
+    const ledger = readLedger(state);
+    const on = errorReportsEnabled(settings, env);
+    add({
+      area: "Error reports",
+      level: "info",
+      text: on
+        ? `On: Rewake sends scrubbed error reports to its maintainer. ${ledger.length} recorded locally in the last 200.`
+        : `Off (the default). ${ledger.length} recorded locally in the last 200, never sent. Turn on: agent-rewake errors on`,
+    });
+  }
   return findings;
 }
 
@@ -842,6 +859,7 @@ const AREAS: Area[] = [
   "Sign-in",
   "Scheduled messages",
   "Sleep settings",
+  "Error reports",
   "Outside Zed",
   "Recently",
 ];
