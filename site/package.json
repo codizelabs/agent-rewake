@@ -16,5 +16,8 @@
   },
   "overrides": {
     "postcss-selector-parser": "^7.1.6"
+  },
+  "devDependencies": {
+    "@xterm/headless": "6.0.0"
   }
 }

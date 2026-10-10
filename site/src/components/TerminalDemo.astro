@@ -1,0 +1,129 @@
+---
+/**
+ * A real terminal session, played back: what Claude Code drew, screen by screen, recorded offline by
+ * site/scripts/record-terminal.mjs (Claude Code against a local model mock, Rewake installed as a
+ * person installs it). Nothing here is drawn by hand. The page gets the frames de-duplicated (each
+ * distinct line once), and the screen with the continue is rendered at build time, so it reads
+ * without JavaScript and to search engines.
+ */
+import { version as rewakeVersion } from "../../../package.json";
+import demo from "../demos/claude-code.json";
+
+type Run = [string, string, string, string];
+type Frame = { t: number; lines: Run[][] };
+
+/** xterm's 256 colours, for runs recorded as palette indices ("p<n>"). */
+const BASE16 = [
+  "#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
+  "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#ffffff",
+];
+const palette = (n: number) => {
+  if (n < 16) return BASE16[n] ?? "";
+  if (n < 232) {
+    const v = [0, 95, 135, 175, 215, 255];
+    const c = n - 16;
+    return `#${[v[Math.floor(c / 36)], v[Math.floor(c / 6) % 6], v[c % 6]].map((x) => (x ?? 0).toString(16).padStart(2, "0")).join("")}`;
+  }
+  const g = (8 + (n - 232) * 10).toString(16).padStart(2, "0");
+  return `#${g}${g}${g}`;
+};
+const hex = (c: string) => (c.startsWith("p") ? palette(Number(c.slice(1))) : c);
+const frames = (demo.frames as Frame[]).map((f) => ({
+  ...f,
+  lines: f.lines.map((runs) => runs.map(([t, fg, bg, fl]) => [t, hex(fg), hex(bg), fl] as Run)),
+}));
+const style = (fg: string, bg: string) =>
+  [fg && `color:${fg}`, bg && `background:${bg}`].filter(Boolean).join(";");
+const escape = (t: string) => t.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+const lineHtml = (runs: Run[]) =>
+  `<span class="term-line">${runs
+    .map(([text, fg, bg, flags]) => {
+      const css = style(fg, bg);
+      const cls = [...flags].map((f) => `t-${f}`).join(" ");
+      return `<span${css ? ` style="${css}"` : ""}${cls ? ` class="${cls}"` : ""}>${escape(text)}</span>`;
+    })
+    .join("")}\n</span>`;
+
+// Each distinct line once, as runs of [text, css, classes]; frames list their lines by index.
+type Cell = [string, string, string];
+const dictionary: Cell[][] = [];
+const index = new Map<string, number>();
+const lineId = (runs: Run[]) => {
+  const cells: Cell[] = runs.map(([text, fg, bg, flags]) => [
+    text,
+    style(fg, bg),
+    [...flags].map((f) => `t-${f}`).join(" "),
+  ]);
+  const key = JSON.stringify(cells);
+  let id = index.get(key);
+  if (id === undefined) {
+    id = dictionary.length;
+    dictionary.push(cells);
+    index.set(key, id);
+  }
+  return id;
+};
+const payload = JSON.stringify({
+  zone: demo.zone,
+  start: demo.start,
+  marks: demo.marks,
+  frames: frames.map((f) => [f.t, ...f.lines.map(lineId)]),
+  lines: dictionary,
+  // Each frame's text, for the jump buttons to find their moment.
+  text: frames.map((f) => f.lines.map((runs) => runs.map((r) => r[0]).join("")).join("\n")),
+}).replaceAll("<", "\\u003c"); // the data sits in a <script> element
+
+// Shown before the player starts, and without JavaScript: the session after Rewake continued it.
+const shown = frames.findLast((f) => f.t <= demo.marks.end) ?? frames[frames.length - 1];
+const screenHtml = (shown?.lines ?? []).map(lineHtml).join(""); // one string: no stray whitespace in <pre>
+const city = demo.zone.split("/").pop()?.replaceAll("_", " ") ?? demo.zone;
+const clock = (at: number) =>
+  new Intl.DateTimeFormat("en-US", { timeZone: demo.zone, hour: "numeric", minute: "2-digit" }).format(at);
+const claudeVersion = demo.version.replace(/\s*\(.*\)\s*$/, "");
+---
+
+<figure class="term-demo not-content" data-term-demo>
+  <div class="term-clock" aria-hidden="true">
+    <span class="term-place">{city}</span>
+    <span class="term-time" data-term-time>{clock(demo.start + demo.marks.end)}</span>
+    <span class="term-state" data-term-state>Continued by Rewake</span>
+  </div>
+  <div class="term-window">
+    <div class="term-bar">
+      <span class="term-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="term-title">billing-service — claude — {demo.cols}×{demo.rows}</span>
+    </div>
+    <pre
+      class="term-screen"
+      data-term-screen
+      style={`--cols:${demo.cols};--rows:${demo.rows}`}
+      aria-label="Claude Code in a terminal: the session hits its usage limit, Agent Rewake asks whether to continue it, and continues the same session after the reset."
+      set:html={screenHtml}
+    />
+  </div>
+  <div class="term-controls">
+    <button type="button" class="term-play" data-term-play aria-label="Play the recording">
+      <span aria-hidden="true" class="term-play-icon"></span>
+    </button>
+    <div class="term-chapters" role="group" aria-label="Jump to">
+      <button type="button" data-term-seek="limit">Hits the limit</button>
+      <button type="button" data-term-seek="ask">Rewake asks</button>
+      <button type="button" data-term-seek="continued">Continues after the reset</button>
+    </div>
+    <input
+      class="term-progress"
+      data-term-progress
+      type="range"
+      min="0"
+      max="1000"
+      value="1000"
+      aria-label="Position in the recording"
+    />
+  </div>
+  <figcaption>
+    Recorded offline with Claude Code {claudeVersion} and Agent Rewake {rewakeVersion}. A stand-in for Anthropic's
+    servers supplies the limit and the replies; what Claude Code and Rewake print is exactly what they print. The limit
+    resets at {clock(demo.reset)}, and Rewake continues a minute later; the wait is shortened here.
+  </figcaption>
+  <script type="application/json" data-term-data set:html={payload} />
+</figure>
