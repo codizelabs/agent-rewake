@@ -1042,3 +1042,162 @@ details.only summary:focus-visible {
   color: var(--rw-muted);
   font-size: 0.9375rem;
 }
+
+/* ---- the recorded terminal (TerminalDemo.astro) ---- */
+.term-demo {
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.term-clock {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-family: var(--rw-font-mono);
+  font-size: 0.8rem;
+  color: var(--rw-muted);
+}
+.term-place {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.term-time {
+  font-size: 1.05rem;
+  color: var(--rw-ink);
+  font-variant-numeric: tabular-nums;
+  transition: color 300ms ease;
+}
+.term-state::before {
+  content: "·";
+  margin-right: 0.6rem;
+}
+.term-demo[data-state="night"] .term-time {
+  color: var(--rw-dawn);
+}
+.term-window {
+  container-type: inline-size;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #141518;
+  border: 1px solid #2b2d33;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.04) inset,
+    0 24px 48px -24px rgb(27 30 36 / 0.45);
+}
+.term-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  background: #1f2025;
+  border-bottom: 1px solid #2b2d33;
+}
+.term-lights {
+  display: inline-flex;
+  gap: 6px;
+}
+.term-lights i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #3a3c43;
+}
+.term-title {
+  flex: 1;
+  text-align: center;
+  margin-right: 39px; /* balances the lights */
+  font-family: var(--rw-font-body);
+  font-size: 0.75rem;
+  color: #9a9ca3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.term-screen {
+  margin: 0;
+  padding: 0.9rem 1rem 1rem;
+  /* 80 columns fit (Plex Mono's advance is 0.6em); on a phone it stays readable and scrolls. */
+  font-family: var(--rw-font-mono);
+  font-size: clamp(9px, calc((100cqw - 2rem) / (var(--cols) * 0.6)), 14px);
+  line-height: 1.32;
+  min-height: calc(var(--rows) * 1.32em);
+  color: #d4d6dc;
+  background: transparent;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.term-line {
+  display: block;
+}
+.term-screen .t-b {
+  font-weight: 600;
+}
+.term-screen .t-d {
+  opacity: 0.6;
+}
+.term-screen .t-i {
+  font-style: italic;
+}
+.term-screen .t-r {
+  background: #d4d6dc;
+  color: #141518;
+}
+.term-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+.term-play {
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border-radius: 50%;
+  border: 1px solid var(--rw-line);
+  background: var(--rw-surface);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.term-play-icon {
+  inline-size: 0;
+  block-size: 0;
+  border-block: 6px solid transparent;
+  border-inline-start: 10px solid var(--rw-ink);
+  margin-inline-start: 3px;
+}
+.term-demo.is-playing .term-play-icon {
+  inline-size: 10px;
+  block-size: 12px;
+  border: 0;
+  margin: 0;
+  background: linear-gradient(90deg, var(--rw-ink) 0 35%, transparent 35% 65%, var(--rw-ink) 65%);
+}
+.term-chapters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.term-chapters button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--rw-line);
+  background: var(--rw-surface);
+  color: var(--rw-ink);
+  cursor: pointer;
+}
+.term-chapters button:hover,
+.term-play:hover {
+  border-color: var(--rw-dawn);
+}
+.term-progress {
+  flex: 1 1 8rem;
+  accent-color: var(--rw-dawn);
+}
+.term-demo figcaption {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--rw-ink);
+}

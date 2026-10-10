@@ -9,7 +9,7 @@ import "../styles/tokens.css";
 import "../styles/zed.css";
 import "../styles/landing.css";
 import AfterResumeScene from "../components/scenes/AfterResumeScene.astro";
-import ResumeScene from "../components/scenes/ResumeScene.astro";
+import TerminalDemo from "../components/TerminalDemo.astro";
 import ScheduleScene from "../components/scenes/ScheduleScene.astro";
 import SettingsScene from "../components/scenes/SettingsScene.astro";
 import antigravityLogo from "../assets/agents/antigravity-color.svg?raw";
@@ -432,7 +432,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             </div>
             <p class="note">Works in the threads and sessions you already have: there's no new agent to pick. <a href="#agents">Find your agent's guide</a>, or see <a href="#never">what Rewake never does</a>.</p>
           </div>
-          <ResumeScene />
+          <TerminalDemo />
         </div>
       </div>
 
@@ -862,6 +862,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
     </footer>
     <script>
       import "../scripts/scenes.ts";
+      import "../scripts/terminal-demo.ts";
       for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-copy]")) {
         button.addEventListener("click", async () => {
           const text = document.getElementById(button.dataset.copy ?? "")?.textContent ?? "";
