@@ -228,10 +228,13 @@ async function limitedSession(home: string, mock: Mock) {
     expect(await until(() => t.sees(/ClaudeCodev\d/), 30_000), t.screen()).toBe(true);
     await new Promise((r) => setTimeout(r, 2_000));
 
-    // The session hits its limit, resetting a few seconds from now.
-    mock.set({ mode: "limit", until: Date.now() + 5_000, claim: "five_hour" });
+    // The session hits its limit, resetting a few seconds from now. `limitForce` refuses
+    // regardless of how long the terminal UI takes to send the request: a wall-clock-only window
+    // is a known flake (test/e2e/mock-llm.mjs, found 2026-10-08 on codex-loop.test.ts).
+    mock.set({ mode: "limit", until: Date.now() + 5_000, claim: "five_hour", limitForce: true });
     await t.keys("say hi", ENTER);
     expect(await until(() => t.sees(/hityoursessionlimit/), 30_000), t.screen()).toBe(true);
+    mock.set({ limitForce: false });
     const limited = mock.log().filter((r) => r.limited && r.path.startsWith("/v1/messages"));
     expect(limited).toHaveLength(1);
     const sessionId = limited[0]?.session as string;
@@ -397,7 +400,9 @@ describe.runIf(enabled)("Claude Code's terminal, offline: limit → continue (th
         }),
       );
 
-      mock.set({ mode: "limit", until: Date.now() + 20_000, claim: "five_hour" });
+      // `limitForce` refuses regardless of how long the panel takes to start and send the
+      // message: a wall-clock-only window is a known flake (test/e2e/mock-llm.mjs).
+      mock.set({ mode: "limit", until: Date.now() + 20_000, claim: "five_hour", limitForce: true });
       const [command, ...args] = guarded([
         claude,
         "-p",
@@ -427,6 +432,7 @@ describe.runIf(enabled)("Claude Code's terminal, offline: limit → continue (th
       const limited = () =>
         mock?.log().filter((r) => r.limited && r.path.startsWith("/v1/messages")) ?? [];
       expect(await until(() => limited().length === 1, 30_000), out).toBe(true);
+      mock.set({ limitForce: false });
       const sessionId = limited()[0]?.session as string;
       expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
 

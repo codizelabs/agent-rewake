@@ -233,8 +233,10 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
         ),
       ).toBe(true);
       await sleep(2_000);
+      // `limitForce` refuses regardless of how long the UI flow below takes: `until` only sets
+      // the advertised reset time (the same clock-dependent flake found in codex-loop.test.ts).
       const until = Date.now() + 20_000;
-      mock.set({ mode: "limit", until });
+      mock.set({ mode: "limit", until, limitForce: true });
       const from = gemini.length();
       await gemini.type("carry on");
       // Gemini's usage-limit dialog: the person picks "Stop".
@@ -254,6 +256,7 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
       expect(mock.log().some((r) => r.limited && /:streamGenerateContent$/.test(r.path))).toBe(
         true,
       );
+      mock.set({ limitForce: false });
       await sleep(1_000);
       await gemini.type("/quit");
       expect(await gemini.until(() => /SessionEnd/.test(readLog(state)), 30_000)).toBe(true);

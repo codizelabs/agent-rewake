@@ -4,7 +4,9 @@
 // `reply` or refusing with that agent's own usage-limit response until `until` (ms).
 // Set the state with `set()` (or POST /__mock): mode "ok" | "limit", until, claim (Claude's
 // window: five_hour | seven_day) and profile, the limit's wire format when the path alone doesn't
-// say: "copilot" (a weekly limit), "xai-free" or "xai-402" (Grok). It records each request's method,
+// say: "copilot" (a weekly limit), "xai-free" or "xai-402" (Grok). `limitForce: true` refuses
+// unconditionally, so a test can clear it explicitly instead of racing `until` against a slow
+// process start; `until` still sets the advertised reset time either way. It records each request's method,
 // path, whether it was refused, its body and the text of its user messages (made-up test data);
 // for Anthropic Messages also Claude Code's session id and the last user message's text.
 // Codex signed in with ChatGPT also reads its usage from the mock (`chatgpt_base_url` =
@@ -326,8 +328,14 @@ export function startMock() {
     profile: "",
     reply: "RESUMED_OK",
     log: [],
+    // Refuses unconditionally, regardless of `until` or wall-clock time, until a test clears it
+    // (`set({ limitForce: false })`). `until` alone is also the *advertised* reset time: a slow
+    // process start could otherwise outlast the window itself and flip a flaky test from
+    // "refused" to "answered normally" (tests/e2e/mock-llm.mjs's docs, codex-loop/gemini-loop).
+    limitForce: false,
   };
-  const limited = () => state.mode === "limit" && Date.now() < state.until;
+  const limited = () =>
+    state.mode === "limit" && (state.limitForce === true || Date.now() < state.until);
   const server = createServer((req, res) => {
     let raw = "";
     req.on("data", (d) => {

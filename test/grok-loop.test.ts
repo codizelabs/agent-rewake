@@ -202,9 +202,17 @@ describe.runIf(enabled)("Grok Build in a terminal, offline: limit → continue (
       expect(always.code).toBe(0);
       expect(loadSettings(state).newThreads).toBe("on");
 
-      // 3. Grok's free usage runs out: the turn fails at the limit.
-      mock.set({ mode: "limit", until: Date.now() + 20_000, profile: "xai-free" });
+      // 3. Grok's free usage runs out: the turn fails at the limit. `limitForce` refuses
+      // regardless of how long the process takes to start: a wall-clock-only window is a known
+      // flake (test/e2e/mock-llm.mjs).
+      mock.set({
+        mode: "limit",
+        until: Date.now() + 20_000,
+        profile: "xai-free",
+        limitForce: true,
+      });
       const limited = await run(grok, ["-p", "say hi", "--output-format", "json"], env, work);
+      mock.set({ limitForce: false });
       expect(limited.code).toBe(1);
       expect(JSON.parse(limited.stdout.trim().split("\n").at(-1) ?? "{}")).toMatchObject({
         type: "error",
