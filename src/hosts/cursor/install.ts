@@ -177,7 +177,7 @@ export async function runCursorInstall(o: CursorInstallOptions): Promise<number>
           "Agent Rewake (preview) will add its hooks to Cursor's own agent:",
           `  ${file}`,
           "",
-          `When a Cursor chat stops at its usage limit, run "${rewake("continue")}" and pick a time within 4 hours. Rewake then continues that chat, as long as its window stays open. Typing in the chat cancels it. A limit that waiting won't lift (one that needs a paid plan or a new month) gets a notification instead. Your own hooks stay; Rewake keeps a backup of the file.`,
+          `When a Cursor chat stops at its usage limit, run "${rewake("continue")}" (in Cursor's own terminal or any other) and pick a time within 4 hours. Rewake then continues that chat, as long as its window stays open. Typing in the chat cancels it. A limit that waiting won't lift (one that needs a paid plan or a new month) gets a notification instead. To skip picking a time, every time: run "${rewake("continue --always")}" once, and Rewake continues the chat itself, at the time Cursor reports, in every agent this applies to. Your own hooks stay; Rewake keeps a backup of the file.`,
           "",
         ].join("\n"),
   );
