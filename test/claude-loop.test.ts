@@ -109,7 +109,9 @@ describe.runIf(enabled)("Zed's Agent Panel, offline: limit → resume (Claude)",
         DISABLE_TELEMETRY: "1",
         DISABLE_ERROR_REPORTING: "1",
       };
-      mock.set({ mode: "limit", until: Date.now() + 5_000, claim: "five_hour" });
+      // `limitForce` refuses regardless of how long the ACP round trip below takes: a
+      // wall-clock-only window is a known flake (test/e2e/mock-llm.mjs).
+      mock.set({ mode: "limit", until: Date.now() + 5_000, claim: "five_hour", limitForce: true });
       d = drive(env);
       await d.request("initialize", {
         protocolVersion: 1,
@@ -126,6 +128,7 @@ describe.runIf(enabled)("Zed's Agent Panel, offline: limit → resume (Claude)",
           30_000,
         ),
       ).toBe(true);
+      mock.set({ limitForce: false });
       await d.request("session/prompt", {
         sessionId,
         prompt: [{ type: "text", text: "/rewake resume" }],

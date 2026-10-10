@@ -294,14 +294,17 @@ describe.runIf(enabled)("Codex CLI, offline: limit → automatic resume", () => 
 
       // 3. A turn at the usage limit. A person trusts the hooks once in Codex's hook review;
       // headless, this run bypasses that review instead.
+      // `limitForce` refuses regardless of how long the process takes to start: `until` only sets
+      // the advertised reset time (this test's own clock-dependent flake, found 2026-10-08).
       const until = Date.now() + 5_000;
-      mock.set({ mode: "limit", until, reply: "RESUMED_OK" });
+      mock.set({ mode: "limit", until, limitForce: true, reply: "RESUMED_OK" });
       const exec = await run(
         join(agents, "codex"),
         ["exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", "say hi"],
         env,
         work,
       );
+      mock.set({ limitForce: false });
       expect(exec.status).not.toBe(0);
       expect(exec.stdout).toMatch(/"type":"turn\.failed"/);
       const thread = /"thread_id":"([0-9a-f-]{36})"/.exec(exec.stdout)?.[1] ?? "";
