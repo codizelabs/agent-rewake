@@ -311,7 +311,8 @@ describe("reportError: never throws, always ledgers, only queues when opted in",
     const start = Date.now();
     for (let i = 0; i < 5; i++)
       reportError(dir, { name: `test.error.${i}`, tags: { place: "cli" } }, {});
-    expect(Date.now() - start).toBeLessThan(500);
+    // Windows CI runners are slower at small, repeated fs writes: more headroom there.
+    expect(Date.now() - start).toBeLessThan(process.platform === "win32" ? 1_500 : 500);
   });
 });
 
@@ -325,7 +326,8 @@ describe("the local ledger", () => {
     expect(ledger.at(-1)?.name).toBe("e204");
   }, 20_000);
 
-  it("is written owner-only (0600)", () => {
+  // Windows doesn't carry POSIX permission bits the same way (see other 0600 checks in this repo).
+  it.skipIf(process.platform === "win32")("is written owner-only (0600)", () => {
     appendLedger(dir, { t: "now", name: "e", type: "Error", message: "m", sent: false });
     const mode = statSync(join(dir, "error-ledger.json")).mode & 0o777;
     expect(mode).toBe(0o600);
