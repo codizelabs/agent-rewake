@@ -99,6 +99,24 @@ const rows: Row[] = [
     error: plain("Free usage exceeded, subscribe to Go"),
     kind: "usage_limit",
   },
+  {
+    name: "OpenCode: the Go plan's 'usage limit reached. It will reset in 2 hours 5 minutes.'",
+    source: "OpenCode source packages/opencode/src/session/retry.ts at anomalyco/opencode 055d95bb",
+    profile: "opencode",
+    error: plain(
+      "Go usage limit reached. It will reset in 2 hours 5 minutes. To continue using this model now, enable usage from your available balance",
+    ),
+    kind: "usage_limit",
+    resetAt: NOW + 125 * 60_000,
+  },
+  {
+    name: "OpenCode: the Go plan's limit that resets in less than a minute",
+    source: "OpenCode source packages/opencode/src/session/retry.ts at anomalyco/opencode 055d95bb",
+    profile: "opencode",
+    error: plain("Go usage limit reached. It will reset in less than a minute."),
+    kind: "usage_limit",
+    resetAt: NOW + 60_000,
+  },
 ];
 
 describe("limit messages from unsnooze that Rewake missed", () => {

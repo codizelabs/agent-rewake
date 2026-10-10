@@ -36,6 +36,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Fixed
 
+- **Zed: OpenCode's Go plan limit now waits for the reset it states:** "usage limit reached. It will reset in 2 hours 5 minutes" was not recognised in Zed, so the thread was not offered an automatic resume.
 - **Windows: a long resume is no longer cut off after an hour.** Windows' Task Scheduler stopped Rewake's timer task after one hour, though a resume may run for up to three hours before Rewake stops it itself. The task may now run for four hours.
 - **Windows: stopping a resume stops everything the agent started.** When a resume ran past three hours, or you stopped it with `agent-rewake continue --cancel`, only the agent's own process was ended on Windows, so programs it had started could keep working on the session. Rewake now ends the whole process tree there (`taskkill /T`). macOS and Linux are unchanged.
 - **Cursor on Windows:** a `hooks.json` saved with a byte-order mark (as Notepad or Windows PowerShell 5.1 may save it) is no longer refused as invalid, and Cursor's command is found on the `Path` of an environment Rewake copied.
