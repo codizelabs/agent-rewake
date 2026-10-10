@@ -14,6 +14,8 @@
 import { createServer } from "node:http";
 
 const sec = (ms) => Math.floor(ms / 1000);
+/** How long the model "thinks" when `think` is on. */
+const THINK_MS = 6000;
 const left = (until) => Math.max(1, sec(until - Date.now()));
 
 /** Each agent's usage-limit response, by wire. */
@@ -327,6 +329,7 @@ export function startMock() {
     claim: "five_hour",
     profile: "",
     reply: "RESUMED_OK",
+    think: false,
     log: [],
     // Refuses unconditionally, regardless of `until` or wall-clock time, until a test clears it
     // (`set({ limitForce: false })`). `until` alone is also the *advertised* reset time: a slow
@@ -379,10 +382,14 @@ export function startMock() {
         const l = limitFor(family, state);
         return json(res, l.status, l.body, l.headers);
       }
-      if (family === "anthropic") return anthropic(res, body, state.reply);
-      if (path.includes("/responses")) return responses(res, body, state.reply);
-      if (path.includes("/chat/completions")) return chat(res, body, state.reply);
-      if (family === "gemini") return gemini(res, path, body, state.reply);
+      // `think`: answer after THINK_MS, as a model does (the terminal demo's recording).
+      const answer = () => {
+        if (family === "anthropic") return anthropic(res, body, state.reply);
+        if (path.includes("/responses")) return responses(res, body, state.reply);
+        if (path.includes("/chat/completions")) return chat(res, body, state.reply);
+        return gemini(res, path, body, state.reply);
+      };
+      if (family) return state.think === true ? void setTimeout(answer, THINK_MS) : answer();
       // Grok lists models first and needs these fields on each (research §2.5).
       if (path.endsWith("/models"))
         return json(res, 200, {
