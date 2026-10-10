@@ -33,6 +33,7 @@ import { runGrokInstall } from "./hosts/grok/install.js";
 import { readStdin, runHook } from "./hosts/hook.js";
 import { CLOSED_HOSTS, hookHandler, hostAdapters, OWNER_ENV } from "./hosts/index.js";
 import { jetbrainsFound, runJetbrainsInstall } from "./hosts/jetbrains/install.js";
+import { runOpenCodeInstall } from "./hosts/opencode/install.js";
 import { installedPreviews, PREVIEW_NAMES } from "./hosts/previews.js";
 import { runQwenInstall } from "./hosts/qwen/install.js";
 import { SessionRecords } from "./hosts/sessions.js";
@@ -49,6 +50,7 @@ import {
   type Found,
   geminiPrograms,
   grokPrograms,
+  opencodePrograms,
   type PlaceId,
   qwenPrograms,
   terminalAgents,
@@ -390,6 +392,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       if (id === "grok") return runGrokInstall(common);
       if (id === "gemini-cli") return runGeminiInstall(common);
       if (id === "qwen-code") return runQwenInstall(common);
+      if (id === "opencode") return runOpenCodeInstall(common);
       if (id === "devin-desktop")
         return runDevinInstall({
           uninstall,
@@ -915,6 +918,7 @@ function placesHere(env: NodeJS.ProcessEnv): { places: Place[]; missing: string[
     grok: "Grok Build",
     "gemini-cli": "Gemini CLI",
     "qwen-code": "Qwen Code",
+    opencode: "OpenCode",
     antigravity: "Antigravity",
   };
   const ids = new Set(places.map((p) => p.id));
@@ -933,6 +937,7 @@ function placeName(id: string): string {
     grok: "Grok Build",
     "gemini-cli": "Gemini CLI",
     "qwen-code": "Qwen Code",
+    opencode: "OpenCode",
     antigravity: "Antigravity",
     jetbrains: "JetBrains IDEs",
     "devin-desktop": "Devin Desktop",
@@ -1068,6 +1073,7 @@ const TIMER_PLACES = new Set([
   "copilot-cli",
   "gemini-cli",
   "qwen-code",
+  "opencode",
   "grok",
   "antigravity",
   "cursor",
@@ -1239,6 +1245,7 @@ async function runHookCommand(
         if (h === "grok") return grokPrograms(host)[0]?.path;
         if (h === "gemini-cli") return geminiPrograms(host)[0]?.path;
         if (h === "qwen-code") return qwenPrograms(host)[0]?.path;
+        if (h === "opencode") return opencodePrograms(host)[0]?.path;
         if (h === "antigravity") return agyPrograms(host)[0]?.path;
         return undefined;
       },

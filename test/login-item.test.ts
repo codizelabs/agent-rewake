@@ -108,7 +108,7 @@ describe("Rewake's login item", () => {
 
   it("says what was added, and how it shows on macOS", () => {
     expect(loginItemText("added", "darwin")).toBe(
-      'Added a login item, so planned resumes are set again after a restart. macOS may show "Background Items Added"; it\'s listed as "node" (it runs Agent Rewake) under Login Items, Allow in the Background. It\'s removed when you uninstall the last of Codex, Copilot CLI, Gemini CLI, Grok Build, Qwen Code and Antigravity CLI.\n',
+      'Added a login item, so planned resumes are set again after a restart. macOS may show "Background Items Added"; it\'s listed as "node" (it runs Agent Rewake) under Login Items, Allow in the Background. It\'s removed when you uninstall the last of Codex, Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI.\n',
     );
     expect(loginItemText("added", "linux")).not.toContain("macOS");
     expect(loginItemText("removed", "linux")).toBe(

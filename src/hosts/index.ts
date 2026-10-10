@@ -12,6 +12,7 @@ import { geminiApiKeyAuth } from "./gemini/install.js";
 import { GROK_ID, grokHooks, grokHost } from "./grok/host.js";
 import type { HookContext, HookHandler } from "./hook.js";
 import type { HostAdapter } from "./host.js";
+import { OPENCODE_ID, opencodeHooks, opencodeHost } from "./opencode/host.js";
 import { QWEN_ID, qwenHooks, qwenHost } from "./qwen/host.js";
 
 /**
@@ -26,6 +27,7 @@ registerHost(GEMINI_ID);
 registerHost(ANTIGRAVITY_ID);
 registerHost(CURSOR_ID);
 registerHost(QWEN_ID);
+registerHost(OPENCODE_ID);
 
 /** The hosts whose closed sessions Rewake continues (`agent-rewake continue`). */
 export const CLOSED_HOSTS: ClosedHost[] = [
@@ -36,6 +38,7 @@ export const CLOSED_HOSTS: ClosedHost[] = [
   antigravityHost(),
   cursorHost,
   qwenHost,
+  opencodeHost,
 ];
 
 /** The adapters `fire` uses, built for this run's environment. */
@@ -73,6 +76,8 @@ export function hookHandler(host: string, deps: HookDeps): HookHandler | undefin
   if (host === CURSOR_ID) return cursorHooks({ closed: deps.closed });
   if (host === QWEN_ID)
     return qwenHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
+  if (host === OPENCODE_ID)
+    return opencodeHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   if (host === ANTIGRAVITY_ID)
     return antigravityHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   return undefined;

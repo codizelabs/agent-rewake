@@ -43,7 +43,8 @@ if (unexpected.length || forbidden.length) {
 // 780 KB from 768 KB: keep-awake for Linux and Windows (the commands and their messages).
 // 800 KB from 780 KB: `agent-rewake settings` and cancelling one resume outside Zed (each
 // setting's plain-words description and values are most of it).
-const BUDGET = { bundle: 800 * 1024, mod: 64 * 1024 };
+// 840 KB from 800 KB: OpenCode as a preview place.
+const BUDGET = { bundle: 840 * 1024, mod: 64 * 1024 };
 const size = (re) => pack.files.filter((f) => re.test(f.path)).reduce((n, f) => n + f.size, 0);
 const bundle = size(/^dist\/agent-rewake\.js$/);
 const mod = size(/^dist\/hosts\/claude-code\//);

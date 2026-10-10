@@ -16,6 +16,7 @@ export const PLACES = [
   "grok",
   "gemini-cli",
   "qwen-code",
+  "opencode",
   "antigravity",
   "jetbrains",
   "devin-desktop",

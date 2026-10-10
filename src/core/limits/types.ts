@@ -13,6 +13,7 @@ export type AgentKind =
   | "antigravity"
   | "cursor"
   | "qwen"
+  | "opencode"
   | (string & {});
 
 export interface LimitSignal {

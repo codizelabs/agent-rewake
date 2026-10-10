@@ -10,7 +10,7 @@ import { replaceFileExclusive } from "../util/fs.js";
  * `agent-rewake sweep` once at login, which re-arms (or runs) every planned resume (sweep.ts).
  *
  * Only while a preview that continues closed sessions is set up (Codex, Copilot CLI, Gemini CLI,
- * Grok Build, Qwen Code, Antigravity CLI); removed with the last one. Windows needs none: its scheduled tasks
+ * Grok Build, Qwen Code, OpenCode, Antigravity CLI); removed with the last one. Windows needs none: its scheduled tasks
  * survive a restart.
  */
 export interface LoginHost {
@@ -111,7 +111,7 @@ export function syncLoginItem(h: LoginHost, wanted: boolean): "added" | "removed
   return "removed";
 }
 
-const WHO = "Codex, Copilot CLI, Gemini CLI, Grok Build, Qwen Code and Antigravity CLI";
+const WHO = "Codex, Copilot CLI, Gemini CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI";
 const NODE_NOTE =
   ' macOS may show "Background Items Added"; it\'s listed as "node" (it runs Agent Rewake) under Login Items, Allow in the Background.';
 

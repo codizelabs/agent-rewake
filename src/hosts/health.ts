@@ -29,6 +29,7 @@ const RECORDED = new Set<PlaceId>([
   "grok",
   "gemini-cli",
   "qwen-code",
+  "opencode",
   "antigravity",
   "cursor",
 ]);

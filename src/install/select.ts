@@ -35,6 +35,7 @@ export const WHAT: Record<PlaceId, string> = {
   grok: "Continues a closed session when its usage limit resets.",
   "gemini-cli": "Continues a closed session when its usage limit resets.",
   "qwen-code": "Continues a closed session when its usage limit resets.",
+  opencode: "Continues a closed session when its usage limit resets.",
   antigravity:
     "Continues a closed CLI conversation when its limit resets; in the app and IDE, says when it resets.",
 };

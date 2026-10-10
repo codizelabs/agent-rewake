@@ -5,6 +5,7 @@ import {
   classifyCursorError,
   classifyGeminiError,
   classifyGrokFailure,
+  classifyOpenCodeLimit,
   classifyQwenFailure,
 } from "./agents.js";
 import type { HostLimit, LimitSignal, LimitVerdict } from "./types.js";
@@ -44,6 +45,11 @@ function hostLimit(s: LimitSignal, now: number): HostLimit | undefined {
       return classifyCursorError(text);
     case "qwen":
       return classifyQwenFailure({ error: s.code, errorDetails: text }, now);
+    case "opencode":
+      return classifyOpenCodeLimit(
+        { code: s.code, text, ...(s.resetsAt !== undefined && { resetsAt: s.resetsAt }) },
+        now,
+      );
     case "grok":
       return classifyGrokFailure(
         { error: s.code, errorDetails: text },
