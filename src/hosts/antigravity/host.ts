@@ -121,11 +121,19 @@ export function resumeAgy(
   const program = nodeAware(r.program, process.execPath);
   // KNOWN GAP: the message is still an argument here, so another process on this machine can read
   // it from `ps`. Every other host now avoids that (stdin for Copilot CLI and Gemini CLI, a 0600
-  // file for Grok Build). The Antigravity CLI (`agy`) is the one Rewake has never run: there is no
-  // pinned version, no contract test and no help output to read, and its documented flags give
-  // neither a prompt on stdin nor a prompt-file flag. Rewake will not guess a flag that may not
-  // exist. Fix this the moment `agy` can be run and its `--help` read (plan §9.5, experiments
-  // AG-E1..AG-E7); until then the Antigravity preview leaks the scheduled message locally.
+  // file for Grok Build). `agy` has a documented stdin alternative (antigravity.google/docs/cli/
+  // headless, checked 2026-10-10) but it is not a plain-text pipe: `--input-format stream-json`
+  // `--output-format stream-json`, one JSON object per line each way —
+  //   in:  {"event":"user","message":{"content":"<text>"}}
+  //   out: one "init" event, then "step_update" events, then one "result" event (its "response"
+  //        and "status" fields are the reply and outcome) — "wait for result before writing the
+  //        next prompt" per the docs.
+  // What isn't documented, and Rewake has no real `agy` to check: whether the process exits on its
+  // own after that "result" event, or keeps running for another prompt and has to be told to stop
+  // (closing stdin? a signal?). Getting that wrong risks a hung or orphaned process, worse than
+  // today's argv exposure. Rewake will not guess it. Fix this the moment a real `agy` can be run
+  // (plan §9.5, experiments AG-E1..AG-E7) and that question answered; until then the Antigravity
+  // preview leaks the scheduled message locally.
   return new Promise((resolve) => {
     let out = "";
     const child = spawn(
