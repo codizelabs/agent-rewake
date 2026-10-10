@@ -553,6 +553,14 @@ function byProfile(
         )
       )
         return { kind: "not_recoverable", text, reason: "billing" };
+      // The Go plan's limit as OpenCode words it now (packages/opencode/src/session/retry.ts at
+      // anomalyco/opencode 055d95bb): "<name> usage limit reached. It will reset in 2 hours 5 minutes."
+      if (/\busage limit reached\.\s+It will reset in /i.test(text)) {
+        if (/\bIt will reset in less than a minute\b/i.test(text)) return usage(text, now + 60_000);
+        const m = /\bIt will reset in (\d[^.]*)\./.exec(text);
+        const wait = m?.[1] === undefined ? undefined : parseDuration(m[1]);
+        return usage(text, wait === undefined ? undefined : now + wait);
+      }
       // Zen's free tier used up (unsnooze 1.20.0, src/agents/opencode.js and test/opencode.test.js).
       // The text gives no reset, so the person is asked for a time.
       if (/^Free usage exceeded\b/m.test(text)) return usage(text);
