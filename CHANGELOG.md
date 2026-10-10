@@ -36,6 +36,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ### Fixed
 
+- **The install picker no longer draws its list twice, answers arrow keys over SSH and in tmux, and asks one question instead of two:** on a narrow terminal each redraw left stale rows behind, and arrow keys split across reads (or sent in application-cursor mode) did nothing or quit the screen. `install` now asks "Install Rewake for all of them?" first (Enter for yes), a full checklist opens only if you say no, and a decision you already made is not asked again as "Apply these changes?". The confirm screen is short by default; `install --dry-run` still shows every line. Cursor's text now says to continue by typing `/rewake` in the chat.
 - **Zed: OpenCode's Go plan limit now waits for the reset it states:** "usage limit reached. It will reset in 2 hours 5 minutes" was not recognised in Zed, so the thread was not offered an automatic resume.
 - **Windows: a long resume is no longer cut off after an hour.** Windows' Task Scheduler stopped Rewake's timer task after one hour, though a resume may run for up to three hours before Rewake stops it itself. The task may now run for four hours.
 - **Windows: stopping a resume stops everything the agent started.** When a resume ran past three hours, or you stopped it with `agent-rewake continue --cancel`, only the agent's own process was ended on Windows, so programs it had started could keep working on the session. Rewake now ends the whole process tree there (`taskkill /T`). macOS and Linux are unchanged.
