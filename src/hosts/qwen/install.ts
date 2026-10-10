@@ -28,6 +28,8 @@ import { newerThanTested, untestedText, versionOf } from "../versions.js";
  * session may pick them up only when the person opens `/hooks` (hooks.md).
  *
  *   SessionStart, SessionEnd  note when a session opens and closes
+ *   UserPromptSubmit          `/rewake` in the prompt: continue, list or cancel, blocked from the
+ *                             model; anything else cancels a pending resume (the person carried on)
  *   Stop                      a turn ended well: the person carried on after any limit
  *   StopFailure               matcher `rate_limit|billing_error`: the limit, or a billing error
  *
@@ -35,7 +37,13 @@ import { newerThanTested, untestedText, versionOf } from "../versions.js";
  */
 
 export const MIN_QWEN = versionOf("qwen-code").min;
-export const QWEN_EVENTS = ["SessionStart", "Stop", "StopFailure", "SessionEnd"] as const;
+export const QWEN_EVENTS = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "Stop",
+  "StopFailure",
+  "SessionEnd",
+] as const;
 
 /** Qwen's global folder: `QWEN_HOME` (`~` expanded, relative to the current folder) or `~/.qwen`. */
 export function qwenHome(env: NodeJS.ProcessEnv, home: string): string {
@@ -238,7 +246,7 @@ export async function runQwenInstall(o: QwenInstallOptions): Promise<number> {
           `Agent Rewake (preview, not tried) will add its hooks to Qwen Code's settings${qwen?.version ? ` (version ${qwen.version} found)` : ""}:`,
           `  ${file}`,
           "",
-          `It adds ${QWEN_EVENTS.length} hooks that note when a session starts, ends, carries on or stops at a usage limit. Rewake doesn't resume after a billing error. Your own settings and hooks stay; Rewake keeps a backup of the file.`,
+          `It adds ${QWEN_EVENTS.length} hooks that note when a session starts, ends, carries on or stops at a usage limit. At a usage limit, type "/rewake" in the session to continue after the reset, choose a time, or cancel. Rewake doesn't resume after a billing error. Your own settings and hooks stay; Rewake keeps a backup of the file.`,
           "",
         ].join("\n"),
   );

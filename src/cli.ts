@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { emitKeypressEvents } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { type AgentCommand, claudeAdapterCommand } from "./adapters/claude/spawn.js";
 import { SchedulingAddon } from "./addon.js";
@@ -55,7 +56,18 @@ import {
   qwenPrograms,
   terminalAgents,
 } from "./install/detect.js";
-import { choosePlaces, defaultPlaceText, type Place, placesFrom } from "./install/select.js";
+import {
+  choosePlaces,
+  defaultChoice,
+  defaultPlaceText,
+  type Keypress,
+  listNames,
+  type Place,
+  PREVIEW_NOTE,
+  placesFrom,
+  quickSetupPrompt,
+  UNREACHABLE,
+} from "./install/select.js";
 import { zedLaunch } from "./install/zed-launch.js";
 import {
   keyChord,
@@ -100,6 +112,7 @@ import { ensurePrivateDir, stateDir } from "./util/paths.js";
 import { agentProcess } from "./util/proc.js";
 import { readSleepSettings } from "./util/sleep-settings.js";
 import { resolveCommand } from "./util/spawn.js";
+import { noColorFrom, paint } from "./util/style.js";
 import { VERSION } from "./version.js";
 import {
   CLAUDE_REGISTRY_ID,
@@ -145,6 +158,34 @@ function unknownOption(command: string, rest: string[]): string | undefined {
   const at = command === "history" ? rest.indexOf("--days") : -1;
   const value = at === -1 ? -1 : at + 1;
   return rest.find((a, i) => i !== value && !known.includes(a));
+}
+
+/**
+ * Whether a person already said what to set up — the screen's own question, or typing `--all` on
+ * purpose — so a separate "Apply these changes?" would just ask the same decision again (plan
+ * §4.1: one decision, which places, not two). True only when a live person could have just
+ * decided it: a real terminal, or the raw `--yes` flag. A script with neither — `--all` with no
+ * terminal and no `--yes` — still gets the same refusal as before: nobody was there to decide.
+ */
+export function alreadyConfirmedChoice(
+  picked: boolean,
+  yes: boolean,
+  interactive: boolean,
+): boolean {
+  return picked && (yes || interactive);
+}
+
+/**
+ * The one line said before applying several places from the screen (or `--all`): their names,
+ * not each one's own full breakdown of file paths and per-agent bullets. That full breakdown
+ * still exists, unabridged, one flag away.
+ */
+export function multiPlaceLine(names: string[], noColor: boolean): string {
+  const colored = names.map((n) => paint(n, "accent", noColor));
+  return (
+    `\nAgent Rewake will set up ${listNames(colored)}.\n` +
+    `${paint(`See every line: ${rewake("install --dry-run")}`, "dim", noColor)}\n`
+  );
 }
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
@@ -423,31 +464,25 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       process.stdout.write(t);
     };
     let code = 0;
+    // The screen's own question (or --all, typed on purpose) already is the one decision to
+    // apply: a second "Apply these changes?" asks the same thing again. It's still skipped when
+    // there's no live person to have just decided anything — a non-interactive --all still needs
+    // --yes, the same safety net as before (checked after showing what would happen, as before).
+    const alreadyConfirmed = alreadyConfirmedChoice(picked, yes, interactive);
     if (picked && !dryRun && order.length > 1) {
-      // Several places from the screen: every change first, one question, then a line each
-      // (plan §4.1: two decisions, which places and apply).
-      for (const id of order) {
-        print(`\n${placeName(id)}\n`);
-        await runPlace(id, {
-          yes: false,
-          dryRun: true,
-          // Each place's own dry-run line would read as if nothing will happen: left out here.
-          out: (t) => print(t.replace(/^Dry run: nothing was (changed|written)\.\n/gm, "")),
-        });
-      }
+      // Several places from the screen: one short line naming them (not each place's own full
+      // breakdown — that was a wall of file paths and a bullet per agent, exactly the long-to-read
+      // screen the quick question upstream was built to avoid), then (plan §4.1: one decision,
+      // already made on the screen that chose these places) straight on to applying them. The full
+      // breakdown for every place is still `install --dry-run`, unabridged, same as for one place.
+      print(multiPlaceLine(order.map(placeName), noColorFrom(env)));
       if (!uninstall && loginWouldAdd(env, order))
         print(`\n${loginItemPlanText(process.platform)}`);
-      if (!yes) {
-        if (!interactive) {
-          print(
-            "\nNot a terminal, so nothing was changed. Run again with --yes to apply the changes above.\n",
-          );
-          return 1;
-        }
-        if (!(await ask(`\nApply these changes to ${order.length} places? [y/N] `))) {
-          print("Nothing was changed.\n");
-          return 1;
-        }
+      if (!alreadyConfirmed) {
+        print(
+          "\nNot a terminal, so nothing was changed. Run again with --yes to apply the changes above.\n",
+        );
+        return 1;
       }
       const results: [string, number, string][] = [];
       for (const id of order) {
@@ -467,7 +502,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       // Said before the place's own question, with its other changes.
       if (!uninstall && loginWouldAdd(env, order)) print(loginItemPlanText(process.platform));
       for (const id of order)
-        code = Math.max(code, await runPlace(id, { yes, dryRun, out: print }));
+        code = Math.max(
+          code,
+          await runPlace(id, { yes: yes || alreadyConfirmed, dryRun, out: print }),
+        );
     }
     if (uninstall && !dryRun) cancelResumesOf(chosen, env);
     // Noted for `doctor`'s "installed N days ago": local only, nothing is checked online.
@@ -992,39 +1030,70 @@ function pickablePlaces(env: NodeJS.ProcessEnv, uninstall: boolean): string[] {
   return places.filter((p) => p.state !== "too-old").map((p) => p.id);
 }
 
-/** The selection screen, in this terminal; undefined when the person quits. */
+/**
+ * The selection screen, in this terminal; undefined when the person quits.
+ *
+ * Key presses go through Node's own `readline.emitKeypressEvents`, not a match on the raw bytes:
+ * a terminal can split an escape sequence (`ESC [ A`) across more than one `data` event (common
+ * over SSH, in tmux/screen, some terminal emulators), and some terminals send arrow keys as
+ * `ESC O A` (application cursor mode) instead of `ESC [ A`. Matching whole chunks got a lone ESC
+ * byte read as "quit" and the `O` form not recognised at all — arrow keys could do nothing, or
+ * exit the screen. `emitKeypressEvents` buffers and decodes both forms the way every well-behaved
+ * terminal program does.
+ */
 async function pickPlaces(env: NodeJS.ProcessEnv): Promise<string[] | undefined> {
   const { places, missing } = placesHere(env);
-  process.stdout.write(`Agent Rewake ${VERSION} found these on your computer:\n\n`);
+  // The common path is one question, not a checklist to read through (plan §4.1 revised, F3): set
+  // up everywhere Rewake found, or say no and pick. Nothing is asked when there's only one place
+  // and nothing to explain about it (F4) — `quickSetupPrompt` returns undefined then.
+  const prompt = quickSetupPrompt(places);
+  if (prompt === undefined) return [...defaultChoice(places)];
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    let answer: string;
+    try {
+      answer = (await rl.question(prompt)).trim();
+    } finally {
+      rl.close();
+    }
+    if (/^(y(es)?)?$/i.test(answer)) return [...defaultChoice(places)];
+  }
+  process.stdout.write(
+    `\n${PREVIEW_NOTE} ${UNREACHABLE}\n\n` +
+      `Agent Rewake ${VERSION} found these on your computer:\n\n`,
+  );
   const stdin = process.stdin;
+  emitKeypressEvents(stdin);
   // Key presses through a listener that's removed afterwards: iterating stdin would close it, and
   // the question that follows needs it.
-  const queue: string[] = [];
+  const queue: Keypress[] = [];
   let wake: (() => void) | undefined;
-  const onData = (d: Buffer | string) => {
-    queue.push(String(d));
+  const onKeypress = (_str: string, key: Keypress | undefined) => {
+    if (!key) return;
+    queue.push(key);
     wake?.();
   };
-  async function* keys(): AsyncIterable<string> {
+  async function* keys(): AsyncIterable<Keypress> {
     for (;;) {
-      while (queue.length > 0) yield queue.shift() as string;
+      while (queue.length > 0) yield queue.shift() as Keypress;
       await new Promise<void>((r) => {
         wake = r;
       });
     }
   }
-  stdin.setRawMode(true);
-  stdin.setEncoding("utf8");
-  stdin.on("data", onData);
+  if (stdin.isTTY) stdin.setRawMode(true);
+  stdin.on("keypress", onKeypress);
   stdin.resume();
   try {
     return await choosePlaces(places, missing, {
       keys: keys(),
       write: (t) => process.stdout.write(t),
+      noColor: Boolean(env.NO_COLOR) || env.TERM === "dumb",
+      columns: () => process.stdout.columns || 80,
     });
   } finally {
-    stdin.off("data", onData);
-    stdin.setRawMode(false);
+    stdin.off("keypress", onKeypress);
+    if (stdin.isTTY) stdin.setRawMode(false);
     stdin.pause();
   }
 }

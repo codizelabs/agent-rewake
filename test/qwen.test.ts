@@ -185,7 +185,14 @@ describe("Qwen Code's settings file", () => {
     // Their own SessionStart hook stays, with Rewake's group after it.
     expect(json.hooks.SessionStart?.[0]?.hooks[0]?.command).toBe("echo hi");
     expect(Object.keys(json.hooks).sort()).toEqual(
-      ["PreToolUse", "SessionEnd", "SessionStart", "Stop", "StopFailure"].sort(),
+      [
+        "PreToolUse",
+        "SessionEnd",
+        "SessionStart",
+        "Stop",
+        "StopFailure",
+        "UserPromptSubmit",
+      ].sort(),
     );
     const failure = json.hooks.StopFailure?.[0];
     expect(failure?.matcher).toBe("rate_limit|billing_error");
@@ -458,6 +465,112 @@ describe("Qwen Code's hooks", () => {
       NOW,
     );
     expect(new SessionRecords(state, "qwen-code").get(SID)?.open).not.toBe(true);
+  });
+
+  describe("/rewake typed into the session", () => {
+    const harness = () => {
+      const notes: string[] = [];
+      const handler = qwenHooks({
+        closed: (ctx) => deps(notes, [])(ctx.env, ctx.now),
+        program: () => FAKE,
+      });
+      const send = (event: string, extra?: Record<string, unknown>) =>
+        runHook(handler, event, input(event, extra), { QWEN_PROJECT_DIR: dir }, state, NOW);
+      const type = async (prompt: string) =>
+        JSON.parse((await send("UserPromptSubmit", { prompt })) ?? "{}") as {
+          decision?: string;
+          reason?: string;
+        };
+      return { send, type };
+    };
+
+    it("says there's nothing to continue before any limit", async () => {
+      const h = harness();
+      const r = await h.type("/rewake");
+      expect(r.decision).toBe("block");
+      expect(r.reason).toBe(
+        "Rewake: this session isn't at a usage limit, so there's nothing to continue.",
+      );
+    });
+
+    it("says it doesn't know the reset time yet when the limit gave none", async () => {
+      const h = harness();
+      await h.send("StopFailure", {
+        error: "rate_limit",
+        error_details: "429 Your quota is exhausted. It will reset soon.",
+      });
+      const r = await h.type("/rewake");
+      expect(r.reason).toBe("Rewake doesn't know when this resets yet. Try /rewake 3:30pm.");
+    });
+
+    it("arms a continue at the known reset, and the slash is optional", async () => {
+      const h = harness();
+      await h.send("StopFailure", { error: "rate_limit", error_details: WEEKLY });
+      const r = await h.type("rewake");
+      expect(r.reason).toMatch(/^Rewake will continue this session .*, once it's closed\. /);
+      expect(new ScheduleStore(state).list()[0]).toMatchObject({
+        dueAt: Date.UTC(2027, 6, 27, 9, 25) + 60_000,
+        status: "scheduled",
+      });
+    });
+
+    it("arms a continue at a chosen time", async () => {
+      const h = harness();
+      await h.send("StopFailure", {
+        error: "rate_limit",
+        error_details: "429 Your quota is exhausted. It will reset soon.",
+      });
+      const r = await h.type("/rewake in 1h");
+      expect(r.reason).toMatch(/^Rewake will continue this session /);
+      expect(new ScheduleStore(state).list()[0]?.dueAt).toBe(NOW + H);
+    });
+
+    it("refuses to continue a limit that waiting won't lift", async () => {
+      const h = harness();
+      await h.send("StopFailure", {
+        error: "billing_error",
+        error_details: "402 Payment required",
+      });
+      const r = await h.type("/rewake");
+      expect(r.reason).toBe(
+        "Rewake can't continue after this limit: this limit is about credits or spending, which waiting doesn't fix.",
+      );
+    });
+
+    it("lists what's planned, and says when nothing is", async () => {
+      const h = harness();
+      await h.send("StopFailure", {
+        error: "rate_limit",
+        error_details: "429 Your quota is exhausted. It will reset soon.",
+      });
+      expect((await h.type("/rewake list")).reason).toBe(
+        "Rewake: Nothing is set to continue this session. At a usage limit, close it and type /rewake to continue after the reset.",
+      );
+      await h.type("/rewake in 1h");
+      const r = await h.type("/rewake list");
+      expect(r.reason).toMatch(/^Rewake will continue this session .* To cancel: \/rewake cancel$/);
+    });
+
+    it("cancels what's planned", async () => {
+      const h = harness();
+      await h.send("StopFailure", {
+        error: "rate_limit",
+        error_details: "429 Your quota is exhausted. It will reset soon.",
+      });
+      await h.type("/rewake in 1h");
+      const cancelled = await h.type("/rewake cancel");
+      expect(cancelled.reason).toBe(
+        "Rewake: Cancelled. This session won't be continued on its own.",
+      );
+      const again = await h.type("/rewake cancel");
+      expect(again.reason).toBe("Rewake: Nothing is set to continue this session.");
+    });
+
+    it("doesn't match ordinary text, so it falls through to the usual handling", async () => {
+      const h = harness();
+      const out = await h.send("UserPromptSubmit", { prompt: "please rewrite this function" });
+      expect(out).toBeUndefined();
+    });
   });
 });
 

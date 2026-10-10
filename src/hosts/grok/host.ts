@@ -4,11 +4,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { grokText } from "../../adapters/profiles.js";
 import { normalize } from "../../adapters/text.js";
+import { continueOnly, type RewakePlace } from "../../core/command.js";
 import { classifyGrokFailure } from "../../core/limits/agents.js";
 import { recogniseForHost } from "../../core/limits/recognise.js";
 import { isProcessAlive } from "../../core/lock.js";
+import { RESET_MARGIN_MS } from "../../core/resume.js";
+import { ScheduleStore } from "../../core/store.js";
+import { formatAt } from "../../core/time.js";
 import { privateTempFile } from "../../util/fs.js";
 import {
+  armClosed,
   type ClosedDeps,
   type ClosedHost,
   ensureProgram,
@@ -17,12 +22,13 @@ import {
   onPrompt,
   onSessionEnd,
   onSessionStart,
+  pendingFor,
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { FOLDER_GONE, folderGone, resumeDeadline, type SendResult, withMessage } from "../host.js";
-import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js";
+import { SESSION_GONE, type SessionRecord, SessionRecords, safeSessionId } from "../sessions.js";
 
 /**
  * xAI's Grok Build in a terminal (plan §9.4; Grok 1.0.46, research note §2.2, §3.2):
@@ -41,6 +47,68 @@ import { SESSION_GONE, type SessionRecord, safeSessionId } from "../sessions.js"
  */
 
 export const GROK_ID = "grok";
+
+/**
+ * `/rewake` typed into a Grok Build session: continue after a limit, at the reset or a chosen
+ * time, list or cancel. Grok runs Claude Code's hook format (see the module note above), whose
+ * `UserPromptSubmit` hook can block a prompt with `{"decision":"block","reason":…}` — the reason
+ * is shown to the person and the prompt never reaches the model. Delivery of the actual resume is
+ * unchanged: it's armed the same way `agent-rewake continue` already arms one (armClosed,
+ * src/hosts/closed.ts), and fires through the normal closed-session path once Grok exits.
+ */
+const GROK_PLACE: RewakePlace = { name: "Grok Build", typed: "/rewake", features: new Set() };
+/** The slash is optional, as in Codex's bare `rewake` and Cursor's `/rewake`. */
+const REWAKE = /^\s*\/?rewake(?:\s+([\s\S]*?))?\s*$/i;
+
+/** Grok's own hook response: shown to the person instead of sending the text to the model. */
+function block(reason: string): string {
+  return JSON.stringify({ decision: "block", reason });
+}
+
+function handleRewake(
+  host: ClosedHost,
+  id: string,
+  args: string,
+  ctx: HookContext,
+  d: ClosedDeps,
+): string {
+  const records = new SessionRecords(ctx.stateDir, GROK_ID);
+  const c = continueOnly(GROK_PLACE, args, ctx.now);
+  if (c.kind === "reply") return block(c.text);
+  if (c.kind === "list") {
+    const next = pendingFor(ctx.stateDir, GROK_ID, id).sort((a, b) => a.dueAt - b.dueAt)[0];
+    return block(
+      next
+        ? `Rewake will continue this session ${formatAt(next.dueAt, ctx.now)}, once it's closed. To cancel: /rewake cancel`
+        : "Rewake: Nothing is set to continue this session. At a usage limit, close it and type /rewake to continue after the reset.",
+    );
+  }
+  if (c.kind === "cancel") {
+    const pending = pendingFor(ctx.stateDir, GROK_ID, id);
+    const store = new ScheduleStore(ctx.stateDir);
+    for (const s of pending) if (store.cancel(s.scheduleId, ctx.now)) d.disarm(s.scheduleId);
+    return block(
+      pending.length > 0
+        ? "Rewake: Cancelled. This session won't be continued on its own."
+        : "Rewake: Nothing is set to continue this session.",
+    );
+  }
+  const r = records.get(id);
+  const limit = r?.limit;
+  if (!r || !limit)
+    return block("Rewake: this session isn't at a usage limit, so there's nothing to continue.");
+  if (limit.billing)
+    return block(
+      "Rewake can't continue after this limit: this limit is about credits or spending, which waiting doesn't fix.",
+    );
+  const at = c.at ?? (limit.resetsAt !== undefined ? limit.resetsAt + RESET_MARGIN_MS : undefined);
+  if (at === undefined)
+    return block("Rewake doesn't know when this resets yet. Try /rewake 3:30pm.");
+  armClosed(host, r, at, d);
+  return block(
+    `Rewake will continue this session ${formatAt(at, ctx.now)}, once it's closed. Keep this computer on and awake until then. Typing again before then cancels it.`,
+  );
+}
 
 export function grokHome(env: NodeJS.ProcessEnv, home: string = homedir()): string {
   return env.GROK_HOME || join(home, ".grok");
@@ -299,9 +367,15 @@ export function grokHooks(deps: GrokHookDeps): HookHandler {
         case "SessionStart":
           onSessionStart(host, id, cwd, d, deps.program(ctx.env));
           break;
-        case "UserPromptSubmit":
-          onPrompt(host, id, cwd, d);
-          break;
+        case "UserPromptSubmit": {
+          const prompt = typeof ctx.input.prompt === "string" ? ctx.input.prompt : "";
+          const m = REWAKE.exec(prompt);
+          if (!m) {
+            onPrompt(host, id, cwd, d);
+            break;
+          }
+          return handleRewake(host, id, m[1] ?? "", ctx, d);
+        }
         case "StopFailure": {
           const limit = recogniseForHost(
             {

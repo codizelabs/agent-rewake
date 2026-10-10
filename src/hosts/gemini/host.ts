@@ -12,6 +12,7 @@ import {
   type ClosedHost,
   ensureProgram,
   FIRE_ENV,
+  largeHistoryText,
   onLimit,
   onPrompt,
   onSessionEnd,
@@ -278,7 +279,8 @@ export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDe
     if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
   }
   armClosed(geminiHost, r, at, d);
-  return `Rewake will continue this conversation ${formatAt(at, d.now)}, if Gemini CLI is closed by then and this computer is awake. To cancel: /rewake cancel`;
+  const large = largeHistoryText(geminiHost, r.historyBytes);
+  return `Rewake will continue this conversation ${formatAt(at, d.now)}, if Gemini CLI is closed by then and this computer is awake. To cancel: /rewake cancel${large ? ` ${large}` : ""}`;
 }
 
 export function geminiHooks(deps: GeminiHookDeps): HookHandler {

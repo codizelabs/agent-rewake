@@ -28,6 +28,7 @@ import { rewake } from "./util/command.js";
 import { readText, renameWithRetry, writeTempExclusive } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
 import { findOnWindows, npmScript } from "./util/spawn.js";
+import { noColorFrom, paint, type Tone } from "./util/style.js";
 import { PACKAGE_NAME, REPO_URL, VERSION } from "./version.js";
 import {
   CLAUDE_REGISTRY_ID,
@@ -692,21 +693,50 @@ export function applyPlan(plan: Plan, now: Date = new Date()): string[] {
   return backups;
 }
 
-function describe(plan: Plan, verb: string): string {
+/**
+ * What's about to change, before asking (F2: the common path is short; C1: no backend detail
+ * unless the person needs it to decide). Previously this always printed the full breakdown below
+ * — every file's full path, then one bullet per change inside it, which for several agents meant
+ * one near-identical "Add Rewake to …" line each: exactly the long-to-read list the install
+ * picker's own quick question was built to avoid. Now the short form just names the files (not
+ * their full path — the person doesn't need that to decide) and says what's always true of every
+ * change Rewake makes here: nothing else in the file changes, and it's backed up first. The full
+ * breakdown, with every line, is still one flag away: `install --dry-run`.
+ */
+export function describeShort(plan: Plan, verb: string, noColor: boolean): string {
+  const c = (text: string, tone: Tone) => paint(text, tone, noColor);
+  const lines: string[] = [];
+  if (plan.changes.length > 0) {
+    const files = plan.changes.map((ch) => c(basename(ch.file), "accent")).join(", ");
+    const n = plan.changes.length === 1 ? "1 file" : `${plan.changes.length} files`;
+    lines.push(`Agent Rewake will ${verb}: ${n} change — ${files}.`);
+    lines.push(
+      c("Nothing else in them changes, and each is backed up first. See every line: ", "dim") +
+        c(rewake("install --dry-run"), "dim"),
+    );
+  }
+  for (const n of plan.notes) lines.push(c(n, "dim"));
+  return `${lines.join("\n")}\n`;
+}
+
+/** Every file's full path, and every change inside it: `install --dry-run`, or on request (§U F3). */
+export function describeFull(plan: Plan, verb: string, noColor: boolean): string {
+  const c = (text: string, tone: Tone) => paint(text, tone, noColor);
   const lines: string[] = [];
   if (plan.changes.length > 0) {
     lines.push(`Agent Rewake will ${verb}:`, "");
-    for (const c of plan.changes) {
-      lines.push(`  ${c.file}${c.existed ? "" : " (new file)"}`);
-      for (const s of c.summary) lines.push(s.startsWith(" ") ? `    ${s}` : `    - ${s}`);
+    for (const ch of plan.changes) {
+      lines.push(`  ${c(ch.file, "accent")}${ch.existed ? "" : c(" (new file)", "dim")}`);
+      for (const s of ch.summary)
+        lines.push(c(s.startsWith(" ") ? `    ${s}` : `    - ${s}`, "dim"));
     }
     lines.push(
       "",
-      "Nothing else in these files changes; comments and formatting are kept.",
-      "Each existing file is backed up next to itself first.",
+      c("Nothing else in these files changes; comments and formatting are kept.", "dim"),
+      c("Each existing file is backed up next to itself first.", "dim"),
     );
   }
-  for (const n of plan.notes) lines.push(`  ${n}`);
+  for (const n of plan.notes) lines.push(c(`  ${n}`, "dim"));
   return `${lines.join("\n")}\n`;
 }
 
@@ -757,7 +787,12 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
         ...(opts.only && { only: opts.only }),
       });
 
-  out(describe(plan, opts.uninstall ? "remove these entries from Zed" : "set up Zed"));
+  const noColor = noColorFrom(opts.env);
+  const verb = opts.uninstall ? "remove these entries from Zed" : "set up Zed";
+  // The full, line-by-line breakdown (every file's path, every change) is still exactly what
+  // `--dry-run` shows: someone who wants to check every detail before trusting Rewake still can.
+  // The default is the short form, since most people don't need that read every time (F2, C1).
+  out(opts.dryRun ? describeFull(plan, verb, noColor) : describeShort(plan, verb, noColor));
   let note: string | undefined;
   if (!opts.uninstall) {
     const home = opts.env.HOME || opts.env.USERPROFILE || homedir();
@@ -785,7 +820,11 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
       out("\nNot a terminal, so nothing was written. Run again with --yes to apply.\n");
       return 1;
     }
-    const ok = await (opts.ask ?? confirm)("\nApply these changes? [y/N] ");
+    // "(default: no)" in words, not only the capital N in [y/N]: a screen reader doesn't
+    // announce letter case (the install picker's quick question does the same).
+    const ok = await (opts.ask ?? confirm)(
+      `\nApply these changes? [y/N] ${paint("(default: no)", "dim", noColor)} `,
+    );
     if (!ok) {
       out("Nothing was written.\n");
       return 1;

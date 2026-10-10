@@ -59,9 +59,9 @@ Pick your agent for a step-by-step guide. Rewake works in a terminal, in VS Code
 | [Claude Code](#claude-code) (preview) | Terminal, VS Code, Cursor | Asks once at the limit, then continues the session after the reset; messages sent later |
 | [Codex](#codex) (preview) | Terminal | Type `rewake` at the limit, and the thread continues after the reset |
 | [GitHub Copilot CLI](#github-copilot-cli) (preview) | Terminal | Continues a closed session after the reset |
-| [Gemini CLI](#gemini-cli) (preview) | Terminal | Continues a closed session after the reset |
-| [Grok Build](#grok-build) (preview) | Terminal | Continues a closed session after the reset |
-| [Qwen Code](#qwen-code) (preview, not tried yet) | Terminal | Continues a closed session after the reset |
+| [Gemini CLI](#gemini-cli) (preview) | Terminal | Type `/rewake` at the limit, and the session continues once closed |
+| [Grok Build](#grok-build) (preview) | Terminal | Type `/rewake` at the limit, and the session continues once closed |
+| [Qwen Code](#qwen-code) (preview, not tried yet) | Terminal | Type `/rewake` at the limit, and the session continues once closed |
 | [OpenCode](#opencode) (preview, not tried yet) | Terminal | Continues a closed session after the reset |
 | [Antigravity CLI](#antigravity-cli) (preview) | Terminal | Continues a closed session after the reset |
 | [Cursor](#cursor) (preview, limit not tried yet) | Cursor's own agent | At a limit, continues the chat at the time you choose, while its window stays open |
@@ -74,16 +74,19 @@ Not supported yet: GitHub Copilot's own chat in VS Code.
 
 To continue a Claude Code, Codex or other agent session after a usage limit in a terminal, in Claude Code's VS Code or Cursor panel, in a JetBrains IDE or in Devin Desktop, install a preview. Previews aren't installed by default, haven't been checked with every account type yet, and may change. None has met a real usage limit yet: the ones tried end to end were tried with a test limit (see the table below). Each agent's guide follows this section.
 
-**One command everywhere:** `/rewake` is Rewake's only command in a conversation, the same in Zed, Claude Code and Gemini CLI. Rewake answers it itself, without using the model.
+**One command everywhere:** `/rewake` is Rewake's only command in a conversation, the same in Zed, Claude Code, Gemini CLI, Grok Build, Qwen Code and Cursor's own agent. Rewake answers it itself, without using the model.
 
 | Place | Type | At a limit | Also |
 |---|---|---|---|
 | Zed (and other ACP clients) | `/rewake` | Opens the resume question, or resumes at the reset (`/rewake 3:30pm` for another time) | Everything in [Commands in a thread](#reference) |
 | Claude Code | `/rewake` | Continues after the reset (`/rewake 3:30pm` for another time) | `/rewake in 1h <message>`, `list`, `cancel [N\|all]`, `auto on\|off` |
 | Gemini CLI | `/rewake` | Continues once Gemini CLI is closed, at the reset (`/rewake 3:30pm` for another time) | `list`, `cancel` |
+| Grok Build | `/rewake` | Continues once the session is closed, at the reset (`/rewake 3:30pm` for another time) | `list`, `cancel` |
+| Qwen Code | `/rewake` | Continues once the session is closed, at the reset (`/rewake 3:30pm` for another time) | `list`, `cancel` |
+| Cursor's own agent | `/rewake` | Continues the chat, while its window stays open (`/rewake 3:30pm` for another time) | `list`, `cancel` |
 | Codex | `rewake`, without the slash | Continues after the reset (`rewake 3:30pm` for another time) | `rewake list`, `rewake cancel` |
 
-`/rewake cancel` cancels the continue, and `/rewake help` lists what works where you are; anything a place can't do gets one line saying so. Codex is the one place without the slash: the Codex terminal answers a slash command it doesn't know with "Unrecognized command" and never passes it on. GitHub Copilot CLI, Grok Build, Qwen Code, OpenCode and Antigravity CLI have no command in the conversation: use `npx @codizelabs/agent-rewake continue` once the session is closed.
+`/rewake cancel` cancels the continue, and `/rewake help` lists what works where you are; anything a place can't do gets one line saying so. Codex is the one place without the slash: the Codex terminal answers a slash command it doesn't know with "Unrecognized command" and never passes it on. GitHub Copilot CLI, OpenCode and Antigravity CLI have no command in the conversation: use `npx @codizelabs/agent-rewake continue` once the session is closed.
 
 Each preview needs a recent version of its agent (a closed Claude Code session also needs `claude --permission-prompts`, in 2.1.259 or newer):
 
@@ -235,11 +238,10 @@ Preview. Rewake continues a session once it's closed.
    npx @codizelabs/agent-rewake install --only grok
    ```
 
-2. Work in Grok Build as usual. When a session stops at its usage limit, close it.
-3. Run `npx @codizelabs/agent-rewake continue`. Run it any time before the reset, and Rewake waits until then, then continues the closed session. Grok's free usage limit doesn't say when it resets, so `continue` asks you when (in 1, 3 or 5 hours, or another time).
-4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. This setting also applies to Claude Code, unless you typed `/rewake auto off` there. Reopening the session and typing in it before the reset also cancels its resume.
-5. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
-6. To remove it: `npx @codizelabs/agent-rewake uninstall --only grok`. That also cancels its planned resumes.
+2. Work in Grok Build as usual. When a session stops at its usage limit, type `/rewake` in that same session (the slash is optional). Grok's free usage limit doesn't say when it resets, so `/rewake` asks you to say when, for example `/rewake 3:30pm`. `/rewake list` shows what's planned, `/rewake cancel` cancels it. Then close the session: Rewake continues it once it's closed, at the chosen time.
+3. To have Rewake continue closed sessions by itself, without typing `/rewake` first, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again. This setting also applies to Claude Code, unless you typed `/rewake auto off` there. Typing anything else in the session before the reset cancels its resume.
+4. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
+5. To remove it: `npx @codizelabs/agent-rewake uninstall --only grok`. That also cancels its planned resumes.
 
 **Needs:** Grok Build 1.0.46 or newer (tested with 1.0.46).
 
@@ -256,11 +258,10 @@ Preview, not tried yet. Rewake continues a session once it's closed.
    ```
 
    It adds Rewake's hooks to Qwen Code's user settings file, `~/.qwen/settings.json` (or `settings.json` in the folder `QWEN_HOME` names). Your own settings and hooks stay, and the file is backed up first. Start a new Qwen Code session afterwards; one that is already open may pick the hooks up only when you open `/hooks` in it.
-2. Work in Qwen Code as usual. When a session stops at its usage limit, close it.
-3. Run `npx @codizelabs/agent-rewake continue`. Run it any time before the reset, and Rewake waits until then, then continues the closed session. Qwen Code's token-plan quota error says when the quota resets ("The quota will reset at 07-27 09:25:00 UTC"), without a year: Rewake takes the next such time. When an error gives no time, `continue` asks you when.
-4. To have Rewake continue closed sessions by itself, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again, and `continue --cancel` cancels every planned resume. This setting also applies to Claude Code, unless you typed `/rewake auto off` there. Reopening the session and typing in it before the reset also cancels its resume.
-5. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
-6. To remove it: `npx @codizelabs/agent-rewake uninstall --only qwen-code`. That removes only Rewake's hooks from the settings file and cancels its planned resumes.
+2. Work in Qwen Code as usual. When a session stops at its usage limit, type `/rewake` in that same session (the slash is optional). Qwen Code's token-plan quota error says when the quota resets ("The quota will reset at 07-27 09:25:00 UTC"), without a year: Rewake takes the next such time. When an error gives no time, say one, for example `/rewake 3:30pm`. `/rewake list` shows what's planned, `/rewake cancel` cancels it. Then close the session: Rewake continues it once it's closed, at the chosen time.
+3. To have Rewake continue closed sessions by itself, without typing `/rewake` first, run `npx @codizelabs/agent-rewake continue --always` once: from then on it does so when the reset is within a day. `continue --ask` asks again. This setting also applies to Claude Code, unless you typed `/rewake auto off` there. Typing anything else in the session before the reset cancels its resume.
+4. Check the setup: `npx @codizelabs/agent-rewake doctor`. Its "Outside Zed" section shows the next planned resume, and any that need you.
+5. To remove it: `npx @codizelabs/agent-rewake uninstall --only qwen-code`. That removes only Rewake's hooks from the settings file and cancels its planned resumes.
 
 **Needs:** Qwen Code 0.25.0 or newer. Not tried: no real Qwen Code has been run with Rewake, and no real Qwen Code usage limit has been met. Everything Rewake relies on comes from Qwen Code's documentation and source code at version 0.25.0, and from automated tests with a stand-in program. Windows hasn't been tried either; there Rewake sets the hooks to run in PowerShell.
 
@@ -332,9 +333,9 @@ Preview, for Cursor's own agent (the Agent panel). Not tried with a real Cursor 
    ```
 
    It adds two hooks to `~/.cursor/hooks.json` and keeps your own. Then reload Cursor's window: run **Developer: Reload Window** from the Command Palette.
-2. Work as usual. When a chat stops at its usage limit, Rewake notices and tells you to run `agent-rewake continue` (or `npx @codizelabs/agent-rewake continue`): Cursor doesn't say when its limit resets, so you choose the time, within 4 hours of the limit.
-3. Keep that Cursor window open: reloading or quitting Cursor cancels the continue. At the time, Rewake sends your resume message (marked as from Agent Rewake) into the same chat. By default it starts "Resume the work from where you were interrupted" and tells the agent to keep going without asking questions. If you type in the chat before then, it doesn't. If the window was closed or reloaded, Rewake tells you to continue the chat yourself.
-4. To see what's planned: `npx @codizelabs/agent-rewake doctor`. To cancel it: `npx @codizelabs/agent-rewake continue --cancel`.
+2. Work as usual. When a chat stops at its usage limit, type `/rewake` in that same chat: Cursor doesn't say when its limit resets, so you choose the time, within 4 hours of the limit (for example `/rewake 3:30pm`). `/rewake list` shows what's planned.
+3. Keep that Cursor window open: reloading or quitting Cursor cancels the continue. At the time, Rewake sends your resume message (marked as from Agent Rewake) into the same chat. By default it starts "Resume the work from where you were interrupted" and tells the agent to keep going without asking questions. If you type anything else in the chat before then, it doesn't. If the window was closed or reloaded, Rewake tells you to continue the chat yourself.
+4. To cancel, type `/rewake cancel` in the chat. To check the setup: `npx @codizelabs/agent-rewake doctor`.
 5. To remove it: `npx @codizelabs/agent-rewake uninstall --only cursor`.
 
 **Needs:** Cursor's agent hooks. Tried with Cursor 3.23; Rewake doesn't check Cursor's version.

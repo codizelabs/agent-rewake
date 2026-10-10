@@ -47,11 +47,13 @@ Install once with `npx @codizelabs/agent-rewake install`: it finds what's on you
 |---|---|---|---|
 | **A terminal** | Claude Code | Asks once at the limit, then continues the same session. `/rewake` sends messages later. If you close it at the limit first, `agent-rewake continue` continues the closed session (macOS, Linux) | Preview, tried on a Mac; the closed-session part isn't tried against a real limit |
 | | Codex | Type `rewake` at the limit; the thread continues after the reset | Preview, limit not tried by hand yet |
-| | GitHub Copilot CLI, Gemini CLI, Grok Build | Continues a closed session after the reset (`agent-rewake continue`, or on its own) | Preview, tried on a Mac |
-| | Antigravity CLI, Qwen Code, OpenCode | The same | Preview, not tried yet |
+| | Gemini CLI, Grok Build | Type `/rewake` at the limit; the session continues once closed (or `agent-rewake continue`) | Preview, tried on a Mac |
+| | GitHub Copilot CLI | Continues a closed session after the reset (`agent-rewake continue`, or on its own) | Preview, tried on a Mac |
+| | Antigravity CLI, OpenCode | The same | Preview, not tried yet |
+| | Qwen Code | Type `/rewake` at the limit; the session continues once closed | Preview, not tried yet |
 | **VS Code, Cursor** | Claude Code's panel | The same as in a terminal: the same plugin loads there | Preview, tried on a Mac |
 | | Codex's extension | Rewake's hooks show up there, waiting to be trusted; the rest isn't tried yet | Not tried yet |
-| | Cursor's own agent | At a usage limit, continues the chat at the time you choose (within 4 hours), while its window stays open | Preview, limit not tried yet |
+| | Cursor's own agent | Type `/rewake` at a usage limit to continue the chat at the time you choose (within 4 hours), while its window stays open | Preview, limit not tried yet |
 | **Zed** | Claude Agent, Codex, Gemini CLI, GitHub Copilot, OpenCode, goose and every other external agent | Resumes the thread at the reset; a **Rewake** menu, scheduled and repeating messages, a schedules page | In daily use |
 | **JetBrains IDEs, Devin Desktop** | Claude Agent, Codex (picked in AI Assistant or the agent selector) | Resumes after a limit while the IDE stays open, through the same add-on as in Zed | Preview, not tried yet |
 
@@ -107,20 +109,20 @@ Everything runs on your computer; nothing runs in the cloud.
 
 ## Use it
 
-In Zed, the **Rewake** menu under the message box does everything; elsewhere, type `/rewake` in the session (in Codex, `rewake` without the slash), or run `agent-rewake continue` in a terminal for a closed session.
+In Zed, the **Rewake** menu under the message box does everything; elsewhere, type `/rewake` in the session (in Codex, `rewake` without the slash). GitHub Copilot CLI and Antigravity CLI have no typed command: run `agent-rewake continue` in a terminal for a closed session there.
 
 | To… | In Zed | Elsewhere |
 |---|---|---|
-| Resume after a limit | **Rewake → Resume after the usage limit…** (offered automatically) | Answer Rewake's question, or type `/rewake` (or `/rewake 3:30pm`); for a closed session, `agent-rewake continue` |
+| Resume after a limit | **Rewake → Resume after the usage limit…** (offered automatically) | Answer Rewake's question, or type `/rewake` (or `/rewake 3:30pm`); for a closed session without a typed command (Copilot CLI, Antigravity CLI), `agent-rewake continue` |
 | Resume automatically | **Rewake → Turn on auto-resume after limits…** | Choose "from now on" in Rewake's question, `/rewake auto on` (Claude Code only), or `agent-rewake continue --always` (every agent outside Zed, Claude Code included) |
 | Schedule a message | **Rewake → Schedule a message…** | `/rewake in 3h Run the tests` (Claude Code) |
 | Repeat a message | **Custom time…** in the schedule form, or `/rewake every weekday 09:00 Check the build` | Not yet |
-| See or change messages | **Rewake → Schedules**, **Change a scheduled message…** | `/rewake list` and `/rewake cancel` (Claude Code, Gemini CLI; in Codex without the slash). `/rewake cancel N` deletes one message: Claude Code only |
+| See or change messages | **Rewake → Schedules**, **Change a scheduled message…** | `/rewake list` and `/rewake cancel` (Claude Code, Gemini CLI, Grok Build, Qwen Code, Cursor; in Codex without the slash). `/rewake cancel N` deletes one message: Claude Code only |
 | See what's planned | The Zed task **Agent Rewake: schedules** | `/rewake list` in the session; `agent-rewake schedules` lists every one, marking the resumes outside Zed; `agent-rewake doctor` shows the next planned resume of a closed session |
-| Cancel a planned resume | **Rewake → Change a scheduled message…**, or the schedules page | `agent-rewake continue --cancel` lets you pick one, or all; `agent-rewake continue --cancel <id>` cancels one by the id in square brackets in `agent-rewake schedules` |
+| Cancel a planned resume | **Rewake → Change a scheduled message…**, or the schedules page | `/rewake cancel` in the session where it's typed, or `agent-rewake continue --cancel` to pick one or all; `agent-rewake continue --cancel <id>` cancels one by the id in square brackets in `agent-rewake schedules` |
 | Change settings | **Rewake → Settings…** | `agent-rewake settings` lists them with what each does; `agent-rewake settings change` lets you pick one, or `agent-rewake settings <name> <value>` changes it (for example `agent-rewake settings clock 24h`) |
 
-**One command everywhere:** `/rewake` is the same in Zed, Claude Code and Gemini CLI (in Codex, type `rewake` without the slash). At a usage limit it continues after the reset; `/rewake <time>` continues then, `/rewake cancel` cancels it, and `/rewake help` lists what else works where you are. Rewake answers it itself, without using the model.
+**One command everywhere:** `/rewake` is the same in Zed, Claude Code, Gemini CLI, Grok Build, Qwen Code and Cursor's own agent (in Codex, type `rewake` without the slash). At a usage limit it continues after the reset; `/rewake <time>` continues then, `/rewake cancel` cancels it, and `/rewake help` lists what else works where you are. Rewake answers it itself, without using the model. `npx`/`agent-rewake` on the command line is only for installing, uninstalling and the two agents with no typed command (GitHub Copilot CLI, Antigravity CLI).
 
 Full guide: **[codizelabs.github.io/agent-rewake/docs](https://codizelabs.github.io/agent-rewake/docs/)**.
 
