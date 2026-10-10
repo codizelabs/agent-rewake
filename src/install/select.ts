@@ -54,7 +54,7 @@ export function defaultChoice(places: Place[]): Set<PlaceId> {
 export const PREVIEW_NOTE = "Everything except Zed is a preview: new, and may change.";
 
 /** "a, b and c" (or just "a" for one, "a and b" for two): used wherever a list of names is read out loud. */
-function listNames(names: string[]): string {
+export function listNames(names: string[]): string {
   return names.length <= 1
     ? (names[0] ?? "")
     : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;

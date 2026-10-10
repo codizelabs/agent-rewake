@@ -61,6 +61,7 @@ import {
   defaultChoice,
   defaultPlaceText,
   type Keypress,
+  listNames,
   type Place,
   PREVIEW_NOTE,
   placesFrom,
@@ -111,6 +112,7 @@ import { ensurePrivateDir, stateDir } from "./util/paths.js";
 import { agentProcess } from "./util/proc.js";
 import { readSleepSettings } from "./util/sleep-settings.js";
 import { resolveCommand } from "./util/spawn.js";
+import { noColorFrom, paint } from "./util/style.js";
 import { VERSION } from "./version.js";
 import {
   CLAUDE_REGISTRY_ID,
@@ -171,6 +173,19 @@ export function alreadyConfirmedChoice(
   interactive: boolean,
 ): boolean {
   return picked && (yes || interactive);
+}
+
+/**
+ * The one line said before applying several places from the screen (or `--all`): their names,
+ * not each one's own full breakdown of file paths and per-agent bullets. That full breakdown
+ * still exists, unabridged, one flag away.
+ */
+export function multiPlaceLine(names: string[], noColor: boolean): string {
+  const colored = names.map((n) => paint(n, "accent", noColor));
+  return (
+    `\nAgent Rewake will set up ${listNames(colored)}.\n` +
+    `${paint(`See every line: ${rewake("install --dry-run")}`, "dim", noColor)}\n`
+  );
 }
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
@@ -455,17 +470,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     // --yes, the same safety net as before (checked after showing what would happen, as before).
     const alreadyConfirmed = alreadyConfirmedChoice(picked, yes, interactive);
     if (picked && !dryRun && order.length > 1) {
-      // Several places from the screen: every change first, then (plan §4.1: one decision,
-      // already made on the screen that chose these places) straight on to applying them.
-      for (const id of order) {
-        print(`\n${placeName(id)}\n`);
-        await runPlace(id, {
-          yes: false,
-          dryRun: true,
-          // Each place's own dry-run line would read as if nothing will happen: left out here.
-          out: (t) => print(t.replace(/^Dry run: nothing was (changed|written)\.\n/gm, "")),
-        });
-      }
+      // Several places from the screen: one short line naming them (not each place's own full
+      // breakdown — that was a wall of file paths and a bullet per agent, exactly the long-to-read
+      // screen the quick question upstream was built to avoid), then (plan §4.1: one decision,
+      // already made on the screen that chose these places) straight on to applying them. The full
+      // breakdown for every place is still `install --dry-run`, unabridged, same as for one place.
+      print(multiPlaceLine(order.map(placeName), noColorFrom(env)));
       if (!uninstall && loginWouldAdd(env, order))
         print(`\n${loginItemPlanText(process.platform)}`);
       if (!alreadyConfirmed) {

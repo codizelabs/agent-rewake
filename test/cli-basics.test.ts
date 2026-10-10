@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { alreadyConfirmedChoice, main } from "../src/cli.js";
+import { alreadyConfirmedChoice, main, multiPlaceLine } from "../src/cli.js";
 import { registerHost, ScheduleStore } from "../src/core/store.js";
 import { ThreadStore } from "../src/core/threads.js";
 import {
@@ -24,6 +24,7 @@ import {
   INTERNAL,
   PLACES,
 } from "../src/help.js";
+import { NPX_COMMAND, setRewakeCommand } from "../src/util/command.js";
 import { readInstalled } from "../src/util/installed.js";
 import { VERSION } from "../src/version.js";
 
@@ -394,6 +395,38 @@ describe("no second 'Apply these changes?' for a decision already made (--all, o
   });
   it("picked, but no terminal and no --yes: nobody was there to decide, so it still asks for --yes", () => {
     expect(alreadyConfirmedChoice(true, false, false)).toBe(false);
+  });
+
+  // The owner hit this for real: --all on a machine with six real agents printed every agent's
+  // own full breakdown (every file path, one bullet per agent) before even getting to "Apply
+  // these changes?". Names only now, not each place's own wall of text — that's still exactly
+  // one flag away, `install --dry-run`, for whoever wants it. Tested as a pure function, not by
+  // running --all for real: which places it finds depends on what's actually installed on the
+  // machine running the test (none of them, on CI), so that wouldn't be a reliable test anywhere.
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping the ANSI codes themselves
+  const strip = (s: string) => s.replace(/\x1b\[\d*m/g, "");
+
+  it("several places: their names only, not each one's own file paths and bullets", () => {
+    setRewakeCommand(NPX_COMMAND);
+    const text = strip(multiPlaceLine(["Zed", "Claude Code", "Codex", "GitHub Copilot CLI"], true));
+    expect(text).toBe(
+      "\nAgent Rewake will set up Zed, Claude Code, Codex and GitHub Copilot CLI.\n" +
+        `See every line: ${NPX_COMMAND} install --dry-run\n`,
+    );
+    expect(text).not.toContain("settings.json");
+    expect(text).not.toContain("Add Rewake to");
+    setRewakeCommand(undefined);
+  });
+
+  it("colours the names by default; NO_COLOR drops colour (keeps bold) but keeps the wording identical", () => {
+    setRewakeCommand(NPX_COMMAND);
+    const withColor = multiPlaceLine(["Zed", "Codex"], false);
+    const plain = multiPlaceLine(["Zed", "Codex"], true);
+    expect(withColor).toContain("\x1b[36m"); // accent (cyan), colour on
+    expect(plain).not.toContain("\x1b[36m"); // NO_COLOR: no cyan...
+    expect(plain).toContain("\x1b[1m"); // ...but still bold, so the names still stand out
+    expect(strip(withColor)).toBe(strip(plain));
+    setRewakeCommand(undefined);
   });
 
   it("--all with no terminal and no --yes still refuses: the safety net is unchanged", async () => {
