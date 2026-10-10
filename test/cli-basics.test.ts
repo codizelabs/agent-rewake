@@ -26,6 +26,7 @@ import {
 } from "../src/help.js";
 import { NPX_COMMAND, setRewakeCommand } from "../src/util/command.js";
 import { readInstalled } from "../src/util/installed.js";
+import { withoutStyle } from "../src/util/style.js";
 import { VERSION } from "../src/version.js";
 
 let dir: string;
@@ -403,8 +404,7 @@ describe("no second 'Apply these changes?' for a decision already made (--all, o
   // one flag away, `install --dry-run`, for whoever wants it. Tested as a pure function, not by
   // running --all for real: which places it finds depends on what's actually installed on the
   // machine running the test (none of them, on CI), so that wouldn't be a reliable test anywhere.
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping the ANSI codes themselves
-  const strip = (s: string) => s.replace(/\x1b\[\d*m/g, "");
+  const strip = withoutStyle;
 
   it("several places: their names only, not each one's own file paths and bullets", () => {
     setRewakeCommand(NPX_COMMAND);
@@ -430,6 +430,8 @@ describe("no second 'Apply these changes?' for a decision already made (--all, o
   });
 
   it("--all with no terminal and no --yes still refuses: the safety net is unchanged", async () => {
+    // Zed is the one place that is always there to find, whatever else this computer has installed.
+    writeFileSync(join(dir, "zed", "settings.json"), JSON.stringify({}));
     const r = await run(["install", "--all"]);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/Not a terminal, so nothing was (changed|written)/);

@@ -29,6 +29,7 @@ import {
   runInstall,
   TASK_LABEL,
 } from "../src/install.js";
+import { withoutStyle } from "../src/util/style.js";
 import { canSymlink } from "./support.js";
 
 const launch: LaunchCommand = {
@@ -408,8 +409,7 @@ describe("agent-rewake uninstall", () => {
   });
 });
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping the ANSI codes themselves
-const strip = (s: string) => s.replace(/\x1b\[\d*m/g, "");
+const strip = withoutStyle;
 
 describe("what's shown before 'Apply these changes?'", () => {
   // Five agents, as a real multi-agent install plan would build it: one summary bullet each, all

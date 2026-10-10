@@ -15,6 +15,7 @@ import {
   renderChoice,
   UNREACHABLE,
 } from "../src/install/select.js";
+import { ESC, withoutStyle } from "../src/util/style.js";
 
 /** A key press as the test data below names it, built the same shape `emitKeypressEvents` gives. */
 function key(name: string, sequence = name): Keypress {
@@ -22,8 +23,7 @@ function key(name: string, sequence = name): Keypress {
 }
 
 /** For assertions about wording, not colour: strip every SGR code `renderChoice` adds. */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping the ANSI codes themselves
-const strip = (s: string) => s.replace(/\x1b\[\d*m/g, "");
+const strip = withoutStyle;
 
 const older = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }) < 0;
 const places: Place[] = placesFrom(
@@ -81,10 +81,8 @@ describe("the install screen", () => {
     expect(plain).toContain("\x1b[1m");
     expect(plain).toContain("\x1b[2m");
     // Every styled run is closed, with or without colour.
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ANSI codes themselves
-    const OPEN = /\x1b\[(?:1|2|36|33)m/g;
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ANSI codes themselves
-    const CLOSE = /\x1b\[0m/g;
+    const OPEN = new RegExp(`${ESC}\\[(?:1|2|36|33)m`, "g");
+    const CLOSE = new RegExp(`${ESC}\\[0m`, "g");
     for (const s of [withColor, plain]) {
       expect((s.match(OPEN) ?? []).length).toBe((s.match(CLOSE) ?? []).length);
     }
@@ -143,10 +141,8 @@ describe("the install screen", () => {
       columns: () => columns,
     });
     // Two frames were drawn: the first has no "move up" (drawn starts at 0), the second does.
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ANSI codes themselves
-    const MOVE_UP = /^\u001b\[\d+A$/;
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ANSI codes themselves
-    const MOVE_UP_N = /^\u001b\[(\d+)A$/;
+    const MOVE_UP = new RegExp(`^${ESC}\\[\\d+A$`);
+    const MOVE_UP_N = new RegExp(`^${ESC}\\[(\\d+)A$`);
     const moves = writes.filter((w) => MOVE_UP.test(w));
     expect(moves).toHaveLength(1);
     const movedUp = Number(MOVE_UP_N.exec(moves[0] ?? "")?.[1]);
@@ -156,8 +152,7 @@ describe("the install screen", () => {
     const firstFrame = writes[0] ?? "";
     const frameLines = firstFrame.split("\n").slice(0, -1); // drop the empty entry after the last \n
     const strippedWidths = frameLines.map(
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping the ANSI codes themselves
-      (l) => l.replace(/\x1b\[\d*m/g, "").replace(/^\x1b\[2K/, "").length,
+      (l) => withoutStyle(l).replace(new RegExp(`^${ESC}\\[2K`), "").length,
     );
     const expectedRows = strippedWidths.reduce(
       (n, w) => n + Math.max(1, Math.ceil(w / columns)),

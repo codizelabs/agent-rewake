@@ -23,6 +23,14 @@ export function paint(text: string, tone: Tone, noColor: boolean): string {
 }
 
 /** `NO_COLOR` or `TERM=dumb`: the convention every Rewake surface checks the same way. */
+/** The escape character that starts every terminal code. */
+export const ESC = String.fromCharCode(27);
+
+/** A text without its colour and weight codes: what is left is what shows on screen. */
+export function withoutStyle(text: string): string {
+  return text.replace(new RegExp(`${ESC}\\[\\d*m`, "g"), "");
+}
+
 export function noColorFrom(env: NodeJS.ProcessEnv): boolean {
   return Boolean(env.NO_COLOR) || env.TERM === "dumb";
 }

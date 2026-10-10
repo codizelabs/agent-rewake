@@ -1,5 +1,5 @@
 import { rewake } from "../util/command.js";
-import { paint, type Tone } from "../util/style.js";
+import { paint, type Tone, withoutStyle } from "../util/style.js";
 import type { Found, PlaceId } from "./detect.js";
 
 /**
@@ -248,8 +248,7 @@ export interface ChoiceIO {
 
 /** A line's length on screen: an SGR code moves no cursor, so it doesn't count towards width. */
 function visibleWidth(line: string): number {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ANSI codes themselves
-  return line.replace(/\x1b\[\d*m/g, "").length;
+  return withoutStyle(line).length;
 }
 
 /**
