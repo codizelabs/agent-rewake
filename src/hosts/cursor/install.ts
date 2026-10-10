@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { applyPlan, type FileChange, type Plan } from "../../install.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
-import { rewake } from "../../util/command.js";
 import { readJsonFile } from "../../util/fs.js";
 import { findOnWindows } from "../../util/spawn.js";
 
@@ -12,12 +11,13 @@ import { findOnWindows } from "../../util/spawn.js";
  * window) runs hooks listed in `~/.cursor/hooks.json` (Cursor 3.23; research
  * cursor-agent-2026-10-08). Rewake adds two entries and keeps the person's own:
  *
- * - `beforeSubmitPrompt`: notes that the person typed in a chat (a planned continue is then
+ * - `beforeSubmitPrompt`: recognises `/rewake` typed into the chat (continue, list or cancel; see
+ *   src/hosts/cursor/host.ts) and otherwise notes that the person typed (a planned continue is then
  *   dropped, and a waiting one stays silent: Cursor would otherwise submit it after their turn).
  * - `stop`: at a turn that ended in a usage limit, records it and waits, up to `WAIT_SECONDS`, for
- *   the time the person chooses (`agent-rewake continue`), then answers with Cursor's
- *   `followup_message`, which Cursor submits into the same chat (tested: E-C3). Other turns end it
- *   at once. Its long timeout is what lets it wait.
+ *   the time chosen via `/rewake` in the chat, then answers with Cursor's `followup_message`, which
+ *   Cursor submits into the same chat (tested: E-C3). Other turns end it at once. Its long timeout
+ *   is what lets it wait.
  *
  * Uninstall removes only Rewake's entries (they run `… hook cursor …`).
  */
@@ -177,7 +177,7 @@ export async function runCursorInstall(o: CursorInstallOptions): Promise<number>
           "Agent Rewake (preview) will add its hooks to Cursor's own agent:",
           `  ${file}`,
           "",
-          `When a Cursor chat stops at its usage limit, run "${rewake("continue")}" (in Cursor's own terminal or any other) and pick a time within 4 hours. Rewake then continues that chat, as long as its window stays open. Typing in the chat cancels it. A limit that waiting won't lift (one that needs a paid plan or a new month) gets a notification instead. To skip picking a time, every time: run "${rewake("continue --always")}" once, and Rewake continues the chat itself, at the time Cursor reports, in every agent this applies to. Your own hooks stay; Rewake keeps a backup of the file.`,
+          `When a Cursor chat stops at its usage limit, type "/rewake" in that same chat and pick a time within 4 hours (or "/rewake 3:30pm"). Rewake then continues that chat, as long as its window stays open. Typing anything else first cancels it. A limit that waiting won't lift (one that needs a paid plan or a new month) gets a notification instead. "/rewake" also lists or cancels what's planned ("/rewake list", "/rewake cancel"). Your own hooks stay; Rewake keeps a backup of the file.`,
           "",
         ].join("\n"),
   );

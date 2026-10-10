@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
+import { continueOnly, type RewakePlace } from "../../core/command.js";
 import { recogniseForHost } from "../../core/limits/recognise.js";
+import { RESET_MARGIN_MS } from "../../core/resume.js";
 import { ScheduleStore } from "../../core/store.js";
 import { formatAt } from "../../core/time.js";
 import {
+  armClosed,
   type ClosedDeps,
   type ClosedHost,
   onLimit,
@@ -24,10 +27,28 @@ import { WAIT_SECONDS } from "./install.js";
  * after their turn). If the window closes, the waiting hook goes with it: the system timer, a few
  * minutes after the time, tells the person to continue the chat themselves.
  *
+ * `/rewake` (the slash is optional, same as Codex's bare `rewake`) is typed into the chat like any
+ * other message: `beforeSubmitPrompt` recognises it, arms the resume with the shared command
+ * grammar (src/core/command.ts), and answers with `{"continue":false,"user_message":…}`, which
+ * Cursor shows instead of sending the text to the model. Cursor's own docs confirm `continue:
+ * false` blocks the submission (cursor.com/docs/hooks, checked 2026-10-10); it isn't a registered
+ * slash command the way Zed's ACP menu is — Cursor's hooks have no way to add one — just recognised
+ * text, the same shape as Codex's. Only continuing after a limit, listing and cancelling: Cursor
+ * can't schedule an arbitrary message or repeat one, so its RewakePlace has no extra features.
+ *
  * Cursor's payload carries the person's email address: nothing from it is stored but the chat id,
  * its folder and the limit.
  */
 export const CURSOR_ID = "cursor";
+
+const CURSOR_PLACE: RewakePlace = { name: "Cursor", typed: "/rewake", features: new Set() };
+/** The slash is optional: `/rewake 3pm` and `rewake 3pm` both work, matching Codex's bare form. */
+const REWAKE = /^\s*\/?rewake(?:\s+([\s\S]*?))?\s*$/i;
+
+/** Cursor's own hook response: shown to the person instead of sending the text to the model. */
+function block(userMessage: string): string {
+  return JSON.stringify({ continue: false, user_message: userMessage });
+}
 
 /** After the chosen time, how long the timer waits before telling the person (the hook goes first). */
 const FALLBACK_MS = 3 * 60_000;
@@ -90,8 +111,13 @@ export function cursorHooks(deps: CursorHookDeps): HookHandler {
       const cwd = Array.isArray(roots) && typeof roots[0] === "string" ? roots[0] : "";
       const d = deps.closed(ctx);
       if (ctx.event === "beforeSubmitPrompt") {
-        onPrompt(cursorHost, id, cwd, d);
-        return undefined;
+        const prompt = typeof ctx.input.prompt === "string" ? ctx.input.prompt : "";
+        const m = REWAKE.exec(prompt);
+        if (!m) {
+          onPrompt(cursorHost, id, cwd, d);
+          return undefined;
+        }
+        return handleRewake(id, m[1] ?? "", ctx, d);
       }
       if (ctx.event !== "stop") return undefined;
       if (ctx.input.status !== "error") return "{}";
@@ -113,6 +139,58 @@ export function cursorHooks(deps: CursorHookDeps): HookHandler {
       return waitAndDeliver(id, ctx, d, now, sleep, deps.waitMs ?? WAIT_SECONDS * 1000 - 60_000);
     },
   };
+}
+
+/**
+ * `/rewake …` typed into the chat: continue after the limit, at the reset or a chosen time, list
+ * or cancel what's planned. Arms the same kind of resume `agent-rewake continue` would (armClosed,
+ * src/hosts/closed.ts): the `stop` hook that's already waiting (waitAndDeliver) polls the same
+ * store and delivers it — nothing about delivery changes, only how the time gets chosen.
+ */
+function handleRewake(id: string, args: string, ctx: HookContext, d: ClosedDeps): string {
+  const records = new SessionRecords(ctx.stateDir, CURSOR_ID);
+  const c = continueOnly(CURSOR_PLACE, args, ctx.now);
+  if (c.kind === "reply") return block(c.text);
+  if (c.kind === "list") {
+    const next = pendingFor(ctx.stateDir, CURSOR_ID, id).sort((a, b) => a.dueAt - b.dueAt)[0];
+    return block(
+      next
+        ? `Rewake will continue this chat ${formatAt(next.dueAt, ctx.now)}. To cancel: /rewake cancel`
+        : "Rewake: Nothing is set to continue this chat. At a usage limit, type /rewake to continue after the reset.",
+    );
+  }
+  if (c.kind === "cancel") {
+    const pending = pendingFor(ctx.stateDir, CURSOR_ID, id);
+    const store = new ScheduleStore(ctx.stateDir);
+    for (const s of pending) if (store.cancel(s.scheduleId, ctx.now)) d.disarm(s.scheduleId);
+    return block(
+      pending.length > 0
+        ? "Rewake: Cancelled. This chat won't be continued on its own."
+        : "Rewake: Nothing is set to continue this chat.",
+    );
+  }
+  const r = records.get(id);
+  const limit = r?.limit;
+  if (!r || !limit)
+    return block("Rewake: this chat isn't at a usage limit, so there's nothing to continue.");
+  if (limit.billing)
+    return block(
+      "Rewake can't continue after this limit: this limit is about credits or spending, which waiting doesn't fix.",
+    );
+  const at = c.at ?? (limit.resetsAt !== undefined ? limit.resetsAt + RESET_MARGIN_MS : undefined);
+  if (at === undefined)
+    return block("Rewake doesn't know when this resets yet. Try /rewake 3:30pm.");
+  // Cursor can only continue a chat from inside the stop hook that's already waiting for it
+  // (there's no way to send into a chat from outside): the same four-hour bound that hook has.
+  const maxAt = ctx.now + (cursorHost.maxWaitAfterLimitMs ?? WAIT_SECONDS * 1000 - 60_000);
+  if (at > maxAt)
+    return block(
+      `Rewake can only continue a Cursor chat within 4 hours of its usage limit. Try a time before ${formatAt(maxAt, ctx.now)}.`,
+    );
+  armClosed(cursorHost, r, at, d);
+  return block(
+    `Rewake will continue this chat ${formatAt(at, ctx.now)}. Keep this window open until then. Typing again before then cancels it.`,
+  );
 }
 
 /** Wait for the chosen time, then answer with the continue, unless the person typed meanwhile. */

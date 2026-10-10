@@ -332,9 +332,9 @@ Preview, for Cursor's own agent (the Agent panel). Not tried with a real Cursor 
    ```
 
    It adds two hooks to `~/.cursor/hooks.json` and keeps your own. Then reload Cursor's window: run **Developer: Reload Window** from the Command Palette.
-2. Work as usual. When a chat stops at its usage limit, Rewake notices and tells you to run `agent-rewake continue` (or `npx @codizelabs/agent-rewake continue`): Cursor doesn't say when its limit resets, so you choose the time, within 4 hours of the limit.
-3. Keep that Cursor window open: reloading or quitting Cursor cancels the continue. At the time, Rewake sends your resume message (marked as from Agent Rewake) into the same chat. By default it starts "Resume the work from where you were interrupted" and tells the agent to keep going without asking questions. If you type in the chat before then, it doesn't. If the window was closed or reloaded, Rewake tells you to continue the chat yourself.
-4. To see what's planned: `npx @codizelabs/agent-rewake doctor`. To cancel it: `npx @codizelabs/agent-rewake continue --cancel`.
+2. Work as usual. When a chat stops at its usage limit, type `/rewake` in that same chat: Cursor doesn't say when its limit resets, so you choose the time, within 4 hours of the limit (for example `/rewake 3:30pm`). `/rewake list` shows what's planned.
+3. Keep that Cursor window open: reloading or quitting Cursor cancels the continue. At the time, Rewake sends your resume message (marked as from Agent Rewake) into the same chat. By default it starts "Resume the work from where you were interrupted" and tells the agent to keep going without asking questions. If you type anything else in the chat before then, it doesn't. If the window was closed or reloaded, Rewake tells you to continue the chat yourself.
+4. To cancel, type `/rewake cancel` in the chat. To check the setup: `npx @codizelabs/agent-rewake doctor`.
 5. To remove it: `npx @codizelabs/agent-rewake uninstall --only cursor`.
 
 **Needs:** Cursor's agent hooks. Tried with Cursor 3.23; Rewake doesn't check Cursor's version.
