@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Rewake tells you when the project changed while a continue waited (outside Zed):** when the session's folder is a git folder, Rewake notes its latest commit and a hash of the `git status --porcelain --untracked-files=no` summary (names and status of tracked files, never contents; only the commit id and the hash are kept) a moment after it plans the continue, and checks again just before it sends. If either differs, the new `workspace-changed` setting decides: `tell` (default) tells you and sends the message as it was; `note` also adds one fixed line to the message asking the agent to re-read files before editing; `hold` sends nothing, marks the continue as needing you and says what changed and how to continue; `off` doesn't check. New untracked files (a `.DS_Store`, build output, logs) don't count. It uses local `git` commands only, within about a second when planning and two seconds when sending, and does nothing when `git` or a git folder is missing. `agent-rewake schedules --explain <id>` mentions the check. Zed threads are not checked.
+
 ### Changed
 
 - **Updating in Zed: Reload Agent instead of quitting Zed.** After `install`, choose **Reload Agent** in the Agent Panel's menu (Zed 1.18 or newer) in each open thread; Zed then starts a fresh copy of Rewake and reopens the thread's session. Quitting Zed completely still always works, and the README, the docs and `doctor` say both. This comes from reading Zed's source (the entry drops the agent's connection and rebuilds the thread from its session); it has not been tried with Rewake by hand yet.
