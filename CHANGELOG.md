@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- **Codex warns you before a usage limit:** the same warnings as in Claude Code (a message when a usage window passes 80% used and again at 95%, and when your pace over the last hour would reach the limit within about 45 minutes and before the window resets) now come in Codex, through the Codex plugin's existing prompt hook (no new hook, so Codex doesn't ask you to trust anything again). They come when you send your next prompt, from the figures Codex stored after its previous reply: one turn late by design, as of Codex's last reply, and not before your first prompt in a thread. Codex shows it to you as a warning; it is never sent to the model. Each warning shows once per window for your Codex account, across threads and restarts; `usage-warnings off` turns it off, and Rewake's own `rewake` command never triggers one. It is not yet seen in the Codex desktop app or the VS Code extension, and it is unknown whether `codex exec` shows it. The other agents are not covered.
+
 ### Fixed
 
 - **A landing-page illustration's "Input Requested" dialog was cut off mid-field, with its Submit/Decline/Cancel buttons never shown.** Every item in a Zed-thread illustration (`src/components/scenes/*.astro`) could be shrunk by the flexbox layout to fit the window; the dialog's own `overflow: hidden` then silently clipped the bottom of whichever one got compressed, instead of the intended behaviour (older content fades out at the top). Now nothing in the thread shrinks below its own size.

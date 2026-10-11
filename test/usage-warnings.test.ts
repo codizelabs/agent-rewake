@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadSettings, saveSettings } from "../src/core/settings.js";
+import * as port from "../src/core/usage-warn.js";
 
 type Sample = { t: number; p: number };
 interface State {
@@ -246,5 +247,95 @@ describe("usage-warnings setting", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("usage warnings: the TypeScript port (Codex) matches the Claude Code plugin's rules", () => {
+  type Reading = { p: number; min: number; reset?: string };
+  const fixtures: Record<string, Reading[]> = {
+    thresholds: [10, 79, 80, 81, 90, 95, 96, 99, 100].map((p, i) => ({ p, min: i * 5 })),
+    jump: [
+      { p: 50, min: 0 },
+      { p: 97, min: 5 },
+      { p: 98, min: 10 },
+    ],
+    pace: [30, 40, 50, 60, 61, 62].map((p, i) => ({ p, min: i * 10 })),
+    flatThenIdle: [
+      { p: 20, min: 0 },
+      { p: 24, min: 10 },
+      { p: 28, min: 20 },
+      { p: 28, min: 170 },
+    ],
+    drop: [50, 60, 30, 31].map((p, i) => ({ p, min: i * 12 })),
+    cap: Array.from({ length: 20 }, (_, i) => ({ p: 10 + i, min: i * 2 })),
+    nextWindow: [
+      { p: 85, min: 0 },
+      { p: 86, min: 1 },
+      { p: 85, min: 360, reset: "2026-10-06T20:00:00Z" },
+    ],
+    drift: [0, 1, 2, 3].map((i) => ({
+      p: 85 + i,
+      min: i,
+      reset: new Date(Date.parse(RESET) + i * 15 * MIN).toISOString(),
+    })),
+    afterReset: [{ p: 90, min: 0, reset: "2026-10-06T09:00:00Z" }],
+    nearReset: [30, 40, 50, 60].map((p, i) => ({ p, min: i * 10, reset: "2026-10-06T10:31:00Z" })),
+  };
+
+  for (const [name, readings] of Object.entries(fixtures)) {
+    it(`gives the same steps: ${name}`, () => {
+      let a: State | undefined;
+      let b: State | undefined;
+      for (const r of readings) {
+        const now = NOW + r.min * MIN;
+        const reset = r.reset ?? RESET;
+        const x = logic.usageStep(a, five(r.p, reset), now);
+        const y = port.usageStep(
+          b,
+          { kind: "five_hour", percentUsed: r.p, resetsAt: Date.parse(reset) },
+          now,
+        );
+        expect(y).toEqual(x);
+        a = x?.next ?? a;
+        b = y?.next ?? b;
+      }
+    });
+  }
+
+  it("gives the same time to limit and pace range", () => {
+    const samples = [
+      { t: NOW, p: 10 },
+      { t: NOW + 10 * MIN, p: 50 },
+      { t: NOW + 110 * MIN, p: 57 },
+      { t: NOW + 120 * MIN, p: 60 },
+      { t: NOW + 125 * MIN, p: 62 },
+    ];
+    for (let k = 1; k <= samples.length; k++) {
+      const part = samples.slice(0, k);
+      const now = part.at(-1)?.t ?? NOW;
+      expect(port.timeToLimit(part, now)).toEqual(logic.timeToLimit(part, now));
+    }
+    for (const ms of [0, 10 * MIN, 30 * MIN, 45 * MIN, 3 * 60 * MIN])
+      expect(port.paceRange(ms)).toEqual(logic.paceRange(ms));
+  });
+
+  it("names the windows Codex reports", () => {
+    expect(port.limitName("five_hour")).toBe("5-hour limit");
+    expect(port.limitName("seven_day")).toBe("7-day limit");
+    expect(port.limitName("24_hour")).toBe("24-hour limit");
+  });
+
+  it("words the warnings for Codex, and never claims to compact or type", () => {
+    expect(port.levelText("five_hour", 80.6, "at 3:00 AM today")).toBe(
+      "5-hour limit: 80% used, as of Codex's last reply. It resets at 3:00 AM today.",
+    );
+    const high = port.levelText("seven_day", 96, "on Friday at 9:00 AM");
+    expect(high).toBe(
+      "7-day limit: 96% used, as of Codex's last reply. It resets on Friday at 9:00 AM. A good moment to wrap up or save what you are doing.",
+    );
+    expect(high).not.toContain("compact");
+    expect(port.paceText("five_hour", [20, 40], "at 3:00 AM today")).toBe(
+      "At this pace you reach the 5-hour limit in about 20 to 40 minutes, before it resets at 3:00 AM today.",
+    );
   });
 });
