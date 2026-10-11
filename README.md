@@ -149,7 +149,7 @@ This takes Rewake out of every place it's set up in, after showing every change 
 
 ## Status
 
-Version 0.3. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. What changed in each release is in the [changelog](https://codizelabs.github.io/agent-rewake/changelog/). Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose). If Rewake missed a usage limit, [say how](https://codizelabs.github.io/agent-rewake/docs/#report-a-limit-rewake-missed).
+Version 0.4. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: the docs say [what's been tried for each](https://codizelabs.github.io/agent-rewake/docs/#outside-zed-previews), and what hasn't. What changed in each release is in the [changelog](https://codizelabs.github.io/agent-rewake/changelog/). Feedback and bug reports are very welcome: [open an issue](https://github.com/codizelabs/agent-rewake/issues/new/choose). If Rewake missed a usage limit, [say how](https://codizelabs.github.io/agent-rewake/docs/#report-a-limit-rewake-missed).
 
 ## Contributing
 
