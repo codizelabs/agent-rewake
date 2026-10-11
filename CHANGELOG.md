@@ -4,6 +4,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-11
+
 ### Added
 
 - **Claude Code warns you before a usage limit:** the plugin shows a short message when a usage window (the 5-hour or the 7-day one) passes 80% used and again at 95% (one message if it jumps past both), and when, at your pace over the last hour, you would reach the limit within about 45 minutes and before the window resets. The pace is shown as a range in 5-minute steps ("At this pace you reach the 5-hour limit in about 20 to 40 minutes, before it resets at 3:00 AM today"), and nothing is shown while the pace is unknown. It uses only the usage figures Claude Code already gives the plugin, as of its last reply: no network, no sign-in. Each warning shows once per window for your Claude Code account, also across restarts and other sessions. It only tells you: the 80% message mentions `/compact` (which uses some quota itself), the 95% one says it is a good moment to wrap up; it never types or compacts anything. Spending caps are left out, and so are `-p` and SDK runs with nobody at the prompt. The new `usage-warnings` setting (`on` by default, or `off`) turns it off: `agent-rewake settings usage-warnings off`. Codex and the other agents are not covered.
