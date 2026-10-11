@@ -19,7 +19,7 @@ export interface Mock {
     mode?: "ok" | "limit";
     until?: number;
     claim?: "five_hour" | "seven_day";
-    profile?: "" | "copilot" | "xai-free" | "xai-402";
+    profile?: "" | "copilot" | "xai-free" | "xai-402" | "qwen";
     reply?: string;
     /** Refuses unconditionally, regardless of `until`, until cleared with `limitForce: false`. */
     limitForce?: boolean;
