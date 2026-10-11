@@ -4,7 +4,8 @@
 // `reply` or refusing with that agent's own usage-limit response until `until` (ms).
 // Set the state with `set()` (or POST /__mock): mode "ok" | "limit", until, claim (Claude's
 // window: five_hour | seven_day) and profile, the limit's wire format when the path alone doesn't
-// say: "copilot" (a weekly limit), "xai-free" or "xai-402" (Grok). `limitForce: true` refuses
+// say: "copilot" (a weekly limit), "xai-free" or "xai-402" (Grok), "qwen" (a quota Qwen Code
+// itself won't retry). `limitForce: true` refuses
 // unconditionally, so a test can clear it explicitly instead of racing `until` against a slow
 // process start; `until` still sets the advertised reset time either way. It records each request's method,
 // path, whether it was refused, its body and the text of its user messages (made-up test data);
@@ -108,6 +109,32 @@ const LIMITS = {
       },
     },
   }),
+  // Qwen Code's own UI (isQuotaExhaustedError, packages/core/src/utils/quotaErrorDetection.ts of
+  // QwenLM/qwen-code, read 2026-10-11) only treats this as a spent quota, not a retryable rate
+  // limit, when the message itself says "quota", "exhausted"/"exceeded" and "will reset"/"reset
+  // at" — HTTP status isn't checked there. But the StopFailure hook's `error` field comes from a
+  // separate, cruder classifier (classifyApiError, packages/cli/src/utils/classify-api-error.ts)
+  // that checks `status === 429` BEFORE any text match, falling back to the response body's
+  // nested `error.code` only when the transport didn't set `.status` directly — and only if that
+  // fallback is a *number*: `code` here must stay numeric, or status extraction silently fails and
+  // the text match below ("quota") wrongly wins, misreporting this resumable case as billing.
+  // The date has no year, read as the next such time from now.
+  qwen: (s) => {
+    const d = new Date(s.until);
+    const pad = (n) => String(n).padStart(2, "0");
+    const resetAt = `${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
+    return {
+      status: 429,
+      headers: {},
+      body: {
+        error: {
+          message: `429 Your token-plan 1-week quota has been exhausted. The quota will reset at ${resetAt}.`,
+          type: "server_error",
+          code: 429,
+        },
+      },
+    };
+  },
 };
 
 /** Codex's usage endpoint (`<chatgpt_base_url>/wham/usage`): the same limit, as a usage window. */
@@ -153,6 +180,7 @@ function limitFor(family, s) {
   if (family === "gemini") return LIMITS.gemini(s);
   if (s.profile === "copilot") return LIMITS.copilot(s);
   if (s.profile.startsWith("xai")) return LIMITS.xai(s);
+  if (s.profile === "qwen") return LIMITS.qwen(s);
   return LIMITS.openai(s);
 }
 
