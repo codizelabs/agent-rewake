@@ -13,6 +13,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 ### Fixed
 
 - **A landing-page illustration's "Input Requested" dialog was cut off mid-field, with its Submit/Decline/Cancel buttons never shown.** Every item in a Zed-thread illustration (`src/components/scenes/*.astro`) could be shrunk by the flexbox layout to fit the window; the dialog's own `overflow: hidden` then silently clipped the bottom of whichever one got compressed, instead of the intended behaviour (older content fades out at the top). Now nothing in the thread shrinks below its own size.
+- **Qwen Code: a plan quota that ran out and will reset on its own was never resumed.** Qwen's own fail-fast rethrow for this exact case drops the original error's status, so its `StopFailure` hook reports it as `billing_error` instead of `rate_limit` — confirmed against a real Qwen Code build, not assumed. Rewake now reads the message text even when the hook calls it billing, and only treats it as money (never resumed) when the text doesn't also name a quota with a reset time.
 
 ## [0.5.0] - 2026-10-11
 
