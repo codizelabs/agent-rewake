@@ -171,6 +171,7 @@ export function killPidTree(
   pid: number,
   p: NodeJS.Platform = osPlatform(),
   run: TaskKill = taskkill,
+  signal: NodeJS.Signals = "SIGTERM",
 ): void {
   killTree(
     {
@@ -184,7 +185,7 @@ export function killPidTree(
       },
     },
     p,
-    "SIGTERM",
+    signal,
     run,
   );
 }

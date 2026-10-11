@@ -231,6 +231,9 @@ export function explainSchedule(
       cancel: host
         ? `To cancel it: ${rewake(`continue --cancel ${s.scheduleId.slice(0, 8)}`)}`
         : `To cancel it, use the schedules page: ${rewake("ui")}`,
+      ...(host && {
+        now: `To continue it now instead of waiting for the reset: ${rewake(`continue --now ${s.scheduleId.slice(0, 8)}`)}`,
+      }),
     },
     now,
     locale,

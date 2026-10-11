@@ -46,7 +46,9 @@ if (unexpected.length || forbidden.length) {
 // 840 KB from 800 KB: OpenCode as a preview place.
 // 860 KB from 840 KB: opt-in error reports to Sentry (a hand-rolled DSN parser, event builder,
 // local queue, scrubbing and ledger — no SDK dependency).
-const BUDGET = { bundle: 860 * 1024, mod: 64 * 1024 };
+// 880 KB from 860 KB: `continue --now` (its confirmation, outcomes and help) on top of the
+// project-changed check.
+const BUDGET = { bundle: 880 * 1024, mod: 64 * 1024 };
 const size = (re) => pack.files.filter((f) => re.test(f.path)).reduce((n, f) => n + f.size, 0);
 const bundle = size(/^dist\/agent-rewake\.js$/);
 const mod = size(/^dist\/hosts\/claude-code\//);
