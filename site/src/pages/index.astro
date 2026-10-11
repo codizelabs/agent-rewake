@@ -355,7 +355,7 @@ const wires = (down: boolean) =>
   });
 const V_H = 4 + 3 * NODE_H + 2 * GAP_Y;
 
-const words ="When your agent hits its limit, Rewake picks the thread back up.".split(" ");
+const words ="Hit a limit? Rewake picks the thread back up.".split(" ");
 ---
 
 <!doctype html>
@@ -417,7 +417,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v{version} · free and open source</a>
             <h1 class="rise">{words.map((w, i) => <><span style={`--i:${i}`}>{w}</span>{" "}</>)}</h1>
             <p class="lede" data-hero-lede>
-              A free, open-source add-on for your coding agents. When Claude Code, Codex, Gemini or another agent hits its usage limit, the same session picks the work back up when the limit resets, on its own once you allow it: in a terminal, in Claude Code's panel in VS Code or Cursor, and in Zed. Everything outside Zed is a preview.
+              A free, open-source add-on that picks your coding agent's session back up, automatically, once a usage limit resets.
             </p>
             <p class="install-label">Install in one line</p>
             <div class="install-cmd">
@@ -425,12 +425,10 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
               <code id="install-cmd">npx @codizelabs/agent-rewake install</code>
               <button type="button" class="copy" data-copy="install-cmd" aria-label="Copy the install command">Copy</button>
             </div>
-            <p class="install-after">Pick the places it found, Zed and the coding agents on your computer, and answer once. Then do the one next step it gives for each: restart Zed, or start a new session of your agent.</p>
             <div class="ctas">
               <a class="btn primary" href={href("docs/#install")}>See the install guide</a>
               <a class="btn" href="#film"><span aria-hidden="true">▶</span> Watch the 1-minute intro</a>
             </div>
-            <p class="note">Works in the threads and sessions you already have: there's no new agent to pick. <a href="#agents">Find your agent's guide</a>, or see <a href="#never">what Rewake never does</a>.</p>
           </div>
           <TerminalDemo />
         </div>
