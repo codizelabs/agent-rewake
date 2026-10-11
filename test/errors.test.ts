@@ -296,6 +296,7 @@ describe("reportError: never throws, always ledgers, only queues when opted in",
       autoWhenPromptsSkipped: true,
       keepAwake: "plugged-in",
       errorReports: "on",
+      workspaceChanged: "tell",
     });
     reportError(dir, { name: "test.error", message: "boom", tags: { place: "cli" } }, {});
     expect(readLedger(dir)[0]?.sent).toBe(true);

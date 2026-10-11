@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { explainResume } from "../core/explain.js";
+import { loadSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { ThreadStore } from "../core/threads.js";
 import { formatWhen, formatWhenFull, TEXT_LOCALE } from "../core/time.js";
@@ -212,6 +213,7 @@ export function explainSchedule(
     : title
       ? `The Zed thread "${title}"`
       : `The Zed thread ${s.sessionId.slice(0, 8)}`;
+  const workspaceSetting = loadSettings(stateDir).workspaceChanged;
   const lines = explainResume(
     {
       dueAt: s.dueAt,
@@ -223,6 +225,9 @@ export function explainSchedule(
       noun: host?.noun ?? "thread",
       outsideZed: host !== undefined,
       ...(host === undefined && { lateMs: ZED_LATE_MS }),
+      ...(host !== undefined &&
+        s.workspace &&
+        workspaceSetting !== "off" && { workspaceChanged: workspaceSetting }),
       cancel: host
         ? `To cancel it: ${rewake(`continue --cancel ${s.scheduleId.slice(0, 8)}`)}`
         : `To cancel it, use the schedules page: ${rewake("ui")}`,

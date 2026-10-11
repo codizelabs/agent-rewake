@@ -1,5 +1,6 @@
 import { MAX_REARMS } from "../../core/resume.js";
 import type { Schedule } from "../../core/store.js";
+import { WORKSPACE_NOTE } from "../../util/workspace.js";
 import type { HostAdapter, HostFacts, SendResult } from "../host.js";
 import { codexProgram, type Program, queueMessage, readUsage, type Usage } from "./cli.js";
 import { findCodexLimit, readTail, userMessages } from "./rollout.js";
@@ -100,8 +101,11 @@ export function codexAdapter(deps: CodexAdapterDeps): HostAdapter {
         const started =
           s.attempts.length > 0 ? Math.min(...s.attempts.map((a) => a.startedAt)) : undefined;
         if (started === undefined) return undefined;
+        // The exact text, or with Rewake's fixed project-changed line after it (setting `note`).
+        const sent = [s.text, `${s.text}\n\n${WORKSPACE_NOTE}`];
         return (
-          userMessages(readTail(transcript, 512 * 1024), started).includes(s.text) || undefined
+          userMessages(readTail(transcript, 512 * 1024), started).some((m) => sent.includes(m)) ||
+          undefined
         );
       } catch {
         return undefined;
