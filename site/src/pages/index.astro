@@ -102,6 +102,12 @@ const faq: Array<{ q: string; a: string[] }> = [
     ],
   },
   {
+    q: "Does Rewake warn me before I hit a limit?",
+    a: [
+      "In Claude Code, yes. The plugin tells you when a usage window passes 80% and 95% used, and when your pace over the last hour would reach the limit within about 45 minutes and before it resets, as a range such as \"in about 20 to 40 minutes\". It uses only the usage figures Claude Code already gives it, as of its last reply: no network, no sign-in. It only tells you: at 80% it mentions `/compact` (which uses some quota itself), and at 95% it says it is a good moment to wrap up. It never types or compacts for you. Turn it off with `agent-rewake settings usage-warnings off`. Codex and the other agents are not covered.",
+    ],
+  },
+  {
     q: "What if the project changed while it waited?",
     a: [
       "Outside Zed, when the session's folder is a git folder, Rewake compares the project's latest commit and its tracked files with how they were when it planned the continue. If they differ, it tells you and sends the message as it was. You can choose that it also adds one fixed line asking the agent to re-read files (`note`), or sends nothing and asks you first (`hold`), with `agent-rewake settings workspace-changed`. New untracked files don't count. It reads only the commit id and the names-and-status summary of `git status --porcelain --untracked-files=no`, never file contents, and only on your computer.",

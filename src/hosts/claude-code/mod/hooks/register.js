@@ -13,6 +13,10 @@
 //                        offered (not answered) | armed | sent
 //                 claim: { by, at }, the process sending the armed continue right now
 //   sched:<id>    [{ at, text }]
+//   usage:<dir>   { <kind>: { resetsAt, samples: [{ t, p }], high, pace } }, what the warnings
+//                 before a limit have said. The figures are the account's, not the session's, so
+//                 the key is the config dir (CLAUDE_CONFIG_DIR, which is one sign-in): a restart or
+//                 another session of the same account doesn't repeat a warning.
 // A copy of each limit record (no message text) goes to Rewake's shared state folder, so
 // `agent-rewake doctor` and the schedules page can show it, and so Rewake can continue the session
 // headless if Claude Code closes before the limit is answered (it adds `open`, the Claude Code
@@ -34,6 +38,7 @@ import {
   helpText,
   holdArgv,
   LINUX_MAINS,
+  levelText,
   limitOf,
   MAX_REARMS,
   MAX_REHITS,
@@ -42,6 +47,7 @@ import {
   mustAsk,
   nativeLikely,
   notHere,
+  paceText,
   parseCommand,
   parseProcess,
   parseProgram,
@@ -54,6 +60,7 @@ import {
   sessionVars,
   splitWhen,
   surfaceOf,
+  usageStep,
   WAITING_EXPIRES_MS,
   WAKE_HORIZON_MS,
   WAKE_PROBE,
@@ -106,6 +113,10 @@ const ME = Math.random().toString(36).slice(2);
 const CLAIM_MS = 5 * MINUTE;
 /** Rewake's keep-awake setting: "plugged-in" (default), "always" or "never". */
 let keepAwake = "plugged-in";
+/** Rewake's usage-warnings setting: "on" (default) or "off". */
+let usageWarnings = "on";
+/** CLAUDE_CONFIG_DIR, which names the account's warnings in $.store ("" for the default). */
+let configDir = "";
 /** { kind, pid, program }: Claude Code's PID and the hold program (macOS, Linux with systemd-inhibit, Windows); null where there is none. */
 let wakeTarget;
 /** The running hold: { key, stream }. */
@@ -131,6 +142,8 @@ async function loadConfig($) {
       if (["on", "off", "ask"].includes(settings.newThreads)) sharedAuto = settings.newThreads;
       if (["plugged-in", "always", "never"].includes(settings.keepAwake))
         keepAwake = settings.keepAwake;
+      if (settings.usageWarnings === "on" || settings.usageWarnings === "off")
+        usageWarnings = settings.usageWarnings;
     } catch {
       // No settings saved yet: the default clock.
     }
@@ -146,7 +159,7 @@ async function loadSessionInfo($) {
   // SETTINGS_VARS and KEY_VARS; a test in Rewake's repository compares them with these).
   const read = (get) => get.catch(() => undefined);
   const values = {
-    CLAUDE_CONFIG_DIR: await read($.env.get("CLAUDE_CONFIG_DIR")),
+    CLAUDE_CONFIG_DIR: configDir, // read once, at session start
     CLAUDE_CODE_PROJECT_DIR_NAME: await read($.env.get("CLAUDE_CODE_PROJECT_DIR_NAME")),
     ANTHROPIC_BASE_URL: await read($.env.get("ANTHROPIC_BASE_URL")),
     ANTHROPIC_MODEL: await read($.env.get("ANTHROPIC_MODEL")),
@@ -492,6 +505,26 @@ async function onMeasure($, rateLimits) {
     { ...ep, kind: blockingKind(rateLimits, now), resetAt, fireAt: resetAt + AFTER_RESET_MS },
     now,
   );
+}
+
+/** Toasts at 80% and 95% of a usage window, and when the pace would reach the limit soon. */
+async function warnUsage($, rateLimits) {
+  if (usageWarnings === "off" || !personAtPrompt({ isInteractive, entrypoint })) return;
+  const now = await $.clock.now();
+  const key = `usage:${configDir}`;
+  const state = (await $.store.get(key)) ?? {};
+  const toasts = [];
+  for (const w of rateLimits ?? []) {
+    const step = w && usageStep(state[w.kind], w, now);
+    if (!step) continue;
+    state[w.kind] = step.next;
+    const reset = atWhen(step.next.resetsAt, now);
+    if (step.level !== undefined) toasts.push(levelText(w.kind, w.percentUsed, reset));
+    else if (step.pace) toasts.push(paceText(w.kind, step.pace, reset));
+  }
+  // Saved before showing: a failure while showing must not make the same warning come back.
+  await $.store.set(key, state);
+  for (const text of toasts) $.ui.toast(text);
 }
 
 async function onNotification($, e) {
@@ -859,6 +892,7 @@ export function register(on) {
     isInteractive = e.isInteractive;
     sessionCwd = e.cwd;
     entrypoint = await $.env.get("CLAUDE_CODE_ENTRYPOINT").catch(() => undefined);
+    configDir = (await $.env.get("CLAUDE_CONFIG_DIR").catch(() => undefined)) ?? "";
     inert = Boolean(await $.env.get("AGENT_REWAKE_FIRE").catch(() => undefined));
     if (inert) return next(e);
     surface = surfaceOf({ surface: e.surface, entrypoint });
@@ -905,7 +939,10 @@ export function register(on) {
   }).catch(passOn);
 
   on("session.measure", ($, e, next) => {
-    if (!inert && e.changed.includes("rateLimits")) void onMeasure($, e.rateLimits);
+    if (!inert && e.changed.includes("rateLimits")) {
+      void onMeasure($, e.rateLimits);
+      void warnUsage($, e.rateLimits).catch(() => undefined);
+    }
     return next(e);
   }).catch(passOn);
 
