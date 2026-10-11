@@ -171,8 +171,9 @@ const SETTINGS: Setting[] = [
   {
     name: "usage-warnings",
     title: "Warnings before a usage limit",
-    short: "Whether Claude Code warns you when a usage window is nearly used up.",
-    more: "Claude Code only. It uses Claude Code's own usage figures, with no network and no sign-in, and never types anything for you.",
+    short:
+      "Warn me when a usage limit is nearly used up (Claude Code, at the moment it happens; Codex, with your next prompt).",
+    more: "Claude Code and Codex only. It uses their own usage figures, with no network and no sign-in, and never types anything for you.",
     choices: () => [
       ["on", "Warn at 80% and 95% used, and when the pace would reach the limit within 45 minutes"],
       ["off", "Don't warn"],
@@ -184,8 +185,8 @@ const SETTINGS: Setting[] = [
     }),
     saved: (v) =>
       v === "off"
-        ? "Claude Code won't warn you before a usage limit."
-        : "Claude Code warns you at 80% and 95% of a usage limit, and when your pace would reach it within 45 minutes.",
+        ? "Claude Code and Codex won't warn you before a usage limit."
+        : "Claude Code and Codex warn you at 80% and 95% of a usage limit, and when your pace would reach it within 45 minutes.",
   },
 ];
 

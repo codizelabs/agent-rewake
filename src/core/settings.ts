@@ -43,7 +43,7 @@ export interface Settings {
    */
   workspaceChanged: WorkspaceChanged;
   /**
-   * Claude Code plugin: a toast at 80% and 95% of a usage window, and when the pace would reach
+   * Claude Code plugin and Codex: a warning at 80% and 95% of a usage window, and when the pace would reach
    * the limit within 45 minutes: "on" (the default) or "off".
    */
   usageWarnings: UsageWarnings;
