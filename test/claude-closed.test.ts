@@ -177,7 +177,19 @@ async function armedByContinue() {
     out: () => {},
     ask: async () => "",
   });
+  closeRecord();
   return new ScheduleStore(state).list()[0]?.scheduleId ?? "";
+}
+
+/**
+ * The plugin's session-end hook has run: the record says closed. The fire then asks the operating
+ * system nothing about the ended process id of `modCopy`: ids are reused at once on Windows, and a
+ * lookup that is slow under load counts as "still open", so a fire notified instead of resuming.
+ */
+function closeRecord(): void {
+  const file = join(state, "hosts", "claude-code", "sessions", `${SID}.json`);
+  const record = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  writeFileSync(file, `${JSON.stringify({ ...record, open: false })}\n`);
 }
 
 /** The transcript Claude Code keeps for the session, last written at `at`. */
