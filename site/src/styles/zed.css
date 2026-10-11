@@ -157,6 +157,11 @@
   /* fade the oldest lines out at the top */
   mask-image: linear-gradient(to bottom, transparent 0, #000 36px);
 }
+/* Never let flexbox compress a thread item to fit: too much content fades/clips at the top
+   (mask-image above), the newest item (often a form with its own overflow: hidden) stays whole. */
+.zed-thread > * {
+  flex-shrink: 0;
+}
 .zed-user {
   align-self: stretch;
   border: 1px solid var(--zed-border);
