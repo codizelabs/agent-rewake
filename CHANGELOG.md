@@ -10,6 +10,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 - **The hero's recorded terminal responds more to you:** the chapter buttons (Hits the limit, Rewake asks, Continues after the reset) now show which one the recording is on; clicking anywhere on the terminal window itself, not only the small play button, pauses or resumes it; and on a phone, it now shows up right after the pitch instead of after the whole install block. Two CTAs that said "Get started" now say "See the install guide".
 - **The hero says less, so the headline, the pitch and the install command fit on a phone screen without scrolling:** the heading is shorter ("Hit a limit? Rewake picks the thread back up."), the opening paragraph is one sentence instead of three, and two paragraphs that repeated what the Install and Agents sections already say in full are gone from the hero.
 
+### Fixed
+
+- **The privacy page and the landing page no longer say Rewake's only network use is fetching an agent's program:** error reports exist (off unless you turn them on), and both pages now say so and point to what an error report holds.
+
 ## [0.4.0] - 2026-10-11
 
 ### Added

@@ -756,7 +756,7 @@ const words ="Hit a limit? Rewake picks the thread back up.".split(" ");
             <li><h3>Type into your terminal</h3><p>It works through each agent's own plugin, hooks or resume command, and in Zed through the connection between Zed and the agent.</p></li>
             <li><h3>Resume a limit that waiting won't fix</h3><p>Credit, billing and spending limits get a message, not a resume.</p></li>
             <li><h3>Send what you didn't choose</h3><p>Only the messages you scheduled, ones you approved, or the resume message you turned on.</p></li>
-            <li><h3>Send anything about you anywhere</h3><p>It sends nothing about you over the network and never sees your credentials: sign-in stays with your agent. Its only network use is fetching an agent's own program when Zed hasn't. Logs hold no message text.</p></li>
+            <li><h3>Send anything about you anywhere</h3><p>It sends nothing about you over the network unless you turn on error reports (off by default), and it never sees your credentials: sign-in stays with your agent. Its other network use is fetching an agent's own program when Zed hasn't. Logs hold no message text.</p></li>
             <li><h3>Be hard to remove</h3><p>One command, <code>npx @codizelabs/agent-rewake uninstall</code>, shows every change, asks once and takes Rewake out of every place it's set up in.</p></li>
           </ul>
           <p class="sub">What Rewake sends runs with your account while you may be away. Turn on automatic resume only for threads you'd let run unattended. <a href="https://github.com/codizelabs/agent-rewake/blob/main/SECURITY.md">The security policy</a>.</p>
