@@ -125,10 +125,6 @@ describe("Qwen Code's usage limits", () => {
       kind: "billing",
       billing: true,
     });
-    // Billing stays billing whatever the text says about a reset.
-    expect(
-      classifyQwenFailure({ error: "billing_error", errorDetails: WEEKLY }, NOW)?.billing,
-    ).toBe(true);
     for (const error of ["server_error", "authentication_failed", "loop_detected", "unknown"])
       expect(classifyQwenFailure({ error, errorDetails: WEEKLY }, NOW)).toBeUndefined();
     // A 429 that is only a throttle: Qwen retries it itself.
@@ -136,6 +132,17 @@ describe("Qwen Code's usage limits", () => {
       classifyQwenFailure({ error: "rate_limit", errorDetails: "429 Rate limit exceeded." }, NOW),
     ).toBeUndefined();
     expect(classifyQwenFailure({ error: "rate_limit" }, NOW)).toBeUndefined();
+  });
+
+  it("resumes a quota-exhausted reset even when Qwen's own fail-fast rethrow reports it as billing_error", () => {
+    // Qwen's retry.ts/llm-chat.ts rethrow this exact case as a plain Error with no status, so its
+    // own classify-api-error.ts falls through to billing_error (confirmed against a real build,
+    // 2026-10-11) — the text still says it is a resumable, time-boxed quota, not money.
+    expect(classifyQwenFailure({ error: "billing_error", errorDetails: WEEKLY }, NOW)).toEqual({
+      kind: "weekly",
+      billing: false,
+      resetsAt: Date.UTC(2027, 6, 27, 9, 25),
+    });
   });
 
   it("is the verdict recognise() gives for a hook signal", () => {

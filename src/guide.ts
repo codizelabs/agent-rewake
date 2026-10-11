@@ -115,5 +115,5 @@ Everything stays on the user's computer in Rewake's state folder (macOS: ~/Libra
 - "What if I'm away when it's due?" If Zed and the computer are on, it's sent. If not, a message more than 15 minutes late is held and the user is asked.
 - "Can you schedule it for me?" Yes: call schedule_message; the user approves in the thread.
 - "How do I stop a scheduled reply?" *Stop the scheduled reply* in the Rewake menu, or /rewake stop.
-- More help: https://codizelabs.github.io/agent-rewake/ · source: https://github.com/codizelabs/agent-rewake
+- More help: https://rewake.js.org/ · source: https://github.com/codizelabs/agent-rewake
 `;
