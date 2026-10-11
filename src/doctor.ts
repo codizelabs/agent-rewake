@@ -19,6 +19,7 @@ import {
   pinnedVersion,
   planInstall,
   quitZed,
+  reloadAgent,
   unwrappedEntry,
   wrapsClaudeAdapter,
 } from "./install.js";
@@ -440,7 +441,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       area: "Rewake",
       level: "todo",
       text: "Zed starts Rewake through npm or one Node.js folder. An upgrade of that Node.js, or no network, can stop those agents from starting.",
-      fix: `Run the install command again, then quit Zed completely and open it again: ${update}`,
+      fix: `Run the install command again: ${update}  Then ${reloadAgent(platform)}.`,
     });
 
   // Which version Zed starts: the pinned `@codizelabs/agent-rewake@<version>` argument of an earlier
@@ -458,7 +459,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
         area: "Rewake",
         level: "todo",
         text: `Zed starts Rewake ${pin}; this is Rewake ${ctx.version}.`,
-        fix: `To update, run: ${update}  Then quit Zed completely and open it again.`,
+        fix: `To update, run: ${update}  Then ${reloadAgent(platform)}.`,
       });
     else if (compareVersions(pin, ctx.version) > 0)
       add({
