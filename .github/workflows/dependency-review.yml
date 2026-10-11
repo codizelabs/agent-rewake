@@ -30,6 +30,10 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
+          # Qwen Code's own sharp dependency (test/agents, never bundled or shipped: see the
+          # license exemption below for the same reasoning). Qwen Code pins it; Rewake doesn't use
+          # sharp or librsvg itself, and nothing here parses untrusted SVG/image input.
+          allow-ghsas: GHSA-wq5f-xc86-pv6w
           # Licenses compatible with distributing Agent Rewake under Apache-2.0.
           allow-licenses: Apache-2.0, MIT, ISC, BSD-2-Clause, BSD-3-Clause, 0BSD, BlueOak-1.0.0, CC0-1.0, Unlicense, Python-2.0, CC-BY-4.0
           # Test-only: the Claude Code and GitHub Copilot CLIs pinned in test/agents for the contract
