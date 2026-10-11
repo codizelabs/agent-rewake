@@ -22,10 +22,25 @@ const FILE = "codex-usage.json";
 
 type Stored = Record<string, Record<string, UsageState>>;
 
+/** Keeps only entries of the shape Rewake writes; anything else is dropped, so a damaged file resets. */
+function validStored(v: Stored): Stored {
+  const out: Stored = {};
+  for (const [home, kinds] of Object.entries(v)) {
+    if (typeof kinds !== "object" || kinds === null || Array.isArray(kinds)) continue;
+    const ok: Record<string, UsageState> = {};
+    for (const [kind, st] of Object.entries(kinds)) {
+      const s = st as Partial<UsageState> | null;
+      if (s && typeof s.resetsAt === "number" && Array.isArray(s.samples)) ok[kind] = st;
+    }
+    out[home] = ok;
+  }
+  return out;
+}
+
 function load(file: string): Stored {
   try {
     const v: unknown = JSON.parse(readFileSync(file, "utf8"));
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Stored) : {};
+    return typeof v === "object" && v !== null && !Array.isArray(v) ? validStored(v as Stored) : {};
   } catch {
     return {};
   }

@@ -205,6 +205,16 @@ describe("Codex: warnings before a usage limit", () => {
     expect(await prompt("b")).toBeUndefined();
   });
 
+  it("resets a state file that parses but has the wrong shape, instead of staying silent for ever", async () => {
+    mkdirSync(state, { recursive: true });
+    writeFileSync(
+      join(state, "codex-usage.json"),
+      JSON.stringify({ x: { five_hour: { samples: 1 } }, y: [1, 2], z: { five_hour: null } }),
+    );
+    setRollout(snapshot(90));
+    expect(message(await prompt("a"))).toContain("90% used");
+  });
+
   it("skips windows that already reset, and a full one: the limit flow takes over", async () => {
     setRollout(
       ev({
