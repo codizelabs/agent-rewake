@@ -7,6 +7,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 ### Changed
 
 - **The hero heading wrapped to three lines instead of two** ("Hit a limit? Rewake picks the thread back up."). Shortened to "Hit a limit? Rewake picks it back up."
+- **The website moves to [rewake.js.org](https://rewake.js.org/).** Links to the old address, `codizelabs.github.io/agent-rewake/`, including the one in the "may sleep" notice of earlier versions, are forwarded to the same page on the new one.
 
 ## [0.6.0] - 2026-10-11
 

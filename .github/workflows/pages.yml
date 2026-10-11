@@ -53,7 +53,7 @@ jobs:
       - name: Arrange output under the base path
         run: |
           mkdir -p "$RUNNER_TEMP/site-check"
-          cp -R site/dist "$RUNNER_TEMP/site-check/agent-rewake"
+          cp -R site/dist/. "$RUNNER_TEMP/site-check/"
 
       - name: Check internal links
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
@@ -64,7 +64,7 @@ jobs:
             --no-progress
             --index-files index.html
             --root-dir ${{ runner.temp }}/site-check
-            '${{ runner.temp }}/site-check/agent-rewake/**/*.html'
+            '${{ runner.temp }}/site-check/**/*.html'
           fail: true
 
       - name: Upload Pages artifact

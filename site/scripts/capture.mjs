@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 const { chromium } = await import(process.argv[2] ?? "playwright");
 const ORIGIN = process.env.SITE_ORIGIN ?? "http://localhost:4321";
-const HOME = `${ORIGIN}/agent-rewake/`;
+const HOME = `${ORIGIN}/`;
 const out = new URL("../public/images/", import.meta.url).pathname;
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
