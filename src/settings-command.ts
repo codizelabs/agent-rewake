@@ -8,6 +8,7 @@ import {
   NEW_THREADS_VALUES,
   type Settings,
   saveSettings,
+  USAGE_WARNINGS_VALUES,
   validResumePrompt,
   WORKSPACE_CHANGED_VALUES,
 } from "./core/settings.js";
@@ -31,6 +32,7 @@ export const SETTING_NAMES = [
   "keep-awake",
   "resume-prompt",
   "workspace-changed",
+  "usage-warnings",
 ] as const;
 export type SettingName = (typeof SETTING_NAMES)[number];
 
@@ -165,6 +167,25 @@ const SETTINGS: Setting[] = [
           : v === "note"
             ? "When the project changed while a resume waited, Rewake tells you and adds a line asking the agent to re-read files."
             : "When the project changed while a resume waited, Rewake tells you and sends the message as it is.",
+  },
+  {
+    name: "usage-warnings",
+    title: "Warnings before a usage limit",
+    short: "Whether Claude Code warns you when a usage window is nearly used up.",
+    more: "Claude Code only. It uses Claude Code's own usage figures, with no network and no sign-in, and never types anything for you.",
+    choices: () => [
+      ["on", "Warn at 80% and 95% used, and when the pace would reach the limit within 45 minutes"],
+      ["off", "Don't warn"],
+    ],
+    get: (s) => s.usageWarnings,
+    set: (s, v) => ({
+      ...s,
+      usageWarnings: USAGE_WARNINGS_VALUES.find((x) => x === v) ?? s.usageWarnings,
+    }),
+    saved: (v) =>
+      v === "off"
+        ? "Claude Code won't warn you before a usage limit."
+        : "Claude Code warns you at 80% and 95% of a usage limit, and when your pace would reach it within 45 minutes.",
   },
 ];
 

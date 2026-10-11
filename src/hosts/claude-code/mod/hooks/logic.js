@@ -76,6 +76,104 @@ export function blockingKind(rateLimits, now) {
   )?.kind;
 }
 
+// ---- Warnings before a limit: Claude Code's own usage figures, no network, no sign-in.
+
+/** Percent used at which a window is warned about, lowest first. */
+const WARN_AT = [80, 95];
+/** Samples kept per window, and the least time they must span before a pace is trusted. */
+const SAMPLE_CAP = 12;
+const MIN_SPAN_MS = 10 * MINUTE;
+/** Only readings this recent give the pace. */
+const RECENT_MS = HOUR;
+/** A pace warning comes when the projected limit is this near. */
+const PACE_HORIZON_MS = 45 * MINUTE;
+/** Two reset times closer than this are the same window (the figures can differ by a moment). */
+const SAME_WINDOW_MS = 30 * MINUTE;
+
+/**
+ * Milliseconds until the window reaches 100, from its samples ({ t, p }: time, percent used), or
+ * undefined when the pace is unknown: the figure has not moved since the newest sample (so idle
+ * time never counts as a pace), fewer than two samples from the last hour, those less than 10
+ * minutes apart, or no rise.
+ */
+export function timeToLimit(samples, now) {
+  const recent = samples.filter((s) => s.t >= now - RECENT_MS);
+  const first = recent[0];
+  const last = recent.at(-1);
+  if (!first || !last || last.t !== now || last.t - first.t < MIN_SPAN_MS) return undefined;
+  const rate = (last.p - first.p) / (last.t - first.t);
+  return rate > 0 ? (100 - last.p) / rate : undefined;
+}
+
+/** The estimate as a range of whole minutes in fives, about 0.7x to 1.4x: [20, 40]. */
+export function paceRange(ms) {
+  const five = (x) => Math.max(5, Math.round(x / (5 * MINUTE)) * 5);
+  const lo = five(ms * 0.7);
+  return [lo, Math.max(lo + 5, five(ms * 1.4))];
+}
+
+/**
+ * One window's reading, given what was kept for it (`prev`: { resetsAt, samples, high, pace },
+ * or undefined). Returns undefined when there is nothing to track (a spending cap, no reset ahead,
+ * a full window: the limit flow takes over), else { next, level?, pace? }: the state to keep, the
+ * threshold newly crossed (only the highest if it jumped past both) and the pace range to warn
+ * with. A threshold is warned once per window, the pace once per window and never together with
+ * a threshold (it waits for the next reading).
+ */
+export function usageStep(prev, w, now) {
+  const reset = typeof w.resetsAt === "string" ? Date.parse(w.resetsAt) : Number.NaN;
+  const p = w.percentUsed;
+  if (BILLING_KINDS.has(w.kind) || !Number.isFinite(reset) || reset <= now) return undefined;
+  if (!(p >= 0 && p < 100)) return undefined;
+  const same = prev && Math.abs(prev.resetsAt - reset) < SAME_WINDOW_MS;
+  const base = same ? prev : { resetsAt: reset, samples: [], high: 0, pace: false };
+  const last = base.samples.at(-1);
+  const samples =
+    last?.p === p ? base.samples : [...(last && p < last.p ? [] : base.samples), { t: now, p }];
+  const kept = samples.slice(-SAMPLE_CAP);
+  const level = WARN_AT.filter((l) => p >= l && l > base.high).pop();
+  const ms = level === undefined && !base.pace ? timeToLimit(kept, now) : undefined;
+  const pace =
+    ms !== undefined && ms <= PACE_HORIZON_MS && now + ms < reset ? paceRange(ms) : undefined;
+  return {
+    next: {
+      resetsAt: reset, // the latest, so a slowly drifting time can't make the window look new
+      samples: kept,
+      high: level ?? base.high,
+      pace: base.pace || pace !== undefined,
+    },
+    level,
+    pace,
+  };
+}
+
+/** "5-hour limit", "7-day limit", "7-day opus limit", "some kind limit". */
+export function limitName(kind) {
+  const m = /^seven_day_(.+)$/.exec(kind);
+  const name =
+    kind === "five_hour"
+      ? "5-hour"
+      : kind === "seven_day"
+        ? "7-day"
+        : m
+          ? `7-day ${m[1].replace(/_/g, " ")}`
+          : String(kind).replace(/_/g, " ");
+  return `${name} limit`;
+}
+
+/** `reset` is the reset time as words: "at 3:00 AM today", "on Friday at 9:00 AM". */
+export function levelText(kind, percent, reset) {
+  const head = `${limitName(kind)}: ${Math.floor(percent)}% used, as of Claude Code's last reply. It resets ${reset}.`;
+  // Compacting is a model call too, so it is only hinted at below 95%.
+  return percent >= 95
+    ? `${head} A good moment to wrap up or save what you are doing.`
+    : `${head} If you are in the middle of a task, /compact now can make the rest last longer (compacting also uses some).`;
+}
+
+export function paceText(kind, [lo, hi], reset) {
+  return `At this pace you reach the ${limitName(kind)} in about ${lo} to ${hi} minutes, before it resets ${reset}.`;
+}
+
 /**
  * Claude Code's own panels, by `CLAUDE_CODE_ENTRYPOINT`: the VS Code extension (also in Cursor and
  * other VS Code builds) and the desktop app. They run Claude Code through the Agent SDK, so the
