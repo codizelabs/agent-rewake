@@ -416,7 +416,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
           <div>
             <a class="status-pill" href={href("docs/#status")}><i aria-hidden="true"></i>Early release · v{version} · free and open source</a>
             <h1 class="rise">{words.map((w, i) => <><span style={`--i:${i}`}>{w}</span>{" "}</>)}</h1>
-            <p class="lede">
+            <p class="lede" data-hero-lede>
               A free, open-source add-on for your coding agents. When Claude Code, Codex, Gemini or another agent hits its usage limit, the same session picks the work back up when the limit resets, on its own once you allow it: in a terminal, in Claude Code's panel in VS Code or Cursor, and in Zed. Everything outside Zed is a preview.
             </p>
             <p class="install-label">Install in one line</p>
@@ -427,7 +427,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
             </div>
             <p class="install-after">Pick the places it found, Zed and the coding agents on your computer, and answer once. Then do the one next step it gives for each: restart Zed, or start a new session of your agent.</p>
             <div class="ctas">
-              <a class="btn primary" href={href("docs/#install")}>Get started</a>
+              <a class="btn primary" href={href("docs/#install")}>See the install guide</a>
               <a class="btn" href="#film"><span aria-hidden="true">▶</span> Watch the 1-minute intro</a>
             </div>
             <p class="note">Works in the threads and sessions you already have: there's no new agent to pick. <a href="#agents">Find your agent's guide</a>, or see <a href="#never">what Rewake never does</a>.</p>
@@ -435,6 +435,18 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
           <TerminalDemo />
         </div>
       </div>
+      <script is:inline>
+        // On a narrow screen only, the live terminal moves to right after the pitch, instead of
+        // after the whole install block: people on a phone see it sooner, without scrolling past
+        // everything else first. `is:inline` (not a bundled, deferred module) so this runs right
+        // here, synchronously, before the browser paints what it's already parsed — no flash of
+        // the wrong order, no second copy of the (280 KB) recording. Desktop is untouched.
+        if (window.matchMedia("(max-width: 920px)").matches) {
+          var lede = document.querySelector("[data-hero-lede]");
+          var demo = document.querySelector("[data-term-demo]");
+          if (lede && demo) lede.insertAdjacentElement("afterend", demo);
+        }
+      </script>
 
       <section id="film" class="film">
         <div class="wrap" data-reveal>
@@ -831,7 +843,7 @@ const words ="When your agent hits its limit, Rewake picks the thread back up.".
           <h2>Stop babysitting the reset time.</h2>
           <p class="sub">Try it on one thread, and remove it with one command if it isn't for you.</p>
           <div class="ctas">
-            <a class="btn primary" href={href("docs/#install")}>Get started</a>
+            <a class="btn primary" href={href("docs/#install")}>See the install guide</a>
             <a class="btn" href={href("docs/")}>Read the docs</a>
           </div>
         </div>
