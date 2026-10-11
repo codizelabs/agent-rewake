@@ -93,6 +93,12 @@ const faq: Array<{ q: string; a: string[] }> = [
     ],
   },
   {
+    q: "What if the project changed while it waited?",
+    a: [
+      "Outside Zed, when the session's folder is a git folder, Rewake compares the project's latest commit and its tracked files with how they were when it planned the continue. If they differ, it tells you and sends the message as it was. You can choose that it also adds one fixed line asking the agent to re-read files (`note`), or sends nothing and asks you first (`hold`), with `agent-rewake settings workspace-changed`. New untracked files don't count. It reads only the commit id and the names-and-status summary of `git status --porcelain --untracked-files=no`, never file contents, and only on your computer.",
+    ],
+  },
+  {
     q: "How do I know it worked?",
     a: [
       "Run `npx @codizelabs/agent-rewake doctor`: it lists the continues planned for closed sessions, any that need you, and the last error if one failed. In Zed, the schedules page lists every message and its state, and a message Rewake sends is labelled as coming from Rewake, so you can tell it from one you typed.",
@@ -755,7 +761,7 @@ const words ="Hit a limit? Rewake picks the thread back up.".split(" ");
             <li><h3>Add a permission-bypass flag</h3><p>A resumed session is never given more permission than it had. The one approval flag Rewake passes is Gemini CLI's own default mode, which never widens yours. In Zed, you choose whether threads that bypass permissions are resumed automatically.</p></li>
             <li><h3>Type into your terminal</h3><p>It works through each agent's own plugin, hooks or resume command, and in Zed through the connection between Zed and the agent.</p></li>
             <li><h3>Resume a limit that waiting won't fix</h3><p>Credit, billing and spending limits get a message, not a resume.</p></li>
-            <li><h3>Send what you didn't choose</h3><p>Only the messages you scheduled, ones you approved, or the resume message you turned on.</p></li>
+            <li><h3>Send what you didn't choose</h3><p>Only the messages you scheduled, ones you approved, or the resume message you turned on. One line it can add to a resume, saying the project changed while it waited, is off unless you choose it.</p></li>
             <li><h3>Send anything about you anywhere</h3><p>It sends nothing about you over the network unless you turn on error reports (off by default), and it never sees your credentials: sign-in stays with your agent. Its other network use is fetching an agent's own program when Zed hasn't. Logs hold no message text.</p></li>
             <li><h3>Be hard to remove</h3><p>One command, <code>npx @codizelabs/agent-rewake uninstall</code>, shows every change, asks once and takes Rewake out of every place it's set up in.</p></li>
           </ul>

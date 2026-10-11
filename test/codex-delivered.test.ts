@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Schedule } from "../src/core/store.js";
 import { codexAdapter } from "../src/hosts/codex/adapter.js";
 import { userMessages } from "../src/hosts/codex/rollout.js";
+import { WORKSPACE_NOTE } from "../src/util/workspace.js";
 
 /**
  * After a crashed send, `delivered()` settles the resume from the thread's session file. A second
@@ -84,5 +85,15 @@ describe("userMessages since a time", () => {
     ].join("\n");
     expect(userMessages(tail)).toEqual(["old", "new"]);
     expect(userMessages(tail, SECOND)).toEqual(["new"]);
+  });
+
+  it("counts the exact text, or the text with Rewake's fixed project-changed line", () => {
+    writeFileSync(rollout, `${record(`${TEXT}\n\n${WORKSPACE_NOTE}`, "2026-10-07T15:00:09Z")}\n`);
+    expect(adapter().delivered?.(resume(SECOND))).toBe(true);
+  });
+
+  it("doesn't count a later message of the person's that starts with the text", () => {
+    writeFileSync(rollout, `${record(`${TEXT}, and also fix X`, "2026-10-07T15:00:09Z")}\n`);
+    expect(adapter().delivered?.(resume(SECOND))).toBeUndefined();
   });
 });

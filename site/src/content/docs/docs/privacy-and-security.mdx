@@ -26,7 +26,7 @@ Rewake sends messages into your agent while you may be away, so it should be cle
 - **It never adds a flag that skips or widens permissions.** A resumed session is never given more permission than it had. The one approval flag Rewake passes is the default mode of Gemini CLI and of Qwen Code, which never widens yours. OpenCode gets none: its auto-approve flags are never used, so what your settings mark "ask" is refused, but OpenCode's defaults allow most tools without asking, as in a session you start yourself. In Zed, a setting decides whether automatic resume also covers threads that bypass permission prompts, and automatic resume itself starts as "ask when a new thread opens".
 - **It never types into your terminal.** It reaches each agent through that agent's own plugin, hooks or resume command, and in Zed, JetBrains IDEs and Devin Desktop through the connection between the editor and the agent. It doesn't send keystrokes to a window.
 - **It never resumes a limit that waiting won't fix.** Credit, billing and spending limits get a message, not a resume.
-- **It never sends what you didn't choose.** It sends only the messages you scheduled, ones you approved in the thread, or the resume message you turned on.
+- **It never sends what you didn't choose.** It sends only the messages you scheduled, ones you approved in the thread, or the resume message you turned on. A resume outside Zed carries one more fixed line, saying the project changed while it waited, only if you choose the `note` value of `workspace-changed`; by default Rewake only tells you.
 - **It sends nothing about you anywhere unless you turn on error reports,** and it never sees your credentials: sign-in goes through each agent's own flow. Its only network use is fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it, and error reports, which are off unless you turn them on (`agent-rewake errors on`). What an error report holds, and what it never holds, is listed under [Error reports](../#error-reports).
 - **It doesn't put message text in its logs.** Logs hold metadata only.
 
@@ -49,6 +49,7 @@ Rewake keeps its data in one folder of its own, with owner-only permissions. `ag
 
 - **Your scheduled messages and per-thread settings**, such as whether automatic resume is on.
 - **For a session it may continue:** the session's id, its folder, the limit it hit and when, and the agent's own settings the session had (such as `COPILOT_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME` or a provider address), so a closed session continues the way it ran.
+- **For a continue outside Zed in a git folder:** the project's current commit id and a hash of the names-and-status summary of tracked files from `git status --porcelain --untracked-files=no`, to tell whether the project changed while the continue waited. No file name and no file content is kept; it is checked with local `git` commands only.
 - **The last error line of a failed continue,** with your home folder shown as `~` and anything that looks like a key, token or email address removed. It is shown by `continue` and `doctor`.
 - **A metadata-only log:** what happened and when, never message text, and the agent's program name rather than its full path.
 

@@ -5,7 +5,7 @@ import { loadSettings } from "../../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../../core/threads.js";
 import { formatAt } from "../../core/time.js";
-import { autoFor } from "../closed.js";
+import { autoFor, withWorkspace } from "../closed.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { findCodexLimit, isCodexRollout, readTail, threadIdOf } from "./rollout.js";
 
@@ -107,7 +107,11 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
       },
     };
     store.put(resume);
-    if (deps.arm(resume.scheduleId, at) !== false) return true;
+    if (deps.arm(resume.scheduleId, at) !== false) {
+      // After arming: Codex's session-end hook has 3 seconds.
+      withWorkspace(store, resume, ctx.now);
+      return true;
+    }
     store.cancel(resume.scheduleId, ctx.now);
     return false;
   };

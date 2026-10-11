@@ -17,6 +17,15 @@ import { rewake } from "../util/command.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
 import { killPidTree } from "../util/spawn.js";
+import {
+  FIRE_BUDGET_MS,
+  fingerprintWorkspace,
+  WORKSPACE_NOTE,
+  workspaceChange,
+} from "../util/workspace.js";
+
+export { WORKSPACE_NOTE };
+
 import type { Notifier } from "./notify.js";
 import { type SlotOptions, takeSlot } from "./slots.js";
 import {
@@ -60,6 +69,15 @@ export function runningText(at: string, noun = "session"): string {
 /** Said when a headless continue has finished. */
 export function doneText(at: string, noun = "session", now: number = Date.now()): string {
   return `${at}: Rewake's run ended normally ${formatAt(now, now)}. Open the ${noun} to see what it did.`;
+}
+
+/** Said to the person, in the notice Rewake shows when it sends, when the project changed. */
+export function workspaceNoteText(noun: string, added: boolean): string {
+  const what = `The project's tracked files or latest commit changed while the ${noun} waited`;
+  const how = added
+    ? "so Rewake added a line to its message asking the agent to re-read files before editing."
+    : "Rewake sent its message as it was. To have it add a line asking the agent to re-read files, choose note; to have it ask you first, choose hold.";
+  return `${what}${added ? "," : "."} ${how} Change this with: ${rewake("settings workspace-changed")} (tell, note, hold or off).`;
 }
 
 export type FireOutcome =
@@ -129,13 +147,23 @@ export interface NoticeFacts {
   /** A later reset the agent reported (for "far-reset" and "expired"). */
   resetsAt?: number;
   cause?: FailCause;
+  /** For "workspace": what differs in the project. */
+  workspace?: { commit: boolean; changes: boolean };
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The notification for a resume Rewake won't send on its own. Plain words, no message text. */
 export function notice(
-  why: "late" | "open" | "changed" | "far-reset" | "expired" | "failed" | "unconfirmed",
+  why:
+    | "late"
+    | "open"
+    | "changed"
+    | "workspace"
+    | "far-reset"
+    | "expired"
+    | "failed"
+    | "unconfirmed",
   agent: string,
   now: number,
   f: NoticeFacts,
@@ -153,6 +181,13 @@ export function notice(
       return `${agent}: the usage limit has reset. The ${n} is open, so Rewake didn't send anything. Continue it there.`;
     case "changed":
       return `${agent}: the usage limit has reset, but the ${n} has changed since it stopped, so Rewake didn't send anything. ${cap(reopen)} to see where it stands and continue.`;
+    case "workspace": {
+      const what = [
+        ...(f.workspace?.commit ? ["its latest commit moved"] : []),
+        ...(f.workspace?.changes ? ["its tracked files differ"] : []),
+      ].join(" and ");
+      return `${agent}: the usage limit has reset, but the project changed while the ${n} waited (${what}), so Rewake didn't send anything. ${f.again ? f.again(undefined) : `To continue anyway, run "${rewake("continue")}", or ${reopen}.`} Change this check with: ${rewake("settings workspace-changed")} (tell, note, hold or off).`;
+    }
     case "late":
       return `${agent}: Rewake was due to continue the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but couldn't run then (the computer may have been off or asleep). ${cap(reopen)} to continue.`;
     case "far-reset":
@@ -351,6 +386,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       status: Schedule["status"],
       cause?: FailCause,
       message?: string,
+      workspace?: NoticeFacts["workspace"],
     ): FireOutcome => {
       settle(status, cause ?? why, message);
       // Keep the later reset the agent reported, so asking again ("rewake") continues then.
@@ -366,6 +402,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           dueAt: s.dueAt,
           ...(facts.newResetsAt !== undefined && { resetsAt: facts.newResetsAt }),
           ...(cause && { cause }),
+          ...(workspace && { workspace }),
         }),
       );
       removeTimer();
@@ -379,6 +416,21 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
     });
     switch (decision.action) {
       case "send": {
+        // The project may have changed while the resume waited (src/util/workspace.ts): compared
+        // with how it was when the resume was planned. Nothing is known when git can't say.
+        let noted = false;
+        let changed = false;
+        if (s.workspace && settings.workspaceChanged !== "off") {
+          const here = fingerprintWorkspace(s.cwd, FIRE_BUDGET_MS);
+          const differs = here && workspaceChange(s.workspace, here);
+          if (differs) {
+            log("fire.workspace", { action: settings.workspaceChanged });
+            if (settings.workspaceChanged === "hold")
+              return tell("workspace", "needs_attention", undefined, undefined, differs);
+            changed = true;
+            noted = settings.workspaceChanged === "note";
+          }
+        }
         // Checked again as it's claimed: the person may have cancelled, or typed in the session,
         // while the host was being checked. Their change wins and nothing is sent.
         const claimed = store.update(
@@ -414,6 +466,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         // A headless run is said when it starts, with how to stop it. `continue --cancel` marks the
         // attempt stopped; this process, which started the agent, then ends its own child.
         let watch: ReturnType<typeof setInterval> | undefined;
+        let told = false;
         onResumeRun((pid) => {
           store.update(
             id,
@@ -423,7 +476,13 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
             }),
             now,
           );
-          deps.notify("Agent Rewake", runningText(at, host.noun));
+          told = changed;
+          deps.notify(
+            "Agent Rewake",
+            changed
+              ? `${runningText(at, host.noun)} ${workspaceNoteText(host.noun, noted)}`
+              : runningText(at, host.noun),
+          );
           watch = setInterval(() => {
             if (!store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped) return;
             clearInterval(watch);
@@ -432,7 +491,10 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           }, deps.stopPollMs ?? STOP_POLL_MS);
         });
         try {
-          result = await host.send(s, key);
+          result = await host.send(
+            noted ? { ...s, text: `${s.text}\n\n${WORKSPACE_NOTE}` } : s,
+            key,
+          );
         } catch (err) {
           result = { ok: false, reason: "failed", detail: (err as Error).message };
         } finally {
@@ -459,6 +521,9 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         if (result.ok) {
           settle("sent");
           removeTimer();
+          // A host that started no headless run showed no notice above: say it here.
+          if (changed && !told)
+            deps.notify("Agent Rewake", `${at}: ${workspaceNoteText(host.noun, noted)}`);
           // A headless run worked until now: say it's done (an app-delivered send has nothing more).
           if (store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.pid !== undefined)
             deps.notify("Agent Rewake", doneText(at, host.noun, deps.now()));

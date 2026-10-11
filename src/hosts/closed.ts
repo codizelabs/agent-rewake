@@ -8,6 +8,7 @@ import { formatAt } from "../core/time.js";
 import { rewake } from "../util/command.js";
 import { type AgentProcess, stillRunning } from "../util/proc.js";
 import { SECRET_NAME } from "../util/secrets.js";
+import { ARM_BUDGET_MS, fingerprintWorkspace } from "../util/workspace.js";
 import type { HostAdapter, HostFacts, SendResult } from "./host.js";
 import { type SessionLimit, type SessionRecord, SessionRecords } from "./sessions.js";
 
@@ -182,6 +183,16 @@ export function armedText(host: ClosedHost, cwd: string, at: number, now: number
   return `Rewake will continue ${placeOf(host, cwd)} ${formatAt(at, now)}. Keep this computer on and awake until then.${keep} ${typing} To cancel all planned resumes: ${rewake("continue --cancel")}`;
 }
 
+/**
+ * Record the project's fingerprint on a resume that is already stored and armed, so the hook that
+ * plans it is never held up: it gets about a second, and nothing is stored if that isn't enough.
+ */
+export function withWorkspace(store: ScheduleStore, s: Schedule, now: number): Schedule {
+  const workspace = fingerprintWorkspace(s.cwd, ARM_BUDGET_MS);
+  if (!workspace) return s;
+  return store.update(s.scheduleId, (x) => ({ ...x, workspace }), now) ?? s;
+}
+
 /** Arm a resume of a closed session at `at`. */
 export function armClosed(host: ClosedHost, r: SessionRecord, at: number, d: ClosedDeps): Schedule {
   const store = new ScheduleStore(d.stateDir);
@@ -202,7 +213,7 @@ export function armClosed(host: ClosedHost, r: SessionRecord, at: number, d: Clo
   };
   store.put(resume);
   d.arm(resume.scheduleId, at + (host.fallbackDelayMs ?? 0));
-  return resume;
+  return withWorkspace(store, resume, d.now);
 }
 
 /** What each hook event does to the session's record. */
