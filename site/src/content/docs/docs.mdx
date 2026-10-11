@@ -546,7 +546,8 @@ The same two steps for every version, from any earlier one:
    ```
 
    It shows which agents it updates, and from which version to which, and asks first.
-2. **Quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window). Zed keeps agents it already started on the old version until then.
+2. **Restart the agent.** Zed keeps an agent it already started on the old version until its connection is restarted. In Zed 1.18 or newer, open the Agent Panel's menu (top right) and choose **Reload Agent**: Zed starts a fresh copy and reopens that thread's session. Do it in each open thread you want on the new version.
+   If you don't see **Reload Agent**, or something looks wrong afterwards, **quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window), which always works.
 
 Your threads, scheduled messages, automatic-resume choices and settings stay as they are: they live in Rewake's own folder, which an update doesn't touch. A message due while Zed is closed for the restart is sent when you reopen its thread, or, if it's more than 15 minutes late, Rewake asks first (a repeating message skips to its next run).
 
