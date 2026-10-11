@@ -2,7 +2,12 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
-import { compareVersions, grokPrograms, type Program } from "../../install/detect.js";
+import {
+  chooseProgram,
+  compareVersions,
+  grokPrograms,
+  type Program,
+} from "../../install/detect.js";
 import {
   unknownVersionText,
   type VersionProbe,
@@ -74,9 +79,7 @@ export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? grokPrograms({ env: o.env, home, platform: process.platform });
   const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
-  const picked = [...programs].sort((a, b) =>
-    compareVersions(b.version ?? "0", a.version ?? "0"),
-  )[0];
+  const picked = chooseProgram(programs);
   const grok = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   const file = grokHooksFile(o.env, home);
   const installed = existsSync(file);
@@ -103,7 +106,7 @@ export async function runGrokInstall(o: GrokInstallOptions): Promise<number> {
         `Agent Rewake (preview) will ${installed ? "update" : "add"} its hooks file for Grok Build${grok.version ? ` (version ${grok.version} found)` : ""}:`,
         `  ${file}`,
         "",
-        `It adds ${GROK_EVENTS.length} hooks that note when a session starts, ends, gets a message or hits Grok's weekly usage limit. Rewake doesn't resume after a spending cap. Nothing else in Grok's settings changes.`,
+        `It adds ${GROK_EVENTS.length} hooks that note when a session starts, ends, gets a message or hits Grok's weekly usage limit. At a usage limit, type "/rewake" in the session to continue after the reset, choose a time, or cancel. Rewake doesn't resume after a spending cap. Nothing else in Grok's settings changes.`,
         "",
       ].join("\n"),
     );

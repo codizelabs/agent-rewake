@@ -2,7 +2,12 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { writeFileAtomic } from "../../core/store.js";
-import { compareVersions, copilotPrograms, type Program } from "../../install/detect.js";
+import {
+  chooseProgram,
+  compareVersions,
+  copilotPrograms,
+  type Program,
+} from "../../install/detect.js";
 import {
   unknownVersionText,
   type VersionProbe,
@@ -76,9 +81,7 @@ export async function runCopilotInstall(o: CopilotInstallOptions): Promise<numbe
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? copilotPrograms({ env: o.env, home, platform: process.platform });
   const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
-  const picked = [...programs].sort((a, b) =>
-    compareVersions(b.version ?? "0", a.version ?? "0"),
-  )[0];
+  const picked = chooseProgram(programs);
   const copilot = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   const file = hooksFile(o.env, home);
   const installed = existsSync(file);

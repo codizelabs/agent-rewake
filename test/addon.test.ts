@@ -14,6 +14,7 @@ import type { Wake } from "../src/util/keep-awake.js";
 import { Logger } from "../src/util/log.js";
 import type { SleepSettings } from "../src/util/sleep-settings.js";
 import { VERSION } from "../src/version.js";
+import { until } from "./support.js";
 
 const HOUR = 3_600_000;
 const T0 = new Date(2026, 9, 4, 14, 0, 0, 0).getTime(); // 4 Oct 2026 14:00 local
@@ -365,6 +366,23 @@ describe("delivery", () => {
     await settle();
     expect(h.toClient.find((m) => m.id === 3)?.result).toEqual({ stopReason: "end_turn" });
     h.addon.stop();
+  });
+
+  it("passes on a message it was holding when Rewake fails open, so the thread isn't left waiting", async () => {
+    const h = await harness();
+    h.prompt(2, "/rewake in 1h Scheduled");
+    await settle();
+    h.advance(HOUR);
+    h.addon.tick();
+    await settle();
+    h.prompt(3, "typed meanwhile");
+    await settle();
+    expect(h.toAgent.filter((m) => m.method === "session/prompt")).toHaveLength(1);
+    h.addon.failOpen();
+    await settle();
+    const forwarded = h.toAgent.filter((m) => m.method === "session/prompt");
+    expect(forwarded).toHaveLength(2);
+    expect(forwarded[1]?.id).toBe(3);
   });
 
   it("/rewake stop cancels a running scheduled reply", async () => {
@@ -856,6 +874,59 @@ describe("resume after a usage limit", () => {
     h.addon.stop();
   });
 
+  it("holds a scheduled message until the plan resets, even days away, without asking", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "/rewake in 1h Run the tests");
+    await settle();
+    h.advance(HOUR);
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt").at(-1);
+    // As Claude sends it: a spend cap is a billing_error, with the plan's weekly reset at the end.
+    h.agent({
+      id: sent?.id,
+      error: {
+        code: -32603,
+        message:
+          "Internal error: You’ve hit your individual spend limit · run /usage-credits to ask your admin for a higher limit · your weekly limit resets Oct 8 at 6am",
+        data: { errorKind: "billing_error" },
+      },
+    });
+    await settle();
+    const reset = new Date(2026, 9, 8, 6, 0, 0, 0).getTime();
+    const s = h.store.list()[0];
+    expect(s).toMatchObject({ status: "scheduled", attempts: [{ n: 1 }] });
+    expect(s?.dueAt).toBeGreaterThan(reset);
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(
+      /^Rewake: Claude is at its usage limit until .+\. Your scheduled message goes when it resets\.$/,
+    );
+    h.addon.stop();
+  });
+
+  it("tries a scheduled message again later when the limit gives no reset time, without asking", async () => {
+    const h = await harness(dir, { claude: true });
+    h.prompt(2, "/rewake in 1h Run the tests");
+    await settle();
+    h.advance(HOUR);
+    h.addon.tick();
+    await settle();
+    const sent = h.toAgent.filter((m) => m.method === "session/prompt").at(-1);
+    h.agent({
+      id: sent?.id,
+      error: {
+        code: -32603,
+        message: "Internal error: You've hit your session limit",
+        data: { errorKind: "rate_limit" },
+      },
+    });
+    await settle();
+    expect(h.store.list()[0]).toMatchObject({ status: "scheduled", dueAt: T0 + 2 * HOUR });
+    expect(forms(h)).toHaveLength(0);
+    expect(h.texts().at(-1)).toMatch(/Your scheduled message will be tried again at /);
+    h.addon.stop();
+  });
+
   it("shows a message once when it's sent again after a usage limit", async () => {
     const h = await harness(dir, { claude: true });
     h.prompt(2, "/rewake in 1h Run the tests");
@@ -1205,25 +1276,42 @@ describe("the Rewake menu in the thread toolbar", () => {
     }
   });
 
-  it("says a resume is already scheduled, adds messages after it, and sends each when the reply before it finishes", async () => {
+  // Each step writes the schedule durably (file and folder fsync, src/core/store.ts), about 28 times
+  // in all: on a CI runner's virtual disk that alone can near 5 s. Every step waits for its own
+  // result instead of a fixed pause, and the test gets the time the Windows runners get.
+  it("says a resume is already scheduled, adds messages after it, and sends each when the reply before it finishes", {
+    timeout: 20_000,
+  }, async () => {
     const h = await harness(dir, { claude: true });
     await hitLimit(h, 2);
     h.client({ id: forms(h)[0]?.id, result: { action: "accept", content: { prompt: "Resume" } } });
-    await settle();
+    const adds = (n: number) => {
+      const options = latestOptions(h);
+      return (
+        options !== undefined &&
+        menuOf(options)?.options.some((o) => o.name === "Add a message after the resume…") ===
+          true &&
+        h.texts().filter((t) => t.startsWith("Rewake: Added.")).length === n
+      );
+    };
+    await until(() => adds(0), "the resume and its menu entry");
+    let added = 0;
     for (const [id, text] of [
       [7, "Then run the tests"],
       [8, "Then write the changelog"],
     ] as const) {
       const menu = menuOf(latestOptions(h));
       expect(menu.options.map((o) => o.name)).toContain("Add a message after the resume…");
+      const asked = forms(h).length;
       pick(h, id, menu, "resume");
-      await settle();
+      await until(() => forms(h).length > asked, "the form asking for a message");
       const ask = forms(h).at(-1);
       expect((ask?.params as { message: string } | undefined)?.message).toMatch(
         /^A resume is already scheduled for 17:01 today: "Resume"(, followed by 1 more message)?\. Add a message to send after (it|them)\? Each is sent when the reply before it finishes\.$/,
       );
       h.client({ id: ask?.id, result: { action: "accept", content: { message: text } } });
-      await settle();
+      added++;
+      await until(() => adds(added), `"Added." for message ${added}`);
     }
     expect(h.store.list()).toHaveLength(1);
     expect(h.store.list()[0]?.followUps).toEqual([
@@ -1240,21 +1328,19 @@ describe("the Rewake menu in the thread toolbar", () => {
         ?.text;
     h.advance(3 * HOUR + 60_000);
     h.addon.tick();
-    await settle();
-    expect(sentText()).toBe("Resume");
+    await until(() => sentText() === "Resume", "the resume to be sent");
     const before = prompts().length;
     h.addon.tick(); // nothing more goes while the reply is running
-    await settle();
+    await settle(); // a check that nothing happens: only a pause can show that
     expect(prompts()).toHaveLength(before);
+    for (const next of ["Then run the tests", "Then write the changelog"]) {
+      h.agent({ id: prompts().at(-1)?.id, result: { stopReason: "end_turn" } });
+      await until(() => sentText() === next, `"${next}" to be sent`);
+    }
     h.agent({ id: prompts().at(-1)?.id, result: { stopReason: "end_turn" } });
-    await settle();
-    expect(sentText()).toBe("Then run the tests");
-    h.agent({ id: prompts().at(-1)?.id, result: { stopReason: "end_turn" } });
-    await settle();
-    expect(sentText()).toBe("Then write the changelog");
-    h.agent({ id: prompts().at(-1)?.id, result: { stopReason: "end_turn" } });
-    await settle();
-    expect(h.store.list().map((x) => x.status)).toEqual(["sent", "sent", "sent"]);
+    const statuses = () => h.store.list().map((x) => x.status);
+    await until(() => statuses().every((s) => s === "sent"), "every message to be sent", 4_000, 20);
+    expect(statuses()).toEqual(["sent", "sent", "sent"]);
     h.addon.stop();
   });
 
@@ -2549,6 +2635,67 @@ describe("limits that agents report in their own way", () => {
     h.agent({ id: 2, result: { stopReason: "end_turn" } });
     await settle();
     expect(formMessage(h)).toMatch(/^Cursor hit its usage limit\. It didn't say when/);
+    h.addon.stop();
+  });
+
+  it("a limit read only from the agent's message, in a thread that skips permission prompts, asks first", async () => {
+    const text =
+      "Error: You've hit your session rate limit. Please wait for your limit to reset in 3 hours.";
+    const options = {
+      agentName: "copilot",
+      agentTitle: "GitHub Copilot",
+      agentId: "github-copilot-cli",
+    };
+    const turn = async (h: Awaited<ReturnType<typeof harness>>) => {
+      h.prompt(2, "/rewake auto on");
+      await settle();
+      h.prompt(3, "keep going");
+      await settle();
+      h.agent(chunk(text));
+      h.agent({ id: 3, result: { stopReason: "end_turn" } });
+      await settle();
+    };
+    // Prompts are asked for: an automatic resume is as before.
+    const normal = await harness(dir, options);
+    await turn(normal);
+    expect(normal.store.list()[0]).toMatchObject({ kind: "auto_limit_resume" });
+    normal.addon.stop();
+    // No permission prompts: a model-written line could be steering this, so a person confirms.
+    const other = mkdtempSync(join(tmpdir(), "rewake-text-bypass-"));
+    const g = await harness(other, {
+      ...options,
+      configOptions: [
+        { id: "mode", category: "mode", type: "select", currentValue: "bypassPermissions" },
+      ],
+    });
+    await turn(g);
+    expect(g.store.list()).toEqual([]);
+    expect(forms(g)).toHaveLength(1);
+    expect(g.texts()).toContain(
+      "Rewake: Not resuming automatically this time: the limit was read from the agent's message, and this thread skips permission prompts, so a person should confirm it.",
+    );
+    g.addon.stop();
+  });
+
+  it("Cursor: a monthly allowance at the end of a turn is not offered a resume", async () => {
+    const h = await harness(dir, {
+      agentName: "cursor-agent",
+      agentTitle: "Cursor",
+      agentId: "cursor",
+    });
+    h.prompt(2, "keep going");
+    await settle();
+    h.agent(toolCall);
+    h.agent(
+      chunk(
+        "\n\nError: ConnectError: You've hit your usage limit\nSwitch to Auto for more usage or set a Spend Limit.",
+      ),
+    );
+    h.agent({ id: 2, result: { stopReason: "end_turn" } });
+    await settle();
+    // Waiting hours won't lift it: no resume form, nothing scheduled.
+    expect(forms(h)).toHaveLength(0);
+    expect(h.store.list()).toEqual([]);
     h.addon.stop();
   });
 

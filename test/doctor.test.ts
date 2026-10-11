@@ -11,8 +11,10 @@ import {
   findZedApps,
   recentLogs,
   render,
+  renderJson,
   type ZedApp,
 } from "../src/doctor.js";
+import type { Found } from "../src/install/detect.js";
 
 const NOW = Date.parse("2026-10-06T12:00:00Z");
 let dir: string;
@@ -128,7 +130,9 @@ describe("doctor: installed", () => {
     const f = run();
     expect(texts(f, "todo").join()).toContain("Zed hasn't started Rewake yet");
     expect(f.find((x) => x.text.includes("hasn't started"))?.fix).toContain("Agent Panel (Cmd+?)");
-    expect(texts(f, "info").join()).toContain("the Claude desktop app, claude.ai, or Claude Code");
+    expect(texts(f, "info").join()).toContain(
+      "the Claude desktop app or claude.ai. Claude Code, Codex and other agents you run in a terminal are set up separately",
+    );
   });
 
   it("working: names when Zed last started it, and nothing to do", () => {
@@ -258,7 +262,7 @@ describe("doctor: other coding agents", () => {
   });
 
   it("installed, never started: the specific line replaces the general one", () => {
-    const general = "Rewake works only in Zed's Agent Panel, with external agents";
+    const general = "Rewake works in Zed's Agent Panel, with external agents";
     settings({ agent_servers: { "claude-acp": wrapped() } });
     expect(texts(run()).join()).toContain(general);
     const f = texts(
@@ -268,6 +272,57 @@ describe("doctor: other coding agents", () => {
     ).join();
     expect(f).not.toContain(general);
     expect(f).toContain("It isn't set up for Codex used on its own");
+  });
+});
+
+describe("doctor: no Zed, agents in a terminal", () => {
+  const found: Found[] = [
+    { id: "claude-code", name: "Claude Code", version: "2.1.291", surfaces: ["terminal"] },
+    { id: "codex", name: "Codex", version: "0.170.0", surfaces: ["terminal"] },
+  ];
+
+  it("starts from the agents found, not from Zed", () => {
+    const f = run([], { agents: () => [...found], previews: () => [] });
+    const todo = f.find((x) => x.level === "todo");
+    expect(todo?.text).toBe("Rewake isn't set up yet. Found on this computer: Claude Code, Codex.");
+    expect(todo?.fix).toBe(
+      "Run: npx @codizelabs/agent-rewake install  (pick the ones you want), or name them: npx @codizelabs/agent-rewake install --only claude-code,codex",
+    );
+    // Not told to install Zed, or that Rewake works only there.
+    expect(f.filter((x) => x.level === "problem")).toEqual([]);
+    const all = texts(f).join("\n");
+    expect(all).not.toContain("Open Zed once");
+    expect(all).not.toContain("Install Zed");
+    expect(all).not.toContain("works only in Zed");
+    expect(all).not.toContain("Zed has no external agents");
+    expect(texts(f, "info").join()).toContain("Zed isn't installed on this computer");
+    const out = render(f, { version: "0.1.2", ascii: false });
+    expect(out).toContain("Start here: Run: npx @codizelabs/agent-rewake install  (pick");
+  });
+
+  it("with Rewake already set up in a terminal agent, doesn't say it isn't set up", () => {
+    const f = run([], { agents: () => [], previews: () => ["GitHub Copilot CLI"] });
+    expect(texts(f).join("\n")).not.toContain("isn't set up yet");
+    expect(f.filter((x) => x.level === "problem" || x.level === "todo")).toEqual([]);
+  });
+
+  it("names only the agents still to set up when another is set up", () => {
+    const f = run([], { agents: () => found.slice(1), previews: () => ["Claude Code (terminal)"] });
+    expect(f.find((x) => x.level === "todo")?.text).toBe("Rewake isn't set up yet for: Codex.");
+  });
+
+  it("with nothing found anywhere, still says what to install", () => {
+    const f = run([], { agents: () => [], previews: () => [] });
+    const problem = f.find((x) => x.level === "problem");
+    expect(problem?.text).toContain("Zed doesn't seem to be installed");
+    expect(problem?.fix).toContain("Install Zed from zed.dev");
+    expect(problem?.fix).toContain("Claude Code, Codex, Gemini CLI or GitHub Copilot CLI");
+  });
+
+  it("with Zed, the advice is unchanged", () => {
+    settings({ agent_servers: { "claude-acp": { type: "registry" } } });
+    const f = run(zed, { agents: () => [...found], previews: () => [] });
+    expect(f.find((x) => x.level === "todo")?.text).toContain("isn't added to your agents yet");
   });
 });
 
@@ -353,7 +408,7 @@ describe("doctor: output", () => {
   it("summarises and points at the first fix; plain marks for old consoles", () => {
     settings({ disable_ai: true });
     const out = render(run(), { version: "0.1.2", ascii: true });
-    expect(out).toContain("XX Zed's AI features are turned off");
+    expect(out).toContain("  Problem: Zed's AI features are turned off");
     expect(out).toContain("-> Remove");
     expect(out).toContain("1 problem and 1 thing to do. Start here: Remove");
     expect(out).toContain("agent-rewake doctor --details");
@@ -379,6 +434,101 @@ describe("doctor: output", () => {
   });
 });
 
+describe("--details with two copies of an agent", () => {
+  it("lists each copy and says which one Rewake goes by", () => {
+    const first = {
+      path: join(dir, "nvm", "bin", "claude"),
+      surface: "terminal",
+      version: "2.1.282",
+    };
+    const second = { path: "/elsewhere/claude", surface: "terminal", version: "2.1.292" };
+    const lines = detailLines({
+      env,
+      now: NOW,
+      platform: "darwin",
+      home: dir,
+      zedApps: () => zed,
+      version: "0.1.2",
+      nodeVersion: "24.1.0",
+      copies: () => [{ name: "Claude Code", copies: [first, second], chosen: first }],
+    }).join("\n");
+    expect(lines).toContain(
+      `Claude Code is installed 2 times; Rewake uses the first one on your PATH: ~${sep}nvm${sep}bin${sep}claude 2.1.282 (used); /elsewhere/claude 2.1.292`,
+    );
+  });
+});
+
+describe("doctor: levels in words (G65)", () => {
+  it("says each level in words as well as a symbol, in both mark styles", () => {
+    settings({ disable_ai: true });
+    const f = run();
+    const fancy = render(f, { version: "0.1.2", ascii: false });
+    expect(fancy).toContain("✗ Problem: Zed's AI features are turned off");
+    expect(fancy).toContain("! To do: Rewake isn't set up yet");
+    expect(fancy).toContain("✓ OK: Found Zed 1.22.0.");
+    const plain = render([{ area: "Rewake", level: "info", text: "A note." }], {
+      version: "0.1.2",
+      ascii: true,
+    });
+    expect(plain).toContain("  Note: A note.");
+  });
+
+  it("--json gives the same findings for scripts, without folders or message text", () => {
+    settings({ disable_ai: true });
+    schedule(1, "scheduled", NOW + 3_600_000);
+    const out = JSON.parse(renderJson(run(), { version: "0.1.2" })) as {
+      version: string;
+      problems: number;
+      todos: number;
+      findings: { area: string; level: string; text: string; fix?: string }[];
+      details?: string[];
+    };
+    expect(out.version).toBe("0.1.2");
+    expect(out.problems).toBe(1);
+    expect(out.todos).toBe(1);
+    expect(out.findings[0]).toMatchObject({ area: "Zed", level: "ok" });
+    expect(out.findings.find((x) => x.level === "problem")?.fix).toContain("disable_ai");
+    expect(out.details).toBeUndefined();
+    expect(JSON.stringify(out)).not.toContain("PRIVATE");
+    expect(renderJson([], { version: "1", details: ["x"] })).toContain('"details"');
+  });
+});
+
+describe("doctor: how old the installed version is (G70)", () => {
+  const day = 86_400_000;
+  const say = (installed?: { version: string; at: number }) =>
+    run(zed, { installed: () => installed }).filter((f) => f.text.includes("nstalled"));
+
+  it("says the version, its age and how to update, from the local record", () => {
+    const f = run(zed, { installed: () => ({ version: "0.1.2", at: NOW - 94 * day - 3600_000 }) });
+    const line = f.find((x) => x.text.startsWith("Rewake 0.1.2, installed"));
+    expect(line?.text).toBe("Rewake 0.1.2, installed 94 days ago.");
+    expect(line?.fix).toBe("To update: npx @codizelabs/agent-rewake@latest install");
+    expect(line?.level).toBe("info");
+    const out = render(f, { version: "0.1.2", ascii: false });
+    expect(out).toContain("To update: npx @codizelabs/agent-rewake@latest install");
+  });
+
+  it("says today and 1 day in plain words", () => {
+    expect(say({ version: "0.1.2", at: NOW - 1000 })[0]?.text).toBe(
+      "Rewake 0.1.2, installed today.",
+    );
+    expect(say({ version: "0.1.2", at: NOW - day })[0]?.text).toBe(
+      "Rewake 0.1.2, installed 1 day ago.",
+    );
+  });
+
+  it("names both versions when this copy isn't the installed one", () => {
+    expect(say({ version: "0.1.0", at: NOW - 5 * day })[0]?.text).toBe(
+      "Rewake 0.1.0 was installed 5 days ago; this copy is 0.1.2.",
+    );
+  });
+
+  it("says nothing when no install time was recorded", () => {
+    expect(say(undefined).filter((f) => /^Rewake \d/.test(f.text))).toEqual([]);
+  });
+});
+
 describe("helpers", () => {
   it("compares versions", () => {
     expect(compareVersions("1.21.0", "1.22.0")).toBe(-1);
@@ -399,5 +549,16 @@ describe("helpers", () => {
     });
     mkdirSync(join(dir, ".local", "zed.app"), { recursive: true });
     expect(findZedApps("linux", dir, {})).toEqual([{ name: "Zed" }]);
+  });
+});
+
+describe("doctor: automatic resume turned off", () => {
+  it("says how to turn it back on, in Zed and in a terminal", () => {
+    mkdirSync(join(dir, "state"), { recursive: true });
+    writeFileSync(join(dir, "state", "settings.json"), JSON.stringify({ newThreads: "off" }));
+    const found = run().find((x) => x.text.includes("you chose Never"));
+    expect(found?.fix).toBe(
+      "To change it: Rewake menu → Settings…, or agent-rewake settings new-threads ask",
+    );
   });
 });

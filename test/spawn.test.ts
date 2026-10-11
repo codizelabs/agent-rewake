@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { launchCommand, selfCommand } from "../src/install.js";
-import { findOnWindows, npmScript, resolveCommand, type SpawnHost } from "../src/util/spawn.js";
+import {
+  findOnWindows,
+  killPidTree,
+  killTree,
+  npmScript,
+  resolveCommand,
+  type SpawnHost,
+} from "../src/util/spawn.js";
 import { unpackers } from "../src/wrap.js";
 import { canSymlink } from "./support.js";
 
@@ -114,6 +121,54 @@ describe("starting a program on Windows", () => {
       const host = { ...windows({}), platform };
       expect(resolveCommand("npx", ["x"], env, host)).toEqual({ command: "npx", args: ["x"] });
     }
+  });
+});
+
+describe("stopping a process and what it started", () => {
+  const fakeChild = () => {
+    const signals: (NodeJS.Signals | undefined)[] = [];
+    const kill = (s?: NodeJS.Signals) => {
+      signals.push(s);
+      return true;
+    };
+    return { signals, child: { pid: 4321, kill } };
+  };
+  /** A taskkill that records its arguments and exits with `status`. */
+  const recorder =
+    (calls: string[][], status = 0) =>
+    (args: string[]) => {
+      calls.push(args);
+      return status;
+    };
+
+  it("on Windows, ends the whole tree with taskkill /T", () => {
+    const calls: string[][] = [];
+    const { child, signals } = fakeChild();
+    killTree(child, "win32", "SIGTERM", recorder(calls));
+    expect(calls).toEqual([["/pid", "4321", "/T", "/F"]]);
+    expect(signals).toEqual([]);
+  });
+
+  it("on Windows, falls back to the child's own kill when taskkill fails", () => {
+    const { child, signals } = fakeChild();
+    killTree(child, "win32", "SIGTERM", () => 128);
+    expect(signals).toEqual(["SIGTERM"]);
+  });
+
+  it("on macOS and Linux, signals the child as before", () => {
+    const calls: string[][] = [];
+    const { child, signals } = fakeChild();
+    killTree(child, "darwin", "SIGTERM", recorder(calls));
+    expect(calls).toEqual([]);
+    expect(signals).toEqual(["SIGTERM"]);
+  });
+
+  it("stops a process known only by its id the same way, and ignores one already gone", () => {
+    const calls: string[][] = [];
+    killPidTree(4321, "win32", recorder(calls));
+    expect(calls).toEqual([["/pid", "4321", "/T", "/F"]]);
+    // No such process: nothing thrown.
+    expect(() => killPidTree(2 ** 30, "linux")).not.toThrow();
   });
 });
 

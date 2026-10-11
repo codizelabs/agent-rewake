@@ -1,8 +1,19 @@
 // Fails if the npm tarball would contain anything beyond Agent Rewake's own files. In particular,
-// Anthropic's SDK and Claude Code binaries must never be bundled or shipped.
+// Anthropic's SDK and Claude Code binaries must never be bundled or shipped. Also fails if the
+// package would make npm download any runtime dependency beyond the pinned Claude adapter.
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { runtimeDependencyProblems } from "./runtime-deps.mjs";
+
+// What npm installs with the package: only the pinned Claude adapter (scripts/runtime-deps.mjs).
+const problems = runtimeDependencyProblems(
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")),
+);
+if (problems.length) {
+  console.error("Runtime dependencies the npm package may not have:", problems);
+  process.exit(1);
+}
 
 // npm as `node npm-cli.js`: on Windows npm is npm.cmd, which Node won't start without a shell.
 const bin = dirname(process.execPath);
@@ -29,7 +40,13 @@ if (unexpected.length || forbidden.length) {
 }
 // Size budget (plan §10A.3 bundle-budget): a near-zero-dependency bundle stays small, and the
 // Claude Code mod stays readable. Raise these on purpose, never by accident.
-const BUDGET = { bundle: 768 * 1024, mod: 64 * 1024 };
+// 780 KB from 768 KB: keep-awake for Linux and Windows (the commands and their messages).
+// 800 KB from 780 KB: `agent-rewake settings` and cancelling one resume outside Zed (each
+// setting's plain-words description and values are most of it).
+// 840 KB from 800 KB: OpenCode as a preview place.
+// 860 KB from 840 KB: opt-in error reports to Sentry (a hand-rolled DSN parser, event builder,
+// local queue, scrubbing and ledger — no SDK dependency).
+const BUDGET = { bundle: 860 * 1024, mod: 64 * 1024 };
 const size = (re) => pack.files.filter((f) => re.test(f.path)).reduce((n, f) => n + f.size, 0);
 const bundle = size(/^dist\/agent-rewake\.js$/);
 const mod = size(/^dist\/hosts\/claude-code\//);
@@ -40,6 +57,7 @@ if (bundle > BUDGET.bundle || mod > BUDGET.mod) {
   process.exit(1);
 }
 console.log(`npm package contents OK (${files.length} files): ${files.join(", ")}`);
+console.log("Runtime dependencies OK: only the pinned Claude adapter.");
 console.log(
   `Size: bundle ${Math.round(bundle / 1024)} KB, Claude Code mod ${Math.round(mod / 1024)} KB.`,
 );

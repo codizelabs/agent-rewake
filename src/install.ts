@@ -1,6 +1,16 @@
-import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { homedir, platform } from "node:os";
-import { delimiter, dirname, join, posix, win32 } from "node:path";
+import { basename, delimiter, dirname, join, posix, win32 } from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   applyEdits,
@@ -18,6 +28,7 @@ import { rewake } from "./util/command.js";
 import { readText, renameWithRetry, writeTempExclusive } from "./util/fs.js";
 import { ensurePrivateDir, stateDir, zedConfigDir } from "./util/paths.js";
 import { findOnWindows, npmScript } from "./util/spawn.js";
+import { noColorFrom, paint, type Tone } from "./util/style.js";
 import { PACKAGE_NAME, REPO_URL, VERSION } from "./version.js";
 import {
   CLAUDE_REGISTRY_ID,
@@ -50,7 +61,8 @@ export interface LaunchCommand {
  * How Zed should start Rewake. Run from npx's temporary cache, a fixed path would vanish when the
  * cache is cleaned, so Zed gets a pinned npx command instead, run as `node npx-cli.js` so it's the
  * same on every OS (no `npx.cmd` on Windows). Otherwise the absolute Node binary and the real path
- * of this script (Zed doesn't read your shell's PATH).
+ * of this script (Zed doesn't read your shell's PATH). This is the start Windows keeps, and what a
+ * run from source uses; on macOS and Linux Zed gets Rewake's own stable files instead (zedLaunch).
  */
 export function launchCommand(
   execPath: string = stableNode(),
@@ -229,7 +241,7 @@ function read(file: string): { text: string; existed: boolean } {
   return existsSync(file) ? { text: readText(file), existed: true } : { text: "", existed: false };
 }
 
-function parseJsonc(text: string): { value: unknown; error?: string } {
+export function parseJsonc(text: string): { value: unknown; error?: string } {
   const errors: ParseError[] = [];
   const value = parse(text, errors, { allowTrailingComma: true });
   const first = errors[0];
@@ -258,7 +270,12 @@ export function zedAgentSetting(
   return entry && typeof entry === "object" ? (entry as Record<string, unknown>)[key] : undefined;
 }
 
-function edit(text: string, path: (string | number)[], value: unknown, insert = false): string {
+export function edit(
+  text: string,
+  path: (string | number)[],
+  value: unknown,
+  insert = false,
+): string {
   return applyEdits(
     text,
     modify(text, path, value, { formattingOptions: FORMAT, isArrayInsertion: insert }),
@@ -275,9 +292,23 @@ function isOurKeyBlock(v: unknown): boolean {
   return Object.values(v.bindings).some((action) => same(action, KEY_ACTION));
 }
 
+/**
+ * Whether a wrapped Zed entry runs Rewake in front of the Claude adapter. That adapter is Rewake's
+ * own pinned dependency and sits in the node_modules next to the package Rewake starts from, so
+ * those entries keep starting Rewake from the package (npx or the installed copy). The copy in
+ * Rewake's own folder is one file with no node_modules beside it and can't find the adapter.
+ */
+export function wrapsClaudeAdapter(entry: Record<string, unknown>): boolean {
+  const args = Array.isArray(entry.args) ? entry.args : [];
+  const at = args.indexOf("--wrap-registry");
+  return at !== -1 && args[at + 1] === CLAUDE_REGISTRY_ID;
+}
+
 export interface InstallOptions {
   dir: string;
   launch: LaunchCommand;
+  /** How the entries for the Claude adapter start Rewake (default: the same as the others). */
+  claudeLaunch?: LaunchCommand;
   keybinding: boolean;
   /** Only wrap these agent ids (default: every agent Rewake can wrap). */
   only?: string[];
@@ -333,12 +364,16 @@ export function planInstall(opts: InstallOptions): Plan {
     const summary: string[] = [];
     const servers = isRecord(parsed.value.agent_servers) ? parsed.value.agent_servers : {};
     let wrappedAny = false;
+    const claudeLaunch = opts.claudeLaunch ?? opts.launch;
+    /** The start for one target: the package for the Claude adapter, else the caller's choice. */
+    const launchFor = (t: WrapTarget): LaunchCommand =>
+      t.kind === "registry" && t.id === CLAUDE_REGISTRY_ID ? claudeLaunch : opts.launch;
     for (const [id, entry] of Object.entries(servers)) {
       if (!isRecord(entry)) continue;
       if (id === AGENT_NAME) {
         // Kept: Zed ties the threads started with it to this id, and removing it leaves them
         // unopenable ("Custom agent server `Agent Rewake` is not registered").
-        const want = legacyEntry(opts.launch);
+        const want = legacyEntry(claudeLaunch);
         if (same(entry, want)) notes.push(legacyNote(settingsFile));
         else {
           after = edit(after, ["agent_servers", AGENT_NAME], want);
@@ -354,15 +389,24 @@ export function planInstall(opts: InstallOptions): Plan {
         wrappedAny = true;
         const target = wrapTargetFor(id, original, env);
         const want =
-          "target" in target ? wrappedEntry(original, target.target, opts.launch) : entry;
+          "target" in target
+            ? wrappedEntry(original, target.target, launchFor(target.target))
+            : entry;
         if (same(entry, want))
           notes.push(`${settingsFile}: ${agentLabel(id, env)} already has Rewake.`);
         else {
           after = edit(after, ["agent_servers", id], want);
           const from = pinnedVersion(entry);
           const to = pinnedVersion(want);
+          // Moving an entry onto Rewake's own copy in its state folder (see zedLaunch).
+          const own = "target" in target ? launchFor(target.target) : opts.launch;
+          const toOwnCopy =
+            /[\\/]bin[\\/]agent-rewake\.mjs$/.test(own.args[0] ?? "") &&
+            entry.command !== own.command;
           summary.push(
-            `Update Rewake in ${agentLabel(id, env)}${from && to && from !== to ? ` (from ${from} to ${to})` : ""}`,
+            toOwnCopy && !to
+              ? `Update Rewake in ${agentLabel(id, env)} to start from Rewake's own folder, so upgrading Node.js or having no network can't stop it`
+              : `Update Rewake in ${agentLabel(id, env)}${from && to && from !== to ? ` (from ${from} to ${to})` : ""}`,
           );
         }
         continue;
@@ -373,14 +417,18 @@ export function planInstall(opts: InstallOptions): Plan {
         continue;
       }
       wrappedAny = true;
-      after = edit(after, ["agent_servers", id], wrappedEntry(entry, target.target, opts.launch));
+      after = edit(
+        after,
+        ["agent_servers", id],
+        wrappedEntry(entry, target.target, launchFor(target.target)),
+      );
       summary.push(
         `Add Rewake to ${agentLabel(id, env)}. Its threads, settings and login stay as they are`,
       );
     }
     if (!(AGENT_NAME in servers) && opts.stateDir && hasLegacyThreads(opts.stateDir)) {
       // An earlier install removed it, but threads started with it still need it to open.
-      after = edit(after, ["agent_servers", AGENT_NAME], legacyEntry(opts.launch));
+      after = edit(after, ["agent_servers", AGENT_NAME], legacyEntry(claudeLaunch));
       summary.push(
         `Restore "${AGENT_NAME}" from an earlier version (Claude Agent with Rewake): threads you started with it can't open without it`,
       );
@@ -390,7 +438,7 @@ export function planInstall(opts: InstallOptions): Plan {
       after = edit(
         after,
         ["agent_servers", CLAUDE_REGISTRY_ID],
-        wrappedEntry({}, { kind: "registry", id: CLAUDE_REGISTRY_ID }, opts.launch),
+        wrappedEntry({}, { kind: "registry", id: CLAUDE_REGISTRY_ID }, claudeLaunch),
       );
       summary.push(
         `Add Claude Agent ("${CLAUDE_REGISTRY_ID}") with Rewake. You have no external agents in Zed yet; Claude Agent is Claude in Zed's Agent Panel, and that's where Rewake works`,
@@ -591,6 +639,30 @@ function stamp(now: Date): string {
   return now.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "-");
 }
 
+/** A backup name that doesn't exist yet: two installs in the same second don't share one. */
+function backupName(target: string, time: string): string {
+  const first = `${target}.agent-rewake-backup-${time}`;
+  if (!existsSync(first)) return first;
+  for (let n = 2; ; n++) if (!existsSync(`${first}-${n}`)) return `${first}-${n}`;
+}
+
+/** Backups of one file kept: the newest few. Older ones are Rewake's own copies, safe to remove. */
+export const BACKUPS_KEPT = 5;
+
+function pruneBackups(target: string): void {
+  try {
+    const prefix = `${basename(target)}.agent-rewake-backup-`;
+    const old = readdirSync(dirname(target))
+      .filter((f) => f.startsWith(prefix))
+      .map((f) => join(dirname(target), f))
+      .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs || (a < b ? 1 : -1))
+      .slice(BACKUPS_KEPT);
+    for (const f of old) rmSync(f, { force: true });
+  } catch {
+    // A backup that can't be tidied stays: nothing depends on it.
+  }
+}
+
 /**
  * Write the planned edits. Each existing file is first copied to
  * `<file>.agent-rewake-backup-<time>`, then replaced atomically, keeping its permissions. Symlinked
@@ -608,9 +680,10 @@ export function applyPlan(plan: Plan, now: Date = new Date()): string[] {
       mode = statSync(target).mode & 0o777;
       // A file saved with a byte-order mark keeps it (read() strips it for editing).
       if (readFileSync(target, "utf8").charCodeAt(0) === 0xfeff) bom = "\uFEFF";
-      const backup = `${target}.agent-rewake-backup-${stamp(now)}`;
-      copyFileSync(target, backup);
+      const backup = backupName(target, stamp(now));
+      copyFileSync(target, backup, constants.COPYFILE_EXCL);
       backups.push(backup);
+      pruneBackups(target);
     }
     const tmp = writeTempExclusive(target, bom + change.after, mode);
     // Windows refuses to replace a read-only file: make it writable, then restore its mode.
@@ -620,21 +693,50 @@ export function applyPlan(plan: Plan, now: Date = new Date()): string[] {
   return backups;
 }
 
-function describe(plan: Plan, verb: string): string {
+/**
+ * What's about to change, before asking (F2: the common path is short; C1: no backend detail
+ * unless the person needs it to decide). Previously this always printed the full breakdown below
+ * — every file's full path, then one bullet per change inside it, which for several agents meant
+ * one near-identical "Add Rewake to …" line each: exactly the long-to-read list the install
+ * picker's own quick question was built to avoid. Now the short form just names the files (not
+ * their full path — the person doesn't need that to decide) and says what's always true of every
+ * change Rewake makes here: nothing else in the file changes, and it's backed up first. The full
+ * breakdown, with every line, is still one flag away: `install --dry-run`.
+ */
+export function describeShort(plan: Plan, verb: string, noColor: boolean): string {
+  const c = (text: string, tone: Tone) => paint(text, tone, noColor);
+  const lines: string[] = [];
+  if (plan.changes.length > 0) {
+    const files = plan.changes.map((ch) => c(basename(ch.file), "accent")).join(", ");
+    const n = plan.changes.length === 1 ? "1 file" : `${plan.changes.length} files`;
+    lines.push(`Agent Rewake will ${verb}: ${n} change — ${files}.`);
+    lines.push(
+      c("Nothing else in them changes, and each is backed up first. See every line: ", "dim") +
+        c(rewake("install --dry-run"), "dim"),
+    );
+  }
+  for (const n of plan.notes) lines.push(c(n, "dim"));
+  return `${lines.join("\n")}\n`;
+}
+
+/** Every file's full path, and every change inside it: `install --dry-run`, or on request (§U F3). */
+export function describeFull(plan: Plan, verb: string, noColor: boolean): string {
+  const c = (text: string, tone: Tone) => paint(text, tone, noColor);
   const lines: string[] = [];
   if (plan.changes.length > 0) {
     lines.push(`Agent Rewake will ${verb}:`, "");
-    for (const c of plan.changes) {
-      lines.push(`  ${c.file}${c.existed ? "" : " (new file)"}`);
-      for (const s of c.summary) lines.push(s.startsWith(" ") ? `    ${s}` : `    - ${s}`);
+    for (const ch of plan.changes) {
+      lines.push(`  ${c(ch.file, "accent")}${ch.existed ? "" : c(" (new file)", "dim")}`);
+      for (const s of ch.summary)
+        lines.push(c(s.startsWith(" ") ? `    ${s}` : `    - ${s}`, "dim"));
     }
     lines.push(
       "",
-      "Nothing else in these files changes; comments and formatting are kept.",
-      "Each existing file is backed up next to itself first.",
+      c("Nothing else in these files changes; comments and formatting are kept.", "dim"),
+      c("Each existing file is backed up next to itself first.", "dim"),
     );
   }
-  for (const n of plan.notes) lines.push(`  ${n}`);
+  for (const n of plan.notes) lines.push(c(`  ${n}`, "dim"));
   return `${lines.join("\n")}\n`;
 }
 
@@ -649,6 +751,10 @@ async function confirm(question: string): Promise<boolean> {
 
 export interface RunInstallOptions {
   uninstall: boolean;
+  /** How Zed starts Rewake (default: this Node.js and script, or a pinned npx command). */
+  launch?: LaunchCommand;
+  /** Runs just before Zed's files are written, to create the files `launch` names. */
+  prepare?: () => void;
   /** Only wrap these agent ids. */
   only?: string[];
   yes: boolean;
@@ -672,14 +778,21 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
     ? planUninstall(dir)
     : planInstall({
         dir,
-        launch: launchCommand(),
+        launch: opts.launch ?? launchCommand(),
+        // The Claude adapter's entries start from the package that holds the adapter.
+        claudeLaunch: launchCommand(),
         keybinding: opts.keybinding,
         env: opts.env,
         stateDir: stateDir(opts.env),
         ...(opts.only && { only: opts.only }),
       });
 
-  out(describe(plan, opts.uninstall ? "remove these entries from Zed" : "set up Zed"));
+  const noColor = noColorFrom(opts.env);
+  const verb = opts.uninstall ? "remove these entries from Zed" : "set up Zed";
+  // The full, line-by-line breakdown (every file's path, every change) is still exactly what
+  // `--dry-run` shows: someone who wants to check every detail before trusting Rewake still can.
+  // The default is the short form, since most people don't need that read every time (F2, C1).
+  out(opts.dryRun ? describeFull(plan, verb, noColor) : describeShort(plan, verb, noColor));
   let note: string | undefined;
   if (!opts.uninstall) {
     const home = opts.env.HOME || opts.env.USERPROFILE || homedir();
@@ -707,13 +820,24 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
       out("\nNot a terminal, so nothing was written. Run again with --yes to apply.\n");
       return 1;
     }
-    const ok = await (opts.ask ?? confirm)("\nApply these changes? [y/N] ");
+    // "(default: no)" in words, not only the capital N in [y/N]: a screen reader doesn't
+    // announce letter case (the install picker's quick question does the same).
+    const ok = await (opts.ask ?? confirm)(
+      `\nApply these changes? [y/N] ${paint("(default: no)", "dim", noColor)} `,
+    );
     if (!ok) {
       out("Nothing was written.\n");
       return 1;
     }
   }
 
+  try {
+    // Only install makes the files; uninstall must work (and write nothing there) whatever their state.
+    if (!opts.uninstall) opts.prepare?.();
+  } catch (e) {
+    out(`\n${e instanceof Error ? e.message : String(e)} Nothing was changed.\n`);
+    return 1;
+  }
   const backups = applyPlan(plan);
   out("\nDone.\n");
   for (const b of backups) out(`  Backup: ${b}\n`);
@@ -755,8 +879,9 @@ function nextSteps(reachShown = false): string {
     ...(reachShown
       ? []
       : [
-          "Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI.",
-          "It can't reach Zed's own agent, Claude Code in a terminal, or the Claude desktop app.",
+          "Rewake works in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI.",
+          "It can't reach Zed's own agent or the Claude desktop app.",
+          `For Claude Code, Codex and other agents in a terminal, install them, then run \`${rewake("install")}\` and pick them.`,
           "",
         ]),
     `Agent Rewake is open source: ${REPO_URL}. If it saves you time, a star there helps others find it.`,

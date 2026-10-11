@@ -29,6 +29,7 @@ jobs:
           - { name: codex, package: "@openai/codex", bin: codex, env: REWAKE_CODEX_BIN, test: codex-contract }
           - { name: claude-code, package: "@anthropic-ai/claude-code", bin: claude, env: REWAKE_CLAUDE_BIN, test: claude-contract }
           - { name: gemini-cli, package: "@google/gemini-cli", bin: gemini, env: REWAKE_GEMINI_BIN, test: gemini-contract }
+          - { name: copilot-cli, package: "@github/copilot", bin: copilot, env: REWAKE_COPILOT_BIN, test: copilot-loop }
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

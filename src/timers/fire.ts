@@ -11,11 +11,23 @@ import {
 import { loadSettings } from "../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../core/store.js";
 import { formatAt, formatWhen } from "../core/time.js";
-import type { HostAdapter, HostFacts } from "../hosts/host.js";
+import { reportError } from "../errors/report.js";
+import { type HostAdapter, type HostFacts, onResumeRun, RESUME_TIMEOUT_MS } from "../hosts/host.js";
+import { rewake } from "../util/command.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
+import { killPidTree } from "../util/spawn.js";
 import type { Notifier } from "./notify.js";
-import { armTimer, cancelTimer, nextGen, type TimerHost, timerName } from "./timers.js";
+import { type SlotOptions, takeSlot } from "./slots.js";
+import {
+  armTimer,
+  cancelTimer,
+  nextGen,
+  type TimerHost,
+  timerArmed,
+  timerName,
+  timerStale,
+} from "./timers.js";
 
 /**
  * `agent-rewake fire <id>`: what an OS timer runs at a resume's time, for integrations outside Zed.
@@ -28,12 +40,27 @@ import { armTimer, cancelTimer, nextGen, type TimerHost, timerName } from "./tim
 const EARLY_MS = 30_000;
 /** Never arm a timer closer than this: systemd never fires a time in the past. */
 const MIN_ARM_MS = 60_000;
+/** How many times an early run sets a new timer for one resume before leaving it to the sweep. */
+const MAX_EARLY_REARMS = 3;
 /**
  * A send still marked "sending" after this long was cut off (a crash, a reboot): longer than any
- * host's resume run (RESUME_TIMEOUT_MS, 30 minutes). Rewake can't tell whether the message got
- * through, so it never sends again; it tells the person instead.
+ * host's resume run (RESUME_TIMEOUT_MS). Rewake can't tell whether the message got through, so it
+ * never sends again; it tells the person instead.
  */
-export const SENDING_STALE_MS = 40 * 60_000;
+export const SENDING_STALE_MS = RESUME_TIMEOUT_MS + 10 * 60_000;
+
+/** How often a running continue looks for the person's stop. */
+const STOP_POLL_MS = 3_000;
+
+/** Said when a headless continue starts: what's happening, and how to stop it. */
+export function runningText(at: string, noun = "session"): string {
+  return `${at}: Rewake is continuing the ${noun} now. You'll get a notification when it's done. To stop it: "${rewake("continue --cancel")}".`;
+}
+
+/** Said when a headless continue has finished. */
+export function doneText(at: string, noun = "session", now: number = Date.now()): string {
+  return `${at}: Rewake's run ended normally ${formatAt(now, now)}. Open the ${noun} to see what it did.`;
+}
 
 export type FireOutcome =
   | "early"
@@ -61,6 +88,12 @@ export interface FireDeps {
   wake?: Wake;
   /** Which of the resume's timers started this run (`<id>-r<n>`: n), so a re-arm takes a new name. */
   timerGen?: number;
+  /** Tests: how often a running continue looks for a stop. */
+  stopPollMs?: number;
+  /** Tests: how a running continue is stopped (default: the agent and everything it started). */
+  stopRun?: (pid: number) => void;
+  /** Tests: the limits on resumes starting together (src/timers/slots.ts). */
+  slots?: Omit<SlotOptions, "stateDir">;
 }
 
 const LIVE = new Set<Schedule["status"]>(["scheduled", "waiting_for_limit", "cancelled"]);
@@ -78,7 +111,9 @@ export type FailCause =
   | "deleted"
   | "timeout"
   | "missing-key"
-  | "window-closed";
+  | "window-closed"
+  | "needs-approval"
+  | "folder-gone";
 
 export interface NoticeFacts {
   /** "thread" (Codex, Zed) or "session" (Copilot, Grok): the host's own word. */
@@ -100,7 +135,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The notification for a resume Rewake won't send on its own. Plain words, no message text. */
 export function notice(
-  why: "late" | "open" | "far-reset" | "expired" | "failed" | "unconfirmed",
+  why: "late" | "open" | "changed" | "far-reset" | "expired" | "failed" | "unconfirmed",
   agent: string,
   now: number,
   f: NoticeFacts,
@@ -116,6 +151,8 @@ export function notice(
   switch (why) {
     case "open":
       return `${agent}: the usage limit has reset. The ${n} is open, so Rewake didn't send anything. Continue it there.`;
+    case "changed":
+      return `${agent}: the usage limit has reset, but the ${n} has changed since it stopped, so Rewake didn't send anything. ${cap(reopen)} to see where it stands and continue.`;
     case "late":
       return `${agent}: Rewake was due to continue the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but couldn't run then (the computer may have been off or asleep). ${cap(reopen)} to continue.`;
     case "far-reset":
@@ -128,7 +165,7 @@ export function notice(
       return `${agent}: Rewake started continuing the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but was interrupted (the computer may have restarted), so it can't tell whether its message was sent. It won't send it again. ${cap(reopen)} to check, and continue if needed.`;
     case "failed":
       if (f.cause === "timeout")
-        return `${agent}: Rewake continued the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but the agent was still working half an hour later (it may have been waiting for your approval), so Rewake stopped the run. ${cap(reopen)} to see where it got to and continue.`;
+        return `${agent}: Rewake continued the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but the agent was still working three hours later, so Rewake stopped the run. ${cap(reopen)} to see where it got to and continue.`;
       if (f.cause === "signed-out")
         return `${agent}: Rewake couldn't continue the ${n} because you're signed out of ${f.agentName}. Sign in, then ${reopen} to continue.`;
       if (f.cause === "archived")
@@ -137,10 +174,43 @@ export function notice(
         return `${agent}: Rewake couldn't continue the ${n} because it used a key or token from your shell, and Rewake never stores those. ${cap(reopen)} to continue. Next time, sign in to ${f.agentName} and remove the key from your shell profile.`;
       if (f.cause === "window-closed")
         return `${agent}: the time you chose has come, but Rewake couldn't continue the ${n} (was its window closed or reloaded?). ${cap(reopen)} to continue.`;
+      if (f.cause === "folder-gone")
+        return `${agent}: Rewake couldn't continue the ${n} because the project folder is gone (moved, renamed or deleted). Open the ${n} from its new folder to continue.`;
       if (f.cause === "deleted")
         return `${agent}: Rewake couldn't continue the ${n} because it no longer exists.`;
+      if (f.cause === "needs-approval")
+        return `${agent}: Rewake continued the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but ${f.agentName} refused a step that needs your approval, so the work may be unfinished. Rewake never approves for you. ${cap(reopen)} to see where it stopped, and approve it there.`;
       return `${agent}: Rewake couldn't continue the ${n}. ${cap(reopen)} to continue.`;
   }
+}
+
+/**
+ * A timer ran before its resume's time (the time zone changed, the clock went back, or a repeated
+ * daylight-saving hour made a wall-clock timer fire early). Nothing is sent. If no timer is left
+ * for the right moment, one is armed again for the resume's absolute time, a new name so this
+ * run's own timer is untouched. A timer that is still armed and correct (launchd runs a new job
+ * once when it is loaded) is left alone, and the number of re-arms is bounded; a resume past
+ * the bound waits for the next sweep, as before.
+ */
+function rearmEarly(id: string, store: ScheduleStore, deps: FireDeps, now: number): FireOutcome {
+  const s = store.get(id);
+  if (s?.status !== "scheduled" || !deps.timers) return "early";
+  if ((s.earlyRearms ?? 0) >= MAX_EARLY_REARMS) return "early";
+  if (timerArmed(id, deps.timers) && !timerStale(id, s.dueAt, deps.timers)) return "early";
+  const gen = nextGen(id, deps.timerGen ?? 0, deps.timers);
+  const armed = armTimer(id, Math.max(s.dueAt, now + MIN_ARM_MS), deps.timers, gen);
+  if (armed.ok) {
+    store.update(id, (x) => ({ ...x, earlyRearms: (x.earlyRearms ?? 0) + 1 }), now);
+    cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
+  } else {
+    reportError(deps.stateDir, {
+      name: "fire.early_rearm_failed",
+      message: `armTimer failed while re-arming an early fire: ${armed.reason}`,
+      tags: { place: "fire" },
+    });
+  }
+  deps.log?.("fire.early", { armed: armed.ok });
+  return "early";
 }
 
 export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
@@ -167,11 +237,31 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
     removeTimer();
     return "gone";
   }
-  if (first.status !== "cancelled" && now < first.dueAt - EARLY_MS) return "early";
-
   const lock = new SessionLock(deps.stateDir);
   const lockKey = `fire:${id}`;
-  if (!lock.acquire(lockKey)) return "busy";
+  if (first.status !== "cancelled" && now < first.dueAt - EARLY_MS) {
+    // Under the lock, so two early runs don't both arm.
+    if (!lock.acquire(lockKey)) return "early";
+    try {
+      return rearmEarly(id, store, deps, now);
+    } finally {
+      lock.release(lockKey);
+    }
+  }
+  if (!lock.acquire(lockKey)) {
+    // Relies on the next sweep to notice the timer is stale and re-arm it (sweep.ts); worth
+    // knowing about if that safety net is ever slow or missing.
+    reportError(deps.stateDir, {
+      name: "fire.busy",
+      message: "fire found the lock held by another run and returned without re-arming itself",
+      tags: { place: "fire" },
+    });
+    return "busy";
+  }
+  const slot: { release?: () => void } = {};
+  const giveBack = (): void => {
+    slot.release?.();
+  };
   try {
     // Re-read under the lock: another run may have sent or changed it since.
     const s = store.get(id);
@@ -179,7 +269,50 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       removeTimer();
       return "gone";
     }
-    if (s.status !== "cancelled" && now < s.dueAt - EARLY_MS) return "early";
+    if (s.status !== "cancelled" && now < s.dueAt - EARLY_MS)
+      return rearmEarly(id, store, deps, now);
+    // Tried again later: at `until` (at least a minute on), with a new timer name because this
+    // run's own timer can't be replaced from inside it (see timers.ts). Waiting for a free place
+    // (`count` false) isn't the agent's doing, so it doesn't use up the bounded re-arms.
+    const wait = (until: number, why: string, count = true): FireOutcome => {
+      const next = Math.max(until, now + MIN_ARM_MS);
+      store.update(
+        id,
+        (x) => ({
+          ...x,
+          status: "scheduled",
+          dueAt: next,
+          ...(count && { rearms: (x.rearms ?? 0) + 1 }),
+        }),
+        now,
+      );
+      let armed: ReturnType<typeof armTimer> | undefined;
+      if (deps.timers) {
+        const gen = nextGen(id, deps.timerGen ?? 0, deps.timers);
+        armed = armTimer(id, next, deps.timers, gen);
+        if (armed.ok) cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
+        // Found audit: armTimer's failure was only ever logged, never surfaced; the planned
+        // resume is now silently relying on the next sweep to notice it has no timer.
+        else
+          reportError(deps.stateDir, {
+            name: "fire.arm_failed",
+            message: `armTimer failed while re-arming: ${armed.reason}`,
+            tags: { place: "fire" },
+          });
+      }
+      log("fire.wait", { why, armed: armed?.ok ?? false });
+      return "waiting";
+    };
+    // Several resumes due together: wait for one of a few places and for this one's turn, so they
+    // don't all start in the same second (src/timers/slots.ts). Throttling never stops a resume.
+    if (s.status !== "cancelled") {
+      const place = await takeSlot({ stateDir: deps.stateDir, ...deps.slots }).catch(
+        () => "error" as const,
+      );
+      if (place === undefined) return wait(now + MIN_ARM_MS, "no-free-place", false);
+      // On an error, carried on without a place: throttling is best effort.
+      if (place !== "error") slot.release = place;
+    }
     // The person's 12- or 24-hour clock, for notifications, and whether to keep the computer awake.
     const settings = loadSettings(deps.stateDir);
     const key = `${id}:${s.dueAt}`;
@@ -213,23 +346,6 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         }),
         now,
       );
-    const wait = (until: number, why: string): FireOutcome => {
-      const next = Math.max(until, now + MIN_ARM_MS);
-      store.update(
-        id,
-        (x) => ({ ...x, status: "scheduled", dueAt: next, rearms: (x.rearms ?? 0) + 1 }),
-        now,
-      );
-      let armed: ReturnType<typeof armTimer> | undefined;
-      if (deps.timers) {
-        // A new name: this run's own timer can't be replaced from inside it (see timers.ts).
-        const gen = nextGen(id, deps.timerGen ?? 0, deps.timers);
-        armed = armTimer(id, next, deps.timers, gen);
-        if (armed.ok) cancelTimer(id, deps.timers, deps.fromTimer === true, timerName(id, gen));
-      }
-      log("fire.wait", { why, armed: armed?.ok ?? false });
-      return "waiting";
-    };
     const tell = (
       why: Parameters<typeof notice>[0],
       status: Schedule["status"],
@@ -295,12 +411,41 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         // Most hosts run the whole resumed turn here: don't let the computer idle to sleep in it.
         const wake = deps.wake ?? new Wakefulness();
         wake.set(true, settings.keepAwake);
+        // A headless run is said when it starts, with how to stop it. `continue --cancel` marks the
+        // attempt stopped; this process, which started the agent, then ends its own child.
+        let watch: ReturnType<typeof setInterval> | undefined;
+        onResumeRun((pid) => {
+          store.update(
+            id,
+            (x) => ({
+              ...x,
+              attempts: x.attempts.map((a) => (a.idempotencyKey === key ? { ...a, pid } : a)),
+            }),
+            now,
+          );
+          deps.notify("Agent Rewake", runningText(at, host.noun));
+          watch = setInterval(() => {
+            if (!store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped) return;
+            clearInterval(watch);
+            // The whole tree: on Windows, ending the agent alone leaves what it started running.
+            (deps.stopRun ?? killPidTree)(pid);
+          }, deps.stopPollMs ?? STOP_POLL_MS);
+        });
         try {
           result = await host.send(s, key);
         } catch (err) {
           result = { ok: false, reason: "failed", detail: (err as Error).message };
         } finally {
+          onResumeRun(undefined);
+          if (watch) clearInterval(watch);
           wake.release();
+        }
+        // The person stopped the run (`continue --cancel`): nothing to report back to them.
+        if (store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped) {
+          settle("stopped", "you");
+          removeTimer();
+          log("fire.stopped", {});
+          return "skipped";
         }
         const outcome = result.ok ? "sent" : result.reason;
         store.update(
@@ -314,6 +459,9 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         if (result.ok) {
           settle("sent");
           removeTimer();
+          // A headless run worked until now: say it's done (an app-delivered send has nothing more).
+          if (store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.pid !== undefined)
+            deps.notify("Agent Rewake", doneText(at, host.noun, deps.now()));
           return "sent";
         }
         // Limited again or busy: try later, within the same bound as decideFire. A reset the run's
@@ -336,6 +484,8 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           "timeout",
           "missing-key",
           "window-closed",
+          "needs-approval",
+          "folder-gone",
         ].includes(result.detail ?? "")
           ? (result.detail as FailCause)
           : undefined;
@@ -352,6 +502,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         return "skipped";
     }
   } finally {
+    giveBack();
     lock.release(lockKey);
   }
 }

@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LATE_MS, MAX_REARMS } from "../src/core/resume.js";
 import { registerHost, type Schedule, ScheduleStore } from "../src/core/store.js";
 import {
@@ -12,7 +13,7 @@ import {
   type SendResult,
 } from "../src/hosts/host.js";
 import { type FireDeps, fire, notice, SENDING_STALE_MS } from "../src/timers/fire.js";
-import type { TimerHost } from "../src/timers/timers.js";
+import { armTimer, type TimerHost, utcCalendar } from "../src/timers/timers.js";
 
 registerHost("test");
 
@@ -146,6 +147,57 @@ describe("fire", () => {
     expect(await fire(r.scheduleId, deps)).toBe("early");
     expect(sent).toEqual([]);
     expect(store.get(r.scheduleId)?.status).toBe("scheduled");
+  });
+
+  it("sets a new timer for the right moment when its timer ran early and none is left", async () => {
+    // The clock went back an hour (the repeated hour when daylight saving ends): the timer ran, the
+    // resume isn't due, and nothing else would wake it while the person is away.
+    const r = resume();
+    const { deps, sent, calls } = setup({ now: NOW - 3_600_000 });
+    expect(await fire(r.scheduleId, deps)).toBe("early");
+    expect(sent).toEqual([]);
+    const armedFor = calls.filter((c) => c[0] === "systemd-run");
+    expect(armedFor).toHaveLength(1);
+    expect(armedFor[0]).toContain(`--unit=codizelabs-agent-rewake-${r.scheduleId}-r1`);
+    expect(armedFor[0]).toContain(`--on-calendar=${utcCalendar(NOW)}`);
+    expect(store.get(r.scheduleId)).toMatchObject({ status: "scheduled", earlyRearms: 1 });
+    expect(store.get(r.scheduleId)?.dueAt).toBe(NOW);
+  });
+
+  it("stops setting new timers after a few early runs, leaving the rest to the sweep", async () => {
+    const r = resume({ earlyRearms: 3 });
+    const { deps, calls } = setup({ now: NOW - 3_600_000 });
+    expect(await fire(r.scheduleId, deps)).toBe("early");
+    expect(calls.filter((c) => c[0] === "systemd-run")).toEqual([]);
+    expect(store.get(r.scheduleId)?.earlyRearms).toBe(3);
+  });
+
+  it("macOS: a new timer after a time-zone change, none when its timer is still right", async () => {
+    const r = resume();
+    const { deps, calls } = setup({ now: NOW - 3_600_000 });
+    const timers: TimerHost = {
+      ...(deps.timers as TimerHost),
+      platform: "darwin",
+      // launchd has the job loaded.
+      run: (command, args) => {
+        calls.push([command, ...args]);
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+    const mac = { ...deps, timers };
+    // Armed for a moment an hour away from the resume's time: the plist's local time is wrong.
+    armTimer(r.scheduleId, NOW + 3_600_000, timers);
+    calls.length = 0;
+    expect(await fire(r.scheduleId, mac)).toBe("early");
+    expect(calls.some((c) => c[0] === "launchctl" && c[1] === "bootstrap")).toBe(true);
+    expect(store.get(r.scheduleId)?.earlyRearms).toBe(1);
+    // launchd's own run-at-load of a correct timer is left alone.
+    const ok = resume();
+    armTimer(ok.scheduleId, NOW, timers);
+    calls.length = 0;
+    expect(await fire(ok.scheduleId, mac)).toBe("early");
+    expect(calls.some((c) => c[1] === "bootstrap")).toBe(false);
+    expect(store.get(ok.scheduleId)?.earlyRearms).toBeUndefined();
   });
 
   it("only notifies when the session is open: never a second writer", async () => {
@@ -292,11 +344,11 @@ describe("fire", () => {
     ]);
   });
 
-  it("reports a resume run stopped after 30 minutes in plain words", () => {
+  it("reports a resume run stopped after three hours in plain words", () => {
     expect(
       notice("failed", "Copilot", NOW, { noun: "session", agentName: "Copilot", cause: "timeout" }),
     ).toBe(
-      "Copilot: Rewake continued the session, but the agent was still working half an hour later (it may have been waiting for your approval), so Rewake stopped the run. Open the session to see where it got to and continue.",
+      "Copilot: Rewake continued the session, but the agent was still working three hours later, so Rewake stopped the run. Open the session to see where it got to and continue.",
     );
   });
 
@@ -383,6 +435,102 @@ describe("fire keeps the computer awake while the resumed turn runs", () => {
   });
 });
 
+describe("a headless continue, while it runs", () => {
+  /** A host whose send runs a real child, the way the CLI hosts do, until it ends. */
+  const running = (deps: FireDeps, ms: number) => {
+    const host = deps.hosts.get("test") as HostAdapter;
+    (deps.hosts as Map<string, HostAdapter>).set("test", {
+      ...host,
+      send: () =>
+        new Promise<SendResult>((resolve) => {
+          const child = spawn(process.execPath, ["-e", `setTimeout(() => {}, ${ms})`]);
+          resumeDeadline(child);
+          child.once("exit", (code) =>
+            resolve(code === 0 ? { ok: true } : { ok: false, reason: "failed" }),
+          );
+        }),
+    });
+  };
+
+  it("says it started, with how to stop it, and says when it's done", async () => {
+    const r = resume();
+    const { deps, notes } = setup();
+    running(deps, 50);
+    expect(await fire(r.scheduleId, deps)).toBe("sent");
+    expect(notes[0]).toMatch(
+      /^Codex in the "shop" folder: Rewake is continuing the thread now\. You'll get a notification when it's done\. To stop it: "agent-rewake continue --cancel"\.$/,
+    );
+    expect(notes[1]).toMatch(/^Codex in the "shop" folder: Rewake's run ended normally /);
+    expect(store.get(r.scheduleId)?.attempts[0]?.pid).toBeGreaterThan(0);
+  });
+
+  it("stops when the person asks, and says nothing more", async () => {
+    const r = resume();
+    const { deps, notes } = setup();
+    deps.stopPollMs = 20;
+    running(deps, 60_000);
+    const started = Date.now();
+    const outcome = fire(r.scheduleId, deps);
+    // `continue --cancel`, answered "y": the attempt is marked stopped.
+    while (store.get(r.scheduleId)?.attempts[0]?.pid === undefined)
+      await new Promise((ok) => setTimeout(ok, 10));
+    store.update(
+      r.scheduleId,
+      (x) => ({ ...x, attempts: x.attempts.map((a) => ({ ...a, stopped: true })) }),
+      NOW,
+    );
+    expect(await outcome).toBe("skipped");
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(store.get(r.scheduleId)?.status).toBe("stopped");
+    expect(notes).toHaveLength(1);
+  });
+
+  it("stops the agent's whole process tree when the person asks, not just the agent", async () => {
+    const r = resume();
+    const { deps } = setup();
+    deps.stopPollMs = 20;
+    const stoppedPids: number[] = [];
+    deps.stopRun = (pid) => {
+      stoppedPids.push(pid);
+      process.kill(pid);
+    };
+    running(deps, 60_000);
+    const outcome = fire(r.scheduleId, deps);
+    while (store.get(r.scheduleId)?.attempts[0]?.pid === undefined)
+      await new Promise((ok) => setTimeout(ok, 10));
+    store.update(
+      r.scheduleId,
+      (x) => ({ ...x, attempts: x.attempts.map((a) => ({ ...a, stopped: true })) }),
+      NOW,
+    );
+    expect(await outcome).toBe("skipped");
+    expect(stoppedPids).toEqual([store.get(r.scheduleId)?.attempts[0]?.pid]);
+  });
+});
+
+/** A node process that starts a long-running child of its own and prints that child's id. */
+function withGrandchild() {
+  const child = spawn(process.execPath, [
+    "-e",
+    `const c = require("node:child_process").spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+     console.log(c.pid);
+     setTimeout(() => {}, 60000);`,
+  ]);
+  const grandchild = new Promise<number>((ok) =>
+    child.stdout.once("data", (d) => ok(Number(String(d).trim()))),
+  );
+  return { child, grandchild };
+}
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 describe("resumeDeadline", () => {
   it("stops a resume run that goes on too long, and says so", async () => {
     const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"]);
@@ -397,6 +545,32 @@ describe("resumeDeadline", () => {
     await new Promise((r) => child.once("exit", r));
     expect(timedOut()).toBe(false);
   });
+
+  it("stops the run through the tree stopper, not the child's own kill", async () => {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"]);
+    const stopped: (number | undefined)[] = [];
+    const timedOut = resumeDeadline(child, 100, (c) => {
+      stopped.push(c.pid);
+      c.kill();
+    });
+    await new Promise((r) => child.once("exit", r));
+    expect(timedOut()).toBe(true);
+    expect(stopped).toEqual([child.pid]);
+  });
+
+  // Windows only: elsewhere a signal to the child alone is what Rewake has always sent.
+  it.runIf(process.platform === "win32")(
+    "on Windows, also ends the programs the agent started",
+    async () => {
+      const { child, grandchild } = withGrandchild();
+      const pid = await grandchild;
+      expect(alive(pid)).toBe(true);
+      resumeDeadline(child, 100);
+      await new Promise((r) => child.once("exit", r));
+      for (let i = 0; i < 50 && alive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
+      expect(alive(pid)).toBe(false);
+    },
+  );
 });
 
 describe("agentProcess", () => {
@@ -408,12 +582,60 @@ describe("agentProcess", () => {
     };
     const ps = (pid: number) => tree[pid];
     expect(agentProcess(300, "darwin", ps)).toEqual({ pid: 200, name: "copilot" });
-    expect(agentProcess(300, "win32", ps)).toBeUndefined();
+    // Windows walks the tree too, through cmd.exe and PowerShell.
+    expect(agentProcess(300, "win32", ps)).toEqual({ pid: 200, name: "copilot" });
     expect(stillRunning({ pid: 200, name: "copilot" }, () => true, ps)).toBe(true);
     // The PID now belongs to another program.
     expect(stillRunning({ pid: 200, name: "node" }, () => true, ps)).toBe(false);
     expect(stillRunning({ pid: 200, name: "copilot" }, () => false, ps)).toBe(false);
   });
+});
+
+describe("processes on Windows", () => {
+  it("reads each process's parent and name from the PowerShell lines, whatever the case or .exe", async () => {
+    const { parseWindowsChain } = await import("../src/util/proc.js");
+    const chain = parseWindowsChain("4120 88 Node.EXE\r\n88 4 cmd.exe  \r\nnot a line\r\n");
+    expect(chain.get(4120)).toEqual({ ppid: 88, name: "node" });
+    expect(chain.get(88)).toEqual({ ppid: 4, name: "cmd" });
+    expect(chain.size).toBe(2);
+    expect(parseWindowsChain("").size).toBe(0);
+  });
+
+  it("walks up through cmd.exe and PowerShell to the agent", async () => {
+    const { agentProcess } = await import("../src/util/proc.js");
+    const tree: Record<number, { ppid: number; name: string }> = {
+      900: { ppid: 800, name: "powershell" },
+      800: { ppid: 700, name: "cmd" },
+      700: { ppid: 600, name: "copilot" },
+    };
+    expect(agentProcess(900, "win32", (pid) => tree[pid])).toEqual({ pid: 700, name: "copilot" });
+  });
+
+  // The real thing, on the Windows job: a child process and its parent answer to ONE query.
+  it.skipIf(process.platform !== "win32")(
+    "finds a real child process and its parent in one query",
+    async () => {
+      const { windowsChainRunner, stillRunning } = await import("../src/util/proc.js");
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
+        stdio: "ignore",
+      });
+      try {
+        // A generous wait: a loaded runner can take many seconds to start PowerShell.
+        const lookup = windowsChainRunner(90_000);
+        const found = lookup(child.pid ?? 0);
+        expect(found?.name).toBe("node");
+        expect(found?.ppid).toBe(process.pid);
+        // The parent came with it: no second PowerShell start.
+        expect(lookup(process.pid)?.name).toBe("node");
+        expect(stillRunning({ pid: child.pid ?? 0, name: "node" })).toBe(true);
+      } finally {
+        child.kill();
+      }
+      await new Promise((r) => child.once("exit", r));
+      expect(stillRunning({ pid: child.pid ?? 0, name: "node" })).toBe(false);
+    },
+    180_000,
+  );
 });
 
 describe("fire from a timer", () => {
@@ -439,5 +661,101 @@ describe("a failed resume keeps the agent's own reason", () => {
       status: "failed",
       failureMessage: "No session matched 'abc'.",
     });
+  });
+});
+
+describe("fire sends exactly once, whoever else runs it", () => {
+  /** Another live process holding this resume's lock (a second timer, a sweep's `fire`). */
+  const holdLock = (id: string) => {
+    const locks = join(dir, "locks");
+    mkdirSync(locks, { recursive: true });
+    const file = `${createHash("sha256").update(`fire:${id}`).digest("hex").slice(0, 32)}.lock`;
+    writeFileSync(
+      join(locks, file),
+      JSON.stringify({ pid: process.pid, hostname: hostname(), token: "other", createdAt: NOW }),
+    );
+  };
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("two runs at once: one sends, the other finds it busy", async () => {
+    const r = resume();
+    const { deps, sent } = setup();
+    const outcomes = await Promise.all([fire(r.scheduleId, deps), fire(r.scheduleId, deps)]);
+    expect(outcomes.sort()).toEqual(["busy", "sent"]);
+    expect(sent).toHaveLength(1);
+    expect(store.get(r.scheduleId)).toMatchObject({ status: "sent", attempts: [{ n: 1 }] });
+  });
+
+  it("re-reads under the lock: one another run sent in the meantime isn't sent again", async () => {
+    const r = resume();
+    // What this run read before taking the lock; by then another run had sent it.
+    const before = store.get(r.scheduleId) as Schedule;
+    store.put({ ...before, status: "sent" });
+    vi.spyOn(ScheduleStore.prototype, "get").mockImplementationOnce(() => before);
+    const { deps, sent, calls } = setup();
+    expect(await fire(r.scheduleId, deps)).toBe("gone");
+    expect(sent).toEqual([]);
+    expect(calls).toContainEqual([
+      "systemctl",
+      "--user",
+      "stop",
+      `codizelabs-agent-rewake-${r.scheduleId}.timer`,
+    ]);
+  });
+
+  it("an early run that can't take the lock does nothing, not even arm", async () => {
+    const r = resume({ dueAt: NOW + 2 * 3_600_000 });
+    holdLock(r.scheduleId);
+    const { deps, sent, calls } = setup({ now: NOW });
+    expect(await fire(r.scheduleId, deps)).toBe("early");
+    expect(sent).toEqual([]);
+    expect(calls.some((c) => c[0] === "systemd-run")).toBe(false);
+    expect(store.get(r.scheduleId)?.earlyRearms).toBeUndefined();
+  });
+
+  it("a due run that can't take the lock sends nothing", async () => {
+    const r = resume();
+    holdLock(r.scheduleId);
+    const { deps, sent } = setup();
+    expect(await fire(r.scheduleId, deps)).toBe("busy");
+    expect(sent).toEqual([]);
+    expect(store.get(r.scheduleId)?.status).toBe("scheduled");
+  });
+
+  it("a cut-off send whose lock another run holds is left to that run", async () => {
+    const r = resume({
+      status: "sending",
+      attempts: [{ n: 1, idempotencyKey: "k", startedAt: NOW, outcome: "sending" }],
+    });
+    holdLock(r.scheduleId);
+    const { deps, notes } = setup({ now: NOW + SENDING_STALE_MS + 1 });
+    expect(await fire(r.scheduleId, deps)).toBe("busy");
+    expect(notes).toEqual([]);
+    expect(store.get(r.scheduleId)?.status).toBe("sending");
+  });
+
+  it("a cut-off send another run settled in the meantime isn't reported twice", async () => {
+    const r = resume({
+      status: "sending",
+      attempts: [{ n: 1, idempotencyKey: "k", startedAt: NOW, outcome: "sending" }],
+    });
+    const before = store.get(r.scheduleId) as Schedule;
+    store.put({ ...before, status: "needs_attention" });
+    vi.spyOn(ScheduleStore.prototype, "get").mockImplementationOnce(() => before);
+    const { deps, notes } = setup({ now: NOW + SENDING_STALE_MS + 1 });
+    expect(await fire(r.scheduleId, deps)).toBe("gone");
+    expect(notes).toEqual([]);
+  });
+
+  it("gives up on a send still limited after the last re-arm, and says so", async () => {
+    const r = resume({ rearms: MAX_REARMS });
+    const { deps, notes } = setup({
+      send: { ok: false, reason: "limited", resetsAt: NOW + 3_600_000 },
+    });
+    expect(await fire(r.scheduleId, deps)).toBe("failed");
+    expect(store.get(r.scheduleId)?.status).toBe("failed");
+    expect(notes[0]).toContain("is still at its usage limit, so Rewake didn't continue.");
   });
 });

@@ -12,6 +12,8 @@ export type AgentKind =
   | "gemini"
   | "antigravity"
   | "cursor"
+  | "qwen"
+  | "opencode"
   | (string & {});
 
 export interface LimitSignal {

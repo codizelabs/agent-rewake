@@ -228,3 +228,26 @@ describe("a private temp file for a scheduled message", () => {
     expect(() => file.remove()).not.toThrow();
   });
 });
+
+describe("backups of the person's files", () => {
+  it("never overwrite each other, and only the newest few are kept", () => {
+    const file = join(dir, "settings.json");
+    const plan = (after: string) => ({
+      changes: [{ file, existed: true, before: "", after, summary: ["x"] }],
+      notes: [],
+    });
+    writeFileSync(file, "v0\n");
+    const now = new Date("2026-10-09T10:00:00Z");
+    // Two edits in the same second: two different backups, each holding the file as it was.
+    const first = applyPlan(plan("v1\n"), now)[0] ?? "";
+    const second = applyPlan(plan("v2\n"), now)[0] ?? "";
+    expect(first).not.toBe(second);
+    expect(readFileSync(first, "utf8")).toBe("v0\n");
+    expect(readFileSync(second, "utf8")).toBe("v1\n");
+    // Many more: the newest five stay.
+    for (let i = 3; i < 12; i++) applyPlan(plan(`v${i}\n`), new Date(now.getTime() + i * 1000));
+    const kept = readdirSync(dir).filter((f) => f.includes("agent-rewake-backup-"));
+    expect(kept).toHaveLength(5);
+    expect(readFileSync(file, "utf8")).toBe("v11\n");
+  });
+});

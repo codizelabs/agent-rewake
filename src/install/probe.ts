@@ -15,6 +15,7 @@ const NO_UPDATES: NodeJS.ProcessEnv = {
   GROK_DISABLE_AUTOUPDATER: "1",
   DISABLE_AUTOUPDATER: "1",
   AGY_CLI_DISABLE_AUTO_UPDATE: "true",
+  OPENCODE_DISABLE_AUTOUPDATE: "true",
 };
 
 export function versionProbe(env: NodeJS.ProcessEnv, node: string): VersionProbe {

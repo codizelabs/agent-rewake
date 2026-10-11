@@ -86,6 +86,8 @@ export interface FireContext {
   nativeContinued?: boolean;
   /** Headless hosts: the session is open in a UI, so no second writer. */
   sessionOpen?: boolean;
+  /** The session changed after the limit, by something Rewake can't see: tell, don't write. */
+  changedSince?: boolean;
   /** This resume's idempotency key was already sent. */
   alreadySent: boolean;
   /** How late counts as too late to send without asking (default LATE_MS; Zed's add-on: 15 min). */
@@ -95,7 +97,7 @@ export interface FireContext {
 export type FireDecision =
   | { action: "send" }
   | { action: "wait"; until: number; why: "still-limited" }
-  | { action: "notify"; why: "late" | "open" | "far-reset" }
+  | { action: "notify"; why: "late" | "open" | "changed" | "far-reset" }
   | { action: "skip"; why: "typed" | "native" | "sent" | "cancelled" | "expired" };
 
 /** Decide what to do when a resume's time comes. */
@@ -107,6 +109,7 @@ export function decideFire(c: FireContext): FireDecision {
   if (c.nativeContinued) return { action: "skip", why: "native" };
   if (c.userTypedSince) return { action: "skip", why: "typed" };
   if (c.sessionOpen) return { action: "notify", why: "open" };
+  if (c.changedSince) return { action: "notify", why: "changed" };
   if (c.now - r.dueAt > (c.lateMs ?? LATE_MS)) return { action: "notify", why: "late" };
   if (c.usageAllowed === false) {
     if (rearms >= MAX_REARMS) return { action: "skip", why: "expired" };

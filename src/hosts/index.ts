@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { registerHost } from "../core/store.js";
 import { ANTIGRAVITY_ID, antigravityHooks, antigravityHost } from "./antigravity/host.js";
+import { CLAUDE_CODE_ID, claudeCodeHost } from "./claude-code/host.js";
 import { type ClosedDeps, type ClosedHost, closedAdapter } from "./closed.js";
 import { codexAdapter } from "./codex/adapter.js";
 import { type CodexHookDeps, codexHooks } from "./codex/hooks.js";
@@ -11,25 +12,33 @@ import { geminiApiKeyAuth } from "./gemini/install.js";
 import { GROK_ID, grokHooks, grokHost } from "./grok/host.js";
 import type { HookContext, HookHandler } from "./hook.js";
 import type { HostAdapter } from "./host.js";
+import { OPENCODE_ID, opencodeHooks, opencodeHost } from "./opencode/host.js";
+import { QWEN_ID, qwenHooks, qwenHost } from "./qwen/host.js";
 
 /**
  * The integrations outside Zed that this version ships, by `host` id. Each one is added here when
  * its phase lands (plan §11), with `registerHost` so its records are read.
  */
 registerHost("codex");
+registerHost(CLAUDE_CODE_ID);
 registerHost(COPILOT_ID);
 registerHost(GROK_ID);
 registerHost(GEMINI_ID);
 registerHost(ANTIGRAVITY_ID);
 registerHost(CURSOR_ID);
+registerHost(QWEN_ID);
+registerHost(OPENCODE_ID);
 
 /** The hosts whose closed sessions Rewake continues (`agent-rewake continue`). */
 export const CLOSED_HOSTS: ClosedHost[] = [
+  claudeCodeHost,
   copilotHost,
   grokHost(process.env),
   geminiHost,
   antigravityHost(),
   cursorHost,
+  qwenHost,
+  opencodeHost,
 ];
 
 /** The adapters `fire` uses, built for this run's environment. */
@@ -65,6 +74,10 @@ export function hookHandler(host: string, deps: HookDeps): HookHandler | undefin
       apiKey: (env) => geminiApiKeyAuth(env, env.HOME || env.USERPROFILE || homedir()),
     });
   if (host === CURSOR_ID) return cursorHooks({ closed: deps.closed });
+  if (host === QWEN_ID)
+    return qwenHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
+  if (host === OPENCODE_ID)
+    return opencodeHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   if (host === ANTIGRAVITY_ID)
     return antigravityHooks({ closed: deps.closed, program: (env) => deps.program(host, env) });
   return undefined;

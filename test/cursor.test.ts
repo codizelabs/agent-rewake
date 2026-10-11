@@ -3,11 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runContinue } from "../src/continue.js";
+import { classifyCursorError } from "../src/core/limits/agents.js";
 import { recogniseForHost } from "../src/core/limits/recognise.js";
 import { ScheduleStore } from "../src/core/store.js";
 import { armClosed, type ClosedDeps, onLimit, onSessionEnd } from "../src/hosts/closed.js";
 import { CURSOR_ID, cursorHooks, cursorHost, transcriptError } from "../src/hosts/cursor/host.js";
-import { cursorInstalled, planCursor, WAIT_SECONDS } from "../src/hosts/cursor/install.js";
+import {
+  cursorFound,
+  cursorInstalled,
+  planCursor,
+  WAIT_SECONDS,
+} from "../src/hosts/cursor/install.js";
 import { runHook } from "../src/hosts/hook.js";
 import "../src/hosts/index.js";
 import { SessionRecords } from "../src/hosts/sessions.js";
@@ -68,6 +74,30 @@ describe("Cursor's hooks file", () => {
     expect(planCursor(file, "/n", "/l.mjs", false)).toMatchObject({
       error: expect.stringContaining("isn't valid JSON"),
     });
+  });
+
+  it("reads a hooks file saved with a byte-order mark, as Windows editors may write it", () => {
+    const file = join(dir, "hooks.json");
+    writeFileSync(
+      file,
+      `\uFEFF${JSON.stringify({ version: 1, hooks: { stop: [{ command: "./my-audit.sh" }] } })}`,
+    );
+    const plan = planCursor(file, "/n", "/l.mjs", false);
+    if ("error" in plan) throw new Error(plan.error);
+    expect(JSON.parse(plan.changes[0]?.after ?? "{}").hooks.stop[0]).toEqual({
+      command: "./my-audit.sh",
+    });
+  });
+
+  it("on Windows, finds Cursor's command on a copied environment's Path", () => {
+    const exists = (p: string) =>
+      p === "C:\\Users\\o\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin\\cursor.cmd";
+    const env = {
+      Path: "C:\\Windows;C:\\Users\\o\\AppData\\Local\\Programs\\cursor\\resources\\app\\bin",
+      PATHEXT: ".EXE;.CMD",
+    };
+    expect(cursorFound(env, "C:\\Users\\o", "win32", exists)).toBe(true);
+    expect(cursorFound({ Path: "C:\\Windows" }, "C:\\Users\\o", "win32", exists)).toBe(false);
   });
 
   it("is found in ~/.cursor/hooks.json", () => {
@@ -233,6 +263,27 @@ describe("Cursor's hooks: a limit, the person's choice, the continue", () => {
     expect(text).not.toContain("person@example.com");
   });
 
+  it.each([
+    [
+      "the Pro plan's remedy",
+      "You've hit your usage limit\nSwitch to Auto for more usage or set a Spend Limit to continue with Sonnet.",
+    ],
+    [
+      "a free plan's monthly allowance",
+      "You've hit your free requests limit. Your usage limits will reset when your monthly cycle ends on 10/2/2026.",
+    ],
+    ["a free plan's upgrade offer", FREE],
+  ])("never offers to wait for %s", (_name, text) => {
+    expect(classifyCursorError(text)).toEqual({ kind: "billing", billing: true });
+  });
+
+  it("still waits for a plain rate limit that says nothing of a plan", () => {
+    expect(classifyCursorError("You've hit your rate limit. Please try again later.")).toEqual({
+      kind: "other",
+      billing: false,
+    });
+  });
+
   it("ignores events from other agents", async () => {
     const out = await runHook(
       handler(),
@@ -279,6 +330,112 @@ describe("Cursor's hooks: a limit, the person's choice, the continue", () => {
       /^Cursor in the "shop" folder: Rewake can continue a Cursor chat only within 4 hours of its usage limit, so it won't continue this one /,
     );
     expect(notes.join(" ")).not.toContain("window was closed");
+  });
+
+  describe("/rewake typed into the chat", () => {
+    const atLimit = (text = LIMIT) => {
+      const limit = recogniseForHost({ agent: "cursor", source: "hook", text }, clock);
+      if (!limit) throw new Error("not recognised");
+      onLimit(cursorHost, CHAT, "/work/shop", limit, deps(clock), transcript(text));
+      onSessionEnd(cursorHost, CHAT, "/work/shop", deps(clock));
+      notes.length = 0;
+      armed.length = 0;
+    };
+    const type = async (prompt: string) =>
+      JSON.parse(
+        (await runHook(
+          handler(),
+          "beforeSubmitPrompt",
+          input({ hook_event_name: "beforeSubmitPrompt", prompt }),
+          {},
+          state,
+          clock,
+        )) ?? "{}",
+      ) as { continue?: boolean; user_message?: string };
+
+    it("says there's nothing to continue before any limit", async () => {
+      expect((await type("/rewake")).user_message).toBe(
+        "Rewake: this chat isn't at a usage limit, so there's nothing to continue.",
+      );
+    });
+
+    it("says it doesn't know the reset time yet when the limit gave none", async () => {
+      atLimit();
+      const r = await type("/rewake");
+      expect(r.continue).toBe(false);
+      expect(r.user_message).toBe("Rewake doesn't know when this resets yet. Try /rewake 3:30pm.");
+    });
+
+    it("says when its history is large", async () => {
+      atLimit();
+      new SessionRecords(state, CURSOR_ID).update(CHAT, "/work/shop", clock, (x) => ({
+        ...x,
+        historyBytes: 7 * 1024 * 1024,
+      }));
+      const r = await type("/rewake in 1h");
+      expect(r.user_message).toMatch(
+        / This chat is large \(about 7 MB of history\); continuing it re-reads that and uses your plan\.$/,
+      );
+    });
+
+    it("arms a continue at a chosen time, within 4 hours, and the slash is optional", async () => {
+      atLimit();
+      const r = await type("/rewake in 1h");
+      expect(r.user_message).toMatch(/^Rewake will continue this chat /);
+      expect(armed[0]?.[1]).toBe(NOW + 60 * 60_000 + 3 * 60_000);
+      const again = await type("rewake in 1h");
+      expect(again.user_message).toMatch(/^Rewake will continue this chat /);
+    });
+
+    it("refuses a time more than 4 hours after the limit", async () => {
+      atLimit();
+      const r = await type("/rewake in 5h");
+      expect(r.user_message).toContain("only continue a Cursor chat within 4 hours");
+      expect(armed).toEqual([]);
+    });
+
+    it("refuses to continue a limit that waiting won't lift", async () => {
+      atLimit(FREE);
+      const r = await type("/rewake");
+      expect(r.user_message).toBe(
+        "Rewake can't continue after this limit: this limit is about credits or spending, which waiting doesn't fix.",
+      );
+    });
+
+    it("lists what's planned, and says when nothing is", async () => {
+      atLimit();
+      expect((await type("/rewake list")).user_message).toBe(
+        "Rewake: Nothing is set to continue this chat. At a usage limit, type /rewake to continue after the reset.",
+      );
+      await type("/rewake in 1h");
+      const r = await type("/rewake list");
+      expect(r.user_message).toMatch(
+        /^Rewake will continue this chat .* To cancel: \/rewake cancel$/,
+      );
+    });
+
+    it("cancels what's planned", async () => {
+      atLimit();
+      await type("/rewake in 1h");
+      const cancelled = await type("/rewake cancel");
+      expect(cancelled.user_message).toBe(
+        "Rewake: Cancelled. This chat won't be continued on its own.",
+      );
+      const again = await type("/rewake cancel");
+      expect(again.user_message).toBe("Rewake: Nothing is set to continue this chat.");
+    });
+
+    it("doesn't match ordinary text, so it falls through to the usual typed-in-chat handling", async () => {
+      const out = await runHook(
+        handler(),
+        "beforeSubmitPrompt",
+        input({ hook_event_name: "beforeSubmitPrompt", prompt: "please rewrite this function" }),
+        {},
+        state,
+        clock,
+      );
+      expect(out).toBeUndefined();
+    });
   });
 });
 
