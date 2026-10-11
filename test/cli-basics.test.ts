@@ -201,7 +201,7 @@ describe("continue", () => {
     const r = await run(["continue", "--bogus"]);
     expect(r.code).toBe(2);
     expect(r.err).toBe(
-      "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel [<id>]]\n",
+      "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel [<id>] | --now [<id>] [--yes]]\n",
     );
     expect(r.out).toBe("");
   });

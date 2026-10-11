@@ -88,6 +88,8 @@ describe("settings: listing", () => {
       "clock",
       "keep-awake",
       "resume-prompt",
+      "workspace-changed",
+      "usage-warnings",
     ]);
     // Each line leads with the setting's title and value, its name second.
     const all = lines(r.out);
@@ -158,6 +160,8 @@ describe("settings <name> <value>", () => {
     keepAwake: "never",
     resumePrompt: "Go on",
     errorReports: "off",
+    workspaceChanged: "tell",
+    usageWarnings: "on",
   } as const;
 
   it.each([
@@ -165,6 +169,8 @@ describe("settings <name> <value>", () => {
     [["new-threads", "off"], { newThreads: "off" }],
     [["auto-when-prompts-skipped", "off"], { autoWhenPromptsSkipped: false }],
     [["keep-awake", "always"], { keepAwake: "always" }],
+    [["workspace-changed", "hold"], { workspaceChanged: "hold" }],
+    [["usage-warnings", "off"], { usageWarnings: "off" }],
     [["resume-prompt", "Check", "the", "build"], { resumePrompt: "Check the build" }],
   ])("%j saves only that setting", async (args, change) => {
     seed(SEEDED);

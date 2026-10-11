@@ -30,6 +30,8 @@ function setUp(root: HTMLElement) {
   const state = root.querySelector<HTMLElement>("[data-term-state]");
   const play = root.querySelector<HTMLButtonElement>("[data-term-play]");
   const progress = root.querySelector<HTMLInputElement>("[data-term-progress]");
+  const window_ = root.querySelector<HTMLElement>("[data-term-window]");
+  const chapterButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-term-seek]")];
   if (!raw || !screen || !time || !state || !play || !progress) return;
   const d = JSON.parse(raw) as Data;
 
@@ -111,6 +113,8 @@ function setUp(root: HTMLElement) {
   let last = 0;
   let wanted = !reduce.matches;
   let visible = false;
+  let current = "";
+  const order = Object.entries(chapters).sort((a, b) => a[1] - b[1]);
 
   const render = () => {
     const i = frameAt(v);
@@ -124,6 +128,11 @@ function setUp(root: HTMLElement) {
     state.textContent = s;
     root.dataset.state = s === "Waiting for the reset" ? "night" : "";
     progress.value = String(Math.round((v / total) * 1000));
+    const at = order.findLast(([, t]) => t <= v)?.[0] ?? "";
+    if (at !== current) {
+      current = at;
+      for (const b of chapterButtons) b.setAttribute("aria-pressed", String(b.dataset.termSeek === at));
+    }
   };
   const tick = (now: number) => {
     if (!playing) return;
@@ -153,13 +162,22 @@ function setUp(root: HTMLElement) {
     wanted = !playing;
     setPlaying(wanted);
   });
-  for (const b of root.querySelectorAll<HTMLButtonElement>("[data-term-seek]"))
+  for (const b of chapterButtons)
     b.addEventListener("click", () => {
       seek(chapters[b.dataset.termSeek ?? ""] ?? 0);
       wanted = true;
       setPlaying(true);
     });
   progress.addEventListener("input", () => seek((Number(progress.value) / 1000) * total));
+  // A big, obvious press target for mouse and touch, on top of the labelled, keyboard-reachable
+  // play button (this one isn't in the tab order, so it adds nothing for a keyboard or screen
+  // reader user — and nothing for them to miss). Selecting the recorded text to copy it must
+  // never toggle playback underneath it.
+  window_?.addEventListener("click", () => {
+    if (window.getSelection()?.toString()) return;
+    wanted = !playing;
+    setPlaying(wanted);
+  });
   new IntersectionObserver(
     ([entry]) => {
       visible = !!entry?.isIntersecting;

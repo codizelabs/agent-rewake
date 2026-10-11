@@ -1083,6 +1083,16 @@ details.only summary:focus-visible {
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.04) inset,
     0 24px 48px -24px rgb(27 30 36 / 0.45);
+  cursor: pointer;
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+.term-window:hover {
+  border-color: #3a3c44;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.06) inset,
+    0 28px 56px -24px rgb(27 30 36 / 0.55);
 }
 .term-bar {
   display: flex;
@@ -1191,6 +1201,11 @@ details.only summary:focus-visible {
 .term-chapters button:hover,
 .term-play:hover {
   border-color: var(--rw-dawn);
+}
+.term-chapters button[aria-pressed="true"] {
+  border-color: var(--rw-dawn);
+  background: color-mix(in srgb, var(--rw-dawn) 12%, var(--rw-surface));
+  color: var(--rw-ink);
 }
 .term-progress {
   flex: 1 1 8rem;

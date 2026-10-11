@@ -52,7 +52,7 @@ Publishing is automatic, from GitHub Actions with [npm trusted publishing](https
 - **Every merge into `develop`** that changes the package stages a prerelease on npm, `X.Y.Z-next.<run>` with the dist-tag `next`. It isn't installable until a maintainer approves it on npmjs.com with 2FA; approved, it installs with `npx @codizelabs/agent-rewake@next`. Reject the ones you don't need.
 - **A release:** on `develop`, set the new version in `package.json` (`npm version <x.y.z> --no-git-tag-version`) and add its section to `CHANGELOG.md`. Merge that into `develop` and let the workflow stage it. Then open a pull request from `develop` into `main` and merge it with a merge commit. Its `release-gate` check only passes when the version is new, `CHANGELOG.md` has its section, and this exact code was staged from `develop` (a successful `publish` run there with the same package files). The workflow publishes that version as `latest`, tags the commit `vX.Y.Z` and creates the GitHub release from the changelog. A merge into `main` without a new version publishes nothing.
 
-**Upgrade notes.** Updating is two steps for every version: run `npx @codizelabs/agent-rewake@latest install`, then restart Zed (docs: *Update*). A release that needs anything more from people updating must, in the same pull request:
+**Upgrade notes.** Updating is two steps for every version: run `npx @codizelabs/agent-rewake@latest install`, then reload the agent in Zed or restart Zed (docs: *Update*). A release that needs anything more from people updating must, in the same pull request:
 
 - add an `### Upgrade notes` section to its `CHANGELOG.md` entry, saying who is affected and exactly what to do;
 - add a row to the *Version-specific steps* table in `site/src/content/docs/docs.mdx`;

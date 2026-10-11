@@ -35,6 +35,18 @@ export interface Settings {
    * AGENT_REWAKE_ERROR_REPORTS=0, DO_NOT_TRACK=1 or CI is set (src/errors/consent.ts).
    */
   errorReports: ErrorReports;
+  /**
+   * A resume outside Zed whose project (git commit or uncommitted changes) changed while it
+   * waited: "tell" (the default) only tells the person, "note" also adds a fixed line to the
+   * message telling the agent to re-read files, "hold" sends nothing and tells the person, "off"
+   * does nothing.
+   */
+  workspaceChanged: WorkspaceChanged;
+  /**
+   * Claude Code plugin: a toast at 80% and 95% of a usage window, and when the pace would reach
+   * the limit within 45 minutes: "on" (the default) or "off".
+   */
+  usageWarnings: UsageWarnings;
   /** `install` has already asked about error reports: never ask again, whatever was answered. */
   errorReportsAsked?: boolean;
 }
@@ -42,11 +54,20 @@ export interface Settings {
 export type NewThreads = "ask" | "on" | "off";
 export type KeepAwake = "plugged-in" | "always" | "never";
 export type ErrorReports = "on" | "off";
+export type WorkspaceChanged = "tell" | "note" | "hold" | "off";
+export type UsageWarnings = "on" | "off";
 
 /** The values each choice takes: the rules Zed's Settings form and `agent-rewake settings` share. */
 export const CLOCKS: readonly Clock[] = ["12h", "24h"];
 export const NEW_THREADS_VALUES: readonly NewThreads[] = ["ask", "on", "off"];
 export const KEEP_AWAKE_VALUES: readonly KeepAwake[] = ["plugged-in", "always", "never"];
+export const WORKSPACE_CHANGED_VALUES: readonly WorkspaceChanged[] = [
+  "tell",
+  "note",
+  "hold",
+  "off",
+];
+export const USAGE_WARNINGS_VALUES: readonly UsageWarnings[] = ["on", "off"];
 /** The longest resume message kept (a longer one falls back to Rewake's own). */
 export const MAX_RESUME_PROMPT = 16_384;
 
@@ -69,6 +90,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoWhenPromptsSkipped: true,
   keepAwake: "plugged-in",
   errorReports: "off",
+  workspaceChanged: "tell",
+  usageWarnings: "on",
 };
 
 export function loadSettings(stateDir: string): Settings {
@@ -87,6 +110,10 @@ export function loadSettings(stateDir: string): Settings {
     const keepAwake =
       KEEP_AWAKE_VALUES.find((v) => v === raw.keepAwake) ?? DEFAULT_SETTINGS.keepAwake;
     const errorReports = raw.errorReports === "on" ? "on" : DEFAULT_SETTINGS.errorReports;
+    const workspaceChanged =
+      WORKSPACE_CHANGED_VALUES.find((v) => v === raw.workspaceChanged) ??
+      DEFAULT_SETTINGS.workspaceChanged;
+    const usageWarnings = raw.usageWarnings === "off" ? "off" : DEFAULT_SETTINGS.usageWarnings;
     const errorReportsAsked = raw.errorReportsAsked === true;
     return {
       clock,
@@ -94,6 +121,8 @@ export function loadSettings(stateDir: string): Settings {
       autoWhenPromptsSkipped,
       keepAwake,
       errorReports,
+      workspaceChanged,
+      usageWarnings,
       ...(resumePrompt && { resumePrompt }),
       ...(errorReportsAsked && { errorReportsAsked }),
     };

@@ -17,6 +17,15 @@ import { rewake } from "../util/command.js";
 import { type Wake, Wakefulness } from "../util/keep-awake.js";
 import type { LogFields } from "../util/log.js";
 import { killPidTree } from "../util/spawn.js";
+import {
+  FIRE_BUDGET_MS,
+  fingerprintWorkspace,
+  WORKSPACE_NOTE,
+  workspaceChange,
+} from "../util/workspace.js";
+
+export { WORKSPACE_NOTE };
+
 import type { Notifier } from "./notify.js";
 import { type SlotOptions, takeSlot } from "./slots.js";
 import {
@@ -57,9 +66,23 @@ export function runningText(at: string, noun = "session"): string {
   return `${at}: Rewake is continuing the ${noun} now. You'll get a notification when it's done. To stop it: "${rewake("continue --cancel")}".`;
 }
 
+/** Said when a headless continue starts in the terminal the person ran it from (`continue --now`). */
+export function foregroundText(at: string, noun = "session"): string {
+  return `${at}: Rewake is continuing the ${noun} now. Press Ctrl+C to stop it.`;
+}
+
 /** Said when a headless continue has finished. */
 export function doneText(at: string, noun = "session", now: number = Date.now()): string {
   return `${at}: Rewake's run ended normally ${formatAt(now, now)}. Open the ${noun} to see what it did.`;
+}
+
+/** Said to the person, in the notice Rewake shows when it sends, when the project changed. */
+export function workspaceNoteText(noun: string, added: boolean): string {
+  const what = `The project's tracked files or latest commit changed while the ${noun} waited`;
+  const how = added
+    ? "so Rewake added a line to its message asking the agent to re-read files before editing."
+    : "Rewake sent its message as it was. To have it add a line asking the agent to re-read files, choose note; to have it ask you first, choose hold.";
+  return `${what}${added ? "," : "."} ${how} Change this with: ${rewake("settings workspace-changed")} (tell, note, hold or off).`;
 }
 
 export type FireOutcome =
@@ -69,6 +92,11 @@ export type FireOutcome =
   | "busy"
   | "sent"
   | "waiting"
+  | "limited"
+  | "open"
+  | "changed"
+  | "typed"
+  | "native"
   | "notified"
   | "skipped"
   | "failed";
@@ -86,6 +114,11 @@ export interface FireDeps {
   fromTimer?: boolean;
   /** Keeps the computer awake while the resumed turn runs (tests pass their own). */
   wake?: Wake;
+  /**
+   * The person asked to continue now (`agent-rewake continue --now`): the planned time isn't waited
+   * for, and isn't "too late" either. Every other check still applies.
+   */
+  immediate?: boolean;
   /** Which of the resume's timers started this run (`<id>-r<n>`: n), so a re-arm takes a new name. */
   timerGen?: number;
   /** Tests: how often a running continue looks for a stop. */
@@ -129,13 +162,23 @@ export interface NoticeFacts {
   /** A later reset the agent reported (for "far-reset" and "expired"). */
   resetsAt?: number;
   cause?: FailCause;
+  /** For "workspace": what differs in the project. */
+  workspace?: { commit: boolean; changes: boolean };
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The notification for a resume Rewake won't send on its own. Plain words, no message text. */
 export function notice(
-  why: "late" | "open" | "changed" | "far-reset" | "expired" | "failed" | "unconfirmed",
+  why:
+    | "late"
+    | "open"
+    | "changed"
+    | "workspace"
+    | "far-reset"
+    | "expired"
+    | "failed"
+    | "unconfirmed",
   agent: string,
   now: number,
   f: NoticeFacts,
@@ -153,6 +196,13 @@ export function notice(
       return `${agent}: the usage limit has reset. The ${n} is open, so Rewake didn't send anything. Continue it there.`;
     case "changed":
       return `${agent}: the usage limit has reset, but the ${n} has changed since it stopped, so Rewake didn't send anything. ${cap(reopen)} to see where it stands and continue.`;
+    case "workspace": {
+      const what = [
+        ...(f.workspace?.commit ? ["its latest commit moved"] : []),
+        ...(f.workspace?.changes ? ["its tracked files differ"] : []),
+      ].join(" and ");
+      return `${agent}: the usage limit has reset, but the project changed while the ${n} waited (${what}), so Rewake didn't send anything. ${f.again ? f.again(undefined) : `To continue anyway, run "${rewake("continue")}", or ${reopen}.`} Change this check with: ${rewake("settings workspace-changed")} (tell, note, hold or off).`;
+    }
     case "late":
       return `${agent}: Rewake was due to continue the ${n}${f.dueAt ? ` ${formatAt(f.dueAt, now)}` : ""}, but couldn't run then (the computer may have been off or asleep). ${cap(reopen)} to continue.`;
     case "far-reset":
@@ -213,6 +263,16 @@ function rearmEarly(id: string, store: ScheduleStore, deps: FireDeps, now: numbe
   return "early";
 }
 
+/** What a `fire` asked to run now reports when it sent nothing and changed nothing. */
+function keptOutcome(d: Exclude<FireDecision, { action: "send" }>): FireOutcome {
+  if (d.action === "notify") return d.why === "open" || d.why === "changed" ? d.why : "limited";
+  if (d.action === "skip") {
+    if (d.why === "typed" || d.why === "native") return d.why;
+    return d.why === "expired" ? "limited" : "gone";
+  }
+  return "limited";
+}
+
 export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
   const store = new ScheduleStore(deps.stateDir);
   const log = deps.log ?? (() => {});
@@ -239,7 +299,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
   }
   const lock = new SessionLock(deps.stateDir);
   const lockKey = `fire:${id}`;
-  if (first.status !== "cancelled" && now < first.dueAt - EARLY_MS) {
+  if (!deps.immediate && first.status !== "cancelled" && now < first.dueAt - EARLY_MS) {
     // Under the lock, so two early runs don't both arm.
     if (!lock.acquire(lockKey)) return "early";
     try {
@@ -269,7 +329,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       removeTimer();
       return "gone";
     }
-    if (s.status !== "cancelled" && now < s.dueAt - EARLY_MS)
+    if (!deps.immediate && s.status !== "cancelled" && now < s.dueAt - EARLY_MS)
       return rearmEarly(id, store, deps, now);
     // Tried again later: at `until` (at least a minute on), with a new timer name because this
     // run's own timer can't be replaced from inside it (see timers.ts). Waiting for a free place
@@ -309,7 +369,11 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       const place = await takeSlot({ stateDir: deps.stateDir, ...deps.slots }).catch(
         () => "error" as const,
       );
-      if (place === undefined) return wait(now + MIN_ARM_MS, "no-free-place", false);
+      if (place === undefined) {
+        // Asked for now: the plan isn't moved, the person can ask again.
+        if (deps.immediate) return "busy";
+        return wait(now + MIN_ARM_MS, "no-free-place", false);
+      }
       // On an error, carried on without a place: throttling is best effort.
       if (place !== "error") slot.release = place;
     }
@@ -325,7 +389,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       }
     const decision: FireDecision = decideFire({
       resume: {
-        dueAt: s.dueAt,
+        dueAt: deps.immediate ? now : s.dueAt,
         status: s.status,
         ...(s.rearms !== undefined && { rearms: s.rearms }),
       },
@@ -351,6 +415,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
       status: Schedule["status"],
       cause?: FailCause,
       message?: string,
+      workspace?: NoticeFacts["workspace"],
     ): FireOutcome => {
       settle(status, cause ?? why, message);
       // Keep the later reset the agent reported, so asking again ("rewake") continues then.
@@ -366,12 +431,19 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           dueAt: s.dueAt,
           ...(facts.newResetsAt !== undefined && { resetsAt: facts.newResetsAt }),
           ...(cause && { cause }),
+          ...(workspace && { workspace }),
         }),
       );
       removeTimer();
       return why === "failed" || why === "expired" ? "failed" : "notified";
     };
 
+    // Asked for now and Rewake wouldn't send: nothing is told, settled or re-armed. The plan, its
+    // attempts and its timer stay as they were, and the caller says what is true.
+    if (deps.immediate && decision.action !== "send") {
+      log("fire.kept", { host: host.id, action: decision.action });
+      return keptOutcome(decision);
+    }
     log("fire.decide", {
       host: host.id,
       action: decision.action,
@@ -379,6 +451,21 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
     });
     switch (decision.action) {
       case "send": {
+        // The project may have changed while the resume waited (src/util/workspace.ts): compared
+        // with how it was when the resume was planned. Nothing is known when git can't say.
+        let noted = false;
+        let changed = false;
+        if (s.workspace && settings.workspaceChanged !== "off") {
+          const here = fingerprintWorkspace(s.cwd, FIRE_BUDGET_MS);
+          const differs = here && workspaceChange(s.workspace, here);
+          if (differs) {
+            log("fire.workspace", { action: settings.workspaceChanged });
+            if (settings.workspaceChanged === "hold")
+              return tell("workspace", "needs_attention", undefined, undefined, differs);
+            changed = true;
+            noted = settings.workspaceChanged === "note";
+          }
+        }
         // Checked again as it's claimed: the person may have cancelled, or typed in the session,
         // while the host was being checked. Their change wins and nothing is sent.
         const claimed = store.update(
@@ -414,6 +501,7 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         // A headless run is said when it starts, with how to stop it. `continue --cancel` marks the
         // attempt stopped; this process, which started the agent, then ends its own child.
         let watch: ReturnType<typeof setInterval> | undefined;
+        let told = false;
         onResumeRun((pid) => {
           store.update(
             id,
@@ -423,7 +511,14 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
             }),
             now,
           );
-          deps.notify("Agent Rewake", runningText(at, host.noun));
+          told = changed;
+          const running = deps.immediate
+            ? foregroundText(at, host.noun)
+            : runningText(at, host.noun);
+          deps.notify(
+            "Agent Rewake",
+            changed ? `${running} ${workspaceNoteText(host.noun, noted)}` : running,
+          );
           watch = setInterval(() => {
             if (!store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped) return;
             clearInterval(watch);
@@ -432,7 +527,10 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           }, deps.stopPollMs ?? STOP_POLL_MS);
         });
         try {
-          result = await host.send(s, key);
+          result = await host.send(
+            noted ? { ...s, text: `${s.text}\n\n${WORKSPACE_NOTE}` } : s,
+            key,
+          );
         } catch (err) {
           result = { ok: false, reason: "failed", detail: (err as Error).message };
         } finally {
@@ -441,7 +539,11 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
           wake.release();
         }
         // The person stopped the run (`continue --cancel`): nothing to report back to them.
-        if (store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped) {
+        // (Asked for now and the message went in before the stop was seen: it was sent.)
+        if (
+          store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.stopped &&
+          !(deps.immediate && result.ok)
+        ) {
           settle("stopped", "you");
           removeTimer();
           log("fire.stopped", {});
@@ -459,10 +561,31 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         if (result.ok) {
           settle("sent");
           removeTimer();
+          // A host that started no headless run showed no notice above: say it here.
+          if (changed && !told)
+            deps.notify("Agent Rewake", `${at}: ${workspaceNoteText(host.noun, noted)}`);
           // A headless run worked until now: say it's done (an app-delivered send has nothing more).
-          if (store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.pid !== undefined)
+          if (
+            !deps.immediate &&
+            store.get(id)?.attempts.find((a) => a.idempotencyKey === key)?.pid !== undefined
+          )
             deps.notify("Agent Rewake", doneText(at, host.noun, deps.now()));
           return "sent";
+        }
+        // Asked for now and still limited (or busy): the claim is undone, so the plan stands and
+        // its own timer still sends it at its time.
+        if (deps.immediate && (result.reason === "limited" || result.reason === "busy")) {
+          store.update(
+            id,
+            (x) => ({
+              ...x,
+              status: s.status,
+              attempts: x.attempts.filter((a) => a.idempotencyKey !== key),
+            }),
+            now,
+          );
+          log("fire.still-limited", { host: host.id, now: true });
+          return result.reason === "limited" ? "limited" : "busy";
         }
         // Limited again or busy: try later, within the same bound as decideFire. A reset the run's
         // output gave is waited for, as a usage check's would be (a weekly limit outlasts backoff).
@@ -489,6 +612,33 @@ export async function fire(id: string, deps: FireDeps): Promise<FireOutcome> {
         ].includes(result.detail ?? "")
           ? (result.detail as FailCause)
           : undefined;
+        // Asked for now and the message never reached the agent (signed out, folder gone…): the
+        // plan stands, and the person is told why.
+        if (
+          deps.immediate &&
+          cause !== undefined &&
+          !["timeout", "needs-approval"].includes(cause)
+        ) {
+          store.update(
+            id,
+            (x) => ({
+              ...x,
+              status: s.status,
+              attempts: x.attempts.filter((a) => a.idempotencyKey !== key),
+            }),
+            now,
+          );
+          deps.notify(
+            "Agent Rewake",
+            notice("failed", at, now, {
+              noun: host.noun,
+              agentName: host.name,
+              ...(host.reopen !== undefined && { reopen: host.reopen }),
+              cause,
+            }),
+          );
+          return "failed";
+        }
         return tell("failed", "failed", cause, result.message);
       }
       case "wait":
