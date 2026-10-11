@@ -3,19 +3,21 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { applyPlan, type FileChange, type Plan } from "../../install.js";
 import { ensureLauncher, launcherPath } from "../../timers/launcher.js";
-import { rewake } from "../../util/command.js";
+import { readJsonFile } from "../../util/fs.js";
+import { findOnWindows } from "../../util/spawn.js";
 
 /**
  * `agent-rewake install --only cursor` (a preview): Cursor's own agent (the Agent panel, the Agents
  * window) runs hooks listed in `~/.cursor/hooks.json` (Cursor 3.23; research
  * cursor-agent-2026-10-08). Rewake adds two entries and keeps the person's own:
  *
- * - `beforeSubmitPrompt`: notes that the person typed in a chat (a planned continue is then
+ * - `beforeSubmitPrompt`: recognises `/rewake` typed into the chat (continue, list or cancel; see
+ *   src/hosts/cursor/host.ts) and otherwise notes that the person typed (a planned continue is then
  *   dropped, and a waiting one stays silent: Cursor would otherwise submit it after their turn).
  * - `stop`: at a turn that ended in a usage limit, records it and waits, up to `WAIT_SECONDS`, for
- *   the time the person chooses (`agent-rewake continue`), then answers with Cursor's
- *   `followup_message`, which Cursor submits into the same chat (tested: E-C3). Other turns end it
- *   at once. Its long timeout is what lets it wait.
+ *   the time chosen via `/rewake` in the chat, then answers with Cursor's `followup_message`, which
+ *   Cursor submits into the same chat (tested: E-C3). Other turns end it at once. Its long timeout
+ *   is what lets it wait.
  *
  * Uninstall removes only Rewake's entries (they run `… hook cursor …`).
  */
@@ -34,6 +36,7 @@ export function cursorFound(
   env: NodeJS.ProcessEnv,
   home: string,
   platform: NodeJS.Platform,
+  exists: (path: string) => boolean = existsSync,
 ): boolean {
   const apps =
     platform === "darwin"
@@ -43,13 +46,13 @@ export function cursorFound(
           ? [join(env.LOCALAPPDATA, "Programs", "cursor", "Cursor.exe")]
           : []
         : ["/usr/share/cursor", "/opt/Cursor", "/opt/cursor"];
-  if (apps.some((a) => existsSync(a))) return true;
-  const sep = platform === "win32" ? ";" : ":";
-  const names = platform === "win32" ? ["cursor.cmd", "cursor.exe"] : ["cursor"];
+  if (apps.some((a) => exists(a))) return true;
+  // A copied Windows environment is a plain object whose key is `Path`, not `PATH`.
+  if (platform === "win32") return findOnWindows("cursor", env, exists) !== undefined;
   return (env.PATH ?? "")
-    .split(sep)
+    .split(":")
     .filter(Boolean)
-    .some((d) => names.some((n) => existsSync(join(d, n))));
+    .some((d) => exists(join(d, "cursor")));
 }
 
 const OURS = /\bhook cursor\b/;
@@ -57,7 +60,8 @@ type Entry = Record<string, unknown> & { command?: unknown };
 
 function readHooks(file: string): Record<string, unknown> | undefined {
   try {
-    const v = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    // A byte-order mark, as Notepad and Windows PowerShell 5.1 may write, is not an error.
+    const v = readJsonFile(file);
     return typeof v === "object" && v !== null && !Array.isArray(v)
       ? (v as Record<string, unknown>)
       : undefined;
@@ -173,7 +177,7 @@ export async function runCursorInstall(o: CursorInstallOptions): Promise<number>
           "Agent Rewake (preview) will add its hooks to Cursor's own agent:",
           `  ${file}`,
           "",
-          `When a Cursor chat stops at its usage limit, run "${rewake("continue")}" and pick a time within 4 hours. Rewake then continues that chat, as long as its window stays open. Typing in the chat cancels it. A limit that waiting won't lift (one that needs a paid plan or a new month) gets a notification instead. Your own hooks stay; Rewake keeps a backup of the file.`,
+          `When a Cursor chat stops at its usage limit, type "/rewake" in that same chat and pick a time within 4 hours (or "/rewake 3:30pm"). Rewake then continues that chat, as long as its window stays open. Typing anything else first cancels it. A limit that waiting won't lift (one that needs a paid plan or a new month) gets a notification instead. "/rewake" also lists or cancels what's planned ("/rewake list", "/rewake cancel"). Your own hooks stay; Rewake keeps a backup of the file.`,
           "",
         ].join("\n"),
   );

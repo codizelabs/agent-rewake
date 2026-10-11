@@ -12,10 +12,12 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { parse } from "jsonc-parser";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // End-to-end tests against the built single-file bundle, the way Zed runs it.
@@ -23,19 +25,49 @@ const root = join(import.meta.dirname, "..");
 const bundle = join(root, "dist", "agent-rewake.js");
 const fakeAgent = join(root, "test", "fixtures", "fake-agent.mjs");
 
-beforeAll(() => {
-  execFileSync(process.execPath, [join(root, "scripts", "build.mjs")], {
-    cwd: root,
-    stdio: "ignore",
-  });
-});
-
 let home: string;
 beforeAll(() => {
   home = mkdtempSync(join(tmpdir(), "rewake-e2e-"));
 });
-// Retries: an agent process from the last test may still be writing its log as the folder goes.
-afterAll(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+/** The process groups of the bundles `start` ran (POSIX): each with the agents it started. */
+const groups: number[] = [];
+const groupAlive = (pgid: number) => {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+/** Whether a process still has `text` on its command line. */
+const running = (text: string) =>
+  spawnSync("pgrep", ["-f", text], { stdio: "ignore" }).status === 0;
+
+// Nothing may still write into the folder as it goes (ENOTEMPTY): the bundles, the agents they
+// started (in the bundle's process group) and any helper Rewake started that names a folder in it
+// (a detached `fire` or waiter: their state folder is on their command line) are stopped, and the
+// removal waits until they have gone. Retries only cover a slow file system after that.
+afterAll(async () => {
+  if (process.platform !== "win32") {
+    for (const g of groups) if (groupAlive(g)) process.kill(-g, "SIGKILL");
+    spawnSync("pkill", ["-KILL", "-f", home], { stdio: "ignore" });
+    const end = Date.now() + 5_000;
+    while (Date.now() < end && (groups.some(groupAlive) || running(home)))
+      await new Promise((r) => setTimeout(r, 50));
+  }
+  try {
+    rmSync(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 });
+  } catch (err) {
+    // Something still wrote as the folder went. The files are in a temp folder; failing the whole
+    // file for them hides the results of the tests that did run. Say what is left so a real leak
+    // can still be seen in the log.
+    const left = spawnSync("ls", ["-R", home], { encoding: "utf8" }).stdout;
+    console.warn(`e2e cleanup: ${(err as Error).message}\n${left.slice(0, 2000)}`);
+  }
+}, 60_000);
+
+/** Just under this file's per-test time (vitest.config.mjs), so a wait says what it was missing. */
+const WAIT_MS = (process.platform === "win32" ? 20_000 : 5_000) - 500;
 
 /**
  * An empty home and no credentials, like the ACP Registry's CI check. On
@@ -47,6 +79,10 @@ function isolatedEnv(env: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     PATH: process.env.PATH ?? process.env.Path ?? "",
     HOME: home,
     XDG_STATE_HOME: join(home, ".state"),
+    // Nothing a test runs may arm a real OS job (see test/setup.ts).
+    ...(process.env.AGENT_REWAKE_TEST_NO_OS_TIMERS === "1" && {
+      AGENT_REWAKE_TEST_NO_OS_TIMERS: "1",
+    }),
   };
   if (process.platform === "win32")
     Object.assign(base, {
@@ -74,10 +110,14 @@ const isolatedStateDir = () =>
       : join(home, ".state", "agent-rewake");
 
 function start(args: string[], env: NodeJS.ProcessEnv = {}) {
+  // Its own process group on POSIX, so the agents it starts can be stopped with it after the tests.
+  const posix = process.platform !== "win32";
   const child = spawn(process.execPath, [bundle, ...args], {
     env: isolatedEnv(env),
     stdio: ["pipe", "pipe", "pipe"],
+    detached: posix,
   }) as ChildProcessWithoutNullStreams;
+  if (posix && child.pid !== undefined) groups.push(child.pid);
   const lines: string[] = [];
   let buf = "";
   child.stdout.on("data", (c: Buffer) => {
@@ -90,7 +130,7 @@ function start(args: string[], env: NodeJS.ProcessEnv = {}) {
     }
   });
   const send = (m: object) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...m })}\n`);
-  const waitFor = async (pred: (l: string) => boolean, ms = 30_000) => {
+  const waitFor = async (pred: (l: string) => boolean, ms = WAIT_MS) => {
     const end = Date.now() + ms;
     while (Date.now() < end) {
       const hit = lines.find(pred);
@@ -186,7 +226,16 @@ describe("agent-rewake bundle", () => {
     });
     expect(setup).toContain('"Agent Rewake: schedules"');
     expect(setup).toContain('"task::Spawn"');
-    expect(setup).toContain(asJson(bundle)); // a JSON string: Windows backslashes are escaped
+    // Zed's entries name Rewake's own stable files (Windows keeps the Node.js and script paths).
+    // JSON strings: Windows backslashes are escaped.
+    const bin = join(home, "cli-state", "bin");
+    if (process.platform === "win32") expect(setup).toContain(asJson(bundle));
+    else {
+      expect(setup).toContain(asJson(join(bin, "agent-rewake.mjs")));
+      expect(setup).toContain(asJson(join(bin, "rewake-node")));
+      expect(setup).not.toContain("npx-cli");
+      expect(setup).not.toContain('"--yes"');
+    }
   });
 
   it("adds itself to Zed's agents and takes itself out again, asking first", () => {
@@ -212,8 +261,32 @@ describe("agent-rewake bundle", () => {
     const settings = readFileSync(join(zed, "settings.json"), "utf8");
     expect(settings).toContain("// mine");
     expect(settings).toContain('"--wrap-registry",');
-    expect(settings).toContain(asJson(bundle));
     expect(settings).not.toContain('"Agent Rewake"');
+    if (process.platform === "win32") expect(settings).toContain(asJson(bundle));
+    else {
+      // The entry names Rewake's own stable files, not this Node.js or npm.
+      const bin = join(home, "doctor-state", "bin");
+      const entry = (
+        parse(settings, [], { allowTrailingComma: true }) as {
+          agent_servers: Record<string, { command: string; args: string[] }>;
+        }
+      ).agent_servers["claude-acp"];
+      // The Claude adapter is found next to the package, not next to Rewake's one-file copy: its
+      // entry starts from the package.
+      expect(entry?.command).not.toBe(join(bin, "rewake-node"));
+      expect(entry?.args.slice(-2)).toEqual(["--wrap-registry", "claude-acp"]);
+      expect(entry?.args).not.toContain(join(bin, "agent-rewake.mjs"));
+      // Rewake's own stable files exist for hooks, timers and the other agents, and start.
+      const started = spawnSync(
+        join(bin, "rewake-node"),
+        [join(bin, "agent-rewake.mjs"), "--version"],
+        {
+          encoding: "utf8",
+          env: { HOME: home },
+        },
+      );
+      expect(started.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
+    }
     expect(readFileSync(join(zed, "tasks.json"), "utf8")).toContain("Agent Rewake: schedules");
 
     // doctor says which agents have Rewake, and that Zed starts it with a thread in the Agent Panel.
@@ -250,10 +323,14 @@ describe("agent-rewake bundle", () => {
     const removed = cli("uninstall", "--yes");
     expect(removed.status).toBe(0);
     expect(existsSync(copilotHooks)).toBe(false);
-    expect(removed.stdout).toContain(
-      "Its own folder, with your scheduled messages, is still on disk",
-    );
+    // Out of every place: what stays is listed, and it says nothing runs from it any more.
+    expect(removed.stdout).toContain("Rewake is out of every place");
+    expect(removed.stdout).toContain("Nothing runs from that folder any more");
     const restored = readFileSync(join(zed, "settings.json"), "utf8");
+    // Out of every place, nothing needs the helper files any more: they go (they are what the
+    // Zed entries, hooks and timers run, and only those).
+    if (process.platform !== "win32")
+      expect(existsSync(join(home, "doctor-state", "bin", "agent-rewake.mjs"))).toBe(false);
     expect(restored).not.toContain("--wrap-registry");
     expect(restored).toContain('"type": "registry"');
     expect(cli("install", "--bogus").status).toBe(2);
@@ -473,4 +550,162 @@ describe("agent-rewake bundle", () => {
     p.child.stdin.end();
     await p.exited;
   }, 90_000);
+
+  it.skipIf(process.platform === "win32")(
+    "uninstall keeps what a remaining place runs, then removes it and lists what stays",
+    () => {
+      const h = mkdtempSync(join(tmpdir(), "rewake-residue-"));
+      try {
+        const state = join(h, "state");
+        const bin = join(h, "no-agents");
+        mkdirSync(bin);
+        mkdirSync(join(h, "zed"));
+        const env = isolatedEnv({
+          HOME: h,
+          PATH: bin,
+          AGENT_REWAKE_STATE_DIR: state,
+          AGENT_REWAKE_ZED_CONFIG_DIR: join(h, "zed"),
+        });
+        const cli = (...args: string[]) =>
+          spawnSync(process.execPath, [bundle, ...args], { encoding: "utf8", env });
+        // Rewake in two terminal agents, with its helper files and the person's data in its folder.
+        const copilot = join(h, ".copilot", "hooks", "agent-rewake.json");
+        const grok = join(h, ".grok", "hooks", "agent-rewake.json");
+        for (const f of [copilot, grok]) {
+          mkdirSync(dirname(f), { recursive: true });
+          writeFileSync(f, '{ "version": 1, "hooks": {} }\n');
+        }
+        for (const f of ["settings.json", "logs/rewake-2026-10-01.jsonl"]) {
+          mkdirSync(dirname(join(state, f)), { recursive: true });
+          writeFileSync(join(state, f), "{}\n");
+        }
+        // A planned resume in each agent, the Copilot one with its timer's file: taking Rewake out
+        // of Copilot cancels that resume and removes its timer, and leaves Grok's alone.
+        const resume = (id: string, host: string) => {
+          const now = Date.now();
+          mkdirSync(join(state, "schedules"), { recursive: true });
+          writeFileSync(
+            join(state, "schedules", `${id}.json`),
+            JSON.stringify({
+              schemaVersion: 1,
+              scheduleId: id,
+              sessionId: `s-${host}`,
+              cwd: h,
+              kind: "limit_resume",
+              text: "Continue.",
+              dueAt: now + 3_600_000,
+              createdBy: "auto",
+              status: "scheduled",
+              attempts: [],
+              createdAt: now,
+              updatedAt: now,
+              host,
+              sessionRef: { sessionId: `s-${host}`, cwd: h },
+            }),
+          );
+        };
+        const copilotResume = "00000000-0000-4000-8000-00000000c0c1";
+        const grokResume = "00000000-0000-4000-8000-00000000c0c2";
+        resume(copilotResume, "copilot-cli");
+        resume(grokResume, "grok");
+        // The file the timer left (macOS: its plist; Linux without systemd or at: the waiter's).
+        const timerFile = join(
+          state,
+          "timers",
+          process.platform === "darwin"
+            ? `codizelabs.agent-rewake.${copilotResume}.plist`
+            : `${copilotResume}.wait`,
+        );
+        mkdirSync(dirname(timerFile), { recursive: true });
+        writeFileSync(timerFile, "");
+        const status = (id: string) =>
+          (
+            JSON.parse(readFileSync(join(state, "schedules", `${id}.json`), "utf8")) as {
+              status: string;
+            }
+          ).status;
+        mkdirSync(join(state, "bin"), { recursive: true });
+        writeFileSync(join(state, "bin", "my-own-script.sh"), "echo hi\n");
+        writeFileSync(join(state, "bin", "agent-rewake.version"), "0.0.1\n");
+
+        // One place out: the other's hooks still run the launcher, so it stays.
+        const first = cli("uninstall", "--only", "copilot-cli", "--yes");
+        expect(first.status).toBe(0);
+        expect(existsSync(copilot)).toBe(false);
+        expect(existsSync(grok)).toBe(true);
+        expect(first.stdout).toContain("Rewake is still set up in Grok Build");
+        expect(first.stdout).toContain(
+          "Also cancelled 1 resume message for GitHub Copilot CLI sessions.",
+        );
+        expect(status(copilotResume)).toBe("cancelled");
+        expect(existsSync(timerFile)).toBe(false);
+        expect(status(grokResume)).toBe("scheduled");
+        expect(existsSync(join(state, "bin", "agent-rewake.mjs"))).toBe(true);
+        expect(existsSync(join(state, "bin", "agent-rewake.version"))).toBe(true);
+
+        // The last place out: the launcher, Node.js finder and version file go; the person's data stays.
+        const last = cli("uninstall", "--yes");
+        expect(last.status).toBe(0);
+        expect(existsSync(grok)).toBe(false);
+        for (const f of ["agent-rewake.mjs", "rewake-node", "agent-rewake.version"])
+          expect(existsSync(join(state, "bin", f)), f).toBe(false);
+        expect(existsSync(join(state, "timers"))).toBe(false);
+        expect(readdirSync(join(state, "bin"))).toEqual(["my-own-script.sh"]);
+        for (const f of [
+          `schedules/${copilotResume}.json`,
+          `schedules/${grokResume}.json`,
+          "settings.json",
+          "logs/rewake-2026-10-01.jsonl",
+        ])
+          expect(existsSync(join(state, f)), f).toBe(true);
+        expect(last.stdout).toContain("Rewake is out of every place");
+        expect(last.stdout).toContain(
+          `Rewake's folder, with your scheduled messages, your settings and logs (no message text): ${state}`,
+        );
+      } finally {
+        rmSync(h, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 });
+      }
+    },
+  );
+
+  it("a hook or sweep prunes old finished resumes and stale temporary files", () => {
+    const h = mkdtempSync(join(tmpdir(), "rewake-prune-e2e-"));
+    try {
+      const state = join(h, "state");
+      const schedules = join(state, "schedules");
+      mkdirSync(schedules, { recursive: true });
+      const old = Date.now() - 45 * 24 * 3_600_000;
+      const id = "00000000-0000-4000-8000-000000000001";
+      writeFileSync(
+        join(schedules, `${id}.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          scheduleId: id,
+          sessionId: "s1",
+          cwd: "/work",
+          kind: "user",
+          text: "old",
+          dueAt: old,
+          createdBy: "user",
+          status: "sent",
+          attempts: [],
+          createdAt: old,
+          updatedAt: old,
+        }),
+      );
+      const stale = join(schedules, ".x.json.1.deadbeef.tmp");
+      writeFileSync(stale, "{");
+      const when = new Date(Date.now() - 3 * 3_600_000);
+      utimesSync(stale, when, when);
+      const run = spawnSync(process.execPath, [bundle, "sweep", "--state-dir", state], {
+        encoding: "utf8",
+        env: isolatedEnv({ HOME: h, AGENT_REWAKE_STATE_DIR: state }),
+      });
+      expect(run.status).toBe(0);
+      expect(existsSync(join(schedules, `${id}.json`))).toBe(false);
+      expect(existsSync(stale)).toBe(false);
+    } finally {
+      rmSync(h, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 });
+    }
+  });
 });

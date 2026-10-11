@@ -14,11 +14,15 @@
 //                 claim: { by, at }, the process sending the armed continue right now
 //   sched:<id>    [{ at, text }]
 // A copy of each limit record (no message text) goes to Rewake's shared state folder, so
-// `agent-rewake doctor` and the schedules page can show it. Installed by `agent-rewake install`,
-// which writes that folder's path into rewake.json beside this plugin.
+// `agent-rewake doctor` and the schedules page can show it, and so Rewake can continue the session
+// headless if Claude Code closes before the limit is answered (it adds `open`, the Claude Code
+// process, the limit and the session's settings variables: src/hosts/sessions.ts SessionRecord).
+// Installed by `agent-rewake install`, which writes that folder's path into rewake.json beside this
+// plugin.
 
 import {
   AFTER_RESET_MS,
+  backoffMs,
   blockedUntil,
   blockingKind,
   CONTINUE_TEXT,
@@ -28,22 +32,34 @@ import {
   featureOf,
   HOUR,
   helpText,
+  holdArgv,
+  LINUX_MAINS,
+  limitOf,
   MAX_REARMS,
   MAX_REHITS,
   MINUTE,
+  mainsFrom,
   mustAsk,
   nativeLikely,
   notHere,
   parseCommand,
+  parseProcess,
+  parseProgram,
+  parseWake,
   parseWhen,
   personAtPrompt,
   REHIT_WINDOW_MS,
   STALE_MS,
   safeId,
+  sessionVars,
   splitWhen,
   surfaceOf,
   WAITING_EXPIRES_MS,
   WAKE_HORIZON_MS,
+  WAKE_PROBE,
+  WINDOWS_MAINS,
+  WINDOWS_POWERSHELL,
+  WINDOWS_PROBE,
   when,
 } from "./logic.js";
 
@@ -78,15 +94,21 @@ let mirrorDir;
 let sharedAuto;
 /** The session's folder, for where Rewake's CLI names it ("in the shop folder"). */
 let sessionCwd;
+/** This Claude Code process ({ pid, name }) and the session's settings variables, for the copy. */
+let claudeProcess;
+let claudeProgram;
+let claudeVars = {};
+/** Rewake's own headless continue (AGENT_REWAKE_FIRE): the plugin does nothing in it. */
+let inert = false;
 /** This process, in a send's claim: two Claude Code processes can have one session open. */
 const ME = Math.random().toString(36).slice(2);
 /** A claim older than this was left by a process that stopped mid-send. */
 const CLAIM_MS = 5 * MINUTE;
 /** Rewake's keep-awake setting: "plugged-in" (default), "always" or "never". */
 let keepAwake = "plugged-in";
-/** Claude Code's PID when this Mac has caffeinate; null where Rewake can't keep it awake. */
-let wakePid;
-/** The running hold: { mode, stream }. */
+/** { kind, pid, program }: Claude Code's PID and the hold program (macOS, Linux with systemd-inhibit, Windows); null where there is none. */
+let wakeTarget;
+/** The running hold: { key, stream }. */
 let wakeHold;
 
 const limitKey = (id) => `limit:${id}`;
@@ -117,17 +139,59 @@ async function loadConfig($) {
   }
 }
 
+/** This process and the session's settings variables, for Rewake's copy of the record. */
+async function loadSessionInfo($) {
+  if (!mirrorDir) return;
+  // $.env.get takes a literal name, so every variable the plugin reads can be listed (logic.js
+  // SETTINGS_VARS and KEY_VARS; a test in Rewake's repository compares them with these).
+  const read = (get) => get.catch(() => undefined);
+  const values = {
+    CLAUDE_CONFIG_DIR: await read($.env.get("CLAUDE_CONFIG_DIR")),
+    CLAUDE_CODE_PROJECT_DIR_NAME: await read($.env.get("CLAUDE_CODE_PROJECT_DIR_NAME")),
+    ANTHROPIC_BASE_URL: await read($.env.get("ANTHROPIC_BASE_URL")),
+    ANTHROPIC_MODEL: await read($.env.get("ANTHROPIC_MODEL")),
+    CLAUDE_CODE_USE_BEDROCK: await read($.env.get("CLAUDE_CODE_USE_BEDROCK")),
+    CLAUDE_CODE_USE_VERTEX: await read($.env.get("CLAUDE_CODE_USE_VERTEX")),
+    CLAUDE_CODE_USE_FOUNDRY: await read($.env.get("CLAUDE_CODE_USE_FOUNDRY")),
+    ANTHROPIC_API_KEY: await read($.env.get("ANTHROPIC_API_KEY")),
+    ANTHROPIC_AUTH_TOKEN: await read($.env.get("ANTHROPIC_AUTH_TOKEN")),
+    CLAUDE_CODE_OAUTH_TOKEN: await read($.env.get("CLAUDE_CODE_OAUTH_TOKEN")),
+  };
+  claudeVars = sessionVars((name) => values[name]);
+  try {
+    // The shell's parent is Claude Code; no /bin/sh or ps (Windows) means no process to watch.
+    const r = await $.process.run([
+      "/bin/sh",
+      "-c",
+      'echo "$PPID"; ps -o comm= -p "$PPID"; command -v claude',
+    ]);
+    claudeProcess = r.exitCode === 0 ? parseProcess(r.stdout) : undefined;
+    claudeProgram = r.exitCode === 0 ? parseProgram(r.stdout) : undefined;
+  } catch {
+    claudeProcess = undefined;
+    claudeProgram = undefined;
+  }
+}
+
 /** Write the record's metadata (never text) where Rewake's CLI reads it. Best effort. */
-async function mirror($, id, ep) {
+async function mirror($, id, ep, lastPromptAt) {
   if (!mirrorDir || !safeId(id)) return;
   const { state, kind, resetAt, fireAt, createdAt, sentAt, rehits, attempts } = ep ?? {
     state: "none",
   };
+  const limit = limitOf(ep);
   const record = {
     schemaVersion: 1,
     host: "claude-code",
     sessionId: id,
-    ...(typeof sessionCwd === "string" && { cwd: sessionCwd }),
+    cwd: typeof sessionCwd === "string" ? sessionCwd : "",
+    // Rewake's SessionRecord: open while this process runs (it finds out when the process is gone).
+    open: true,
+    ...(claudeProcess && { agents: [claudeProcess] }),
+    ...(claudeProgram && { program: claudeProgram }),
+    ...(limit && { limit }),
+    ...(lastPromptAt !== undefined && { lastPromptAt }),
+    ...claudeVars,
     state,
     kind,
     resetAt,
@@ -150,10 +214,10 @@ async function save($, id, ep) {
   await mirror($, id, ep);
 }
 
-async function drop($, id) {
+async function drop($, id, lastPromptAt) {
   disarm(id);
   await $.store.delete(limitKey(id));
-  await mirror($, id, undefined);
+  await mirror($, id, undefined, lastPromptAt);
 }
 
 function disarm(id) {
@@ -171,9 +235,53 @@ async function arm($, id, ep) {
 }
 
 /**
- * Keep this Mac from idling to sleep while a continue is due within a few hours: Rewake's own, or
- * Claude Code's (its wait holds nothing while the session sits idle). `caffeinate -w` ties the hold
- * to Claude Code, so it ends with it even after a crash. Returns whether a hold is running.
+ * Finds Claude Code's PID (the parent of the shell, or of PowerShell on Windows) and the hold
+ * program: caffeinate on macOS, systemd-inhibit on Linux, PowerShell on Windows. Null where the
+ * computer has none.
+ */
+async function findWake($) {
+  try {
+    const r = await $.process.run(["/bin/sh", "-c", WAKE_PROBE]);
+    if (r.exitCode === 0) return parseWake(r.stdout) ?? null;
+  } catch {
+    // No /bin/sh: Windows.
+  }
+  try {
+    const r = await $.process.run([
+      WINDOWS_POWERSHELL,
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      WINDOWS_PROBE,
+    ]);
+    const pid = r.stdout.trim();
+    return r.exitCode === 0 && /^\d+$/.test(pid)
+      ? { kind: "win32", pid, program: WINDOWS_POWERSHELL }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a Linux or Windows computer is on mains power; unknown counts as mains. */
+async function onMains($, kind) {
+  try {
+    const r = await $.process.run(
+      kind === "linux"
+        ? ["/bin/sh", "-c", LINUX_MAINS]
+        : [WINDOWS_POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", WINDOWS_MAINS],
+    );
+    return mainsFrom(kind, r.stdout);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Keep this computer from idling to sleep while a continue is due within a few hours: Rewake's own,
+ * or Claude Code's (its wait holds nothing while the session sits idle). The hold is tied to Claude
+ * Code's process, so it ends with it even after a crash. "plugged-in" holds only on mains power
+ * (macOS's `caffeinate -s` does that itself). Returns whether a hold is running.
  */
 async function updateWake($, ep, now) {
   const due = ep?.state === "armed" ? ep.fireAt : ep?.state === "native" ? ep.resetAt : undefined;
@@ -182,34 +290,30 @@ async function updateWake($, ep, now) {
     due !== undefined &&
     due > now - STALE_MS &&
     due - now <= WAKE_HORIZON_MS;
-  const mode = keepAwake === "always" ? "-i" : "-s";
-  if (wakeHold && (!want || wakeHold.mode !== mode)) {
+  if (want && wakeTarget === undefined) wakeTarget = await findWake($);
+  const t = want ? wakeTarget : undefined;
+  const hold =
+    t && (keepAwake === "always" || t.kind === "darwin" || (await onMains($, t.kind)))
+      ? holdArgv(t.kind, keepAwake, t.pid, t.program)
+      : undefined;
+  const key = hold?.join("\n");
+  if (wakeHold && wakeHold.key !== key) {
     void wakeHold.stream.return?.();
     wakeHold = undefined;
   }
-  if (!want || wakeHold) return wakeHold !== undefined;
-  if (wakePid === undefined) {
-    try {
-      // The shell's parent is Claude Code; no caffeinate (Linux, Windows) means no hold here.
-      const r = await $.process.run(["/bin/sh", "-c", "test -x /usr/bin/caffeinate && echo $PPID"]);
-      wakePid = r.exitCode === 0 && /^\d+$/.test(r.stdout.trim()) ? r.stdout.trim() : null;
-    } catch {
-      wakePid = null;
-    }
-  }
-  if (wakePid === null) return false;
-  const stream = $.process.spawn({ argv: ["/usr/bin/caffeinate", mode, "-w", wakePid] });
-  const hold = { mode, stream };
-  wakeHold = hold;
+  if (!hold || wakeHold) return wakeHold !== undefined;
+  const stream = $.process.spawn({ argv: hold });
+  const running = { key, stream };
+  wakeHold = running;
   void (async () => {
     try {
       for await (const _ of stream) {
-        // caffeinate writes nothing; the loop is the hold's life.
+        // The hold writes nothing; the loop is the hold's life.
       }
     } catch {
       // It couldn't start: no hold.
     }
-    if (wakeHold === hold) wakeHold = undefined;
+    if (wakeHold === running) wakeHold = undefined;
   })();
   return true;
 }
@@ -217,7 +321,10 @@ async function updateWake($, ep, now) {
 async function refreshStatus($, id, now) {
   const ep = await $.store.get(limitKey(id));
   const sched = (await $.store.get(schedKey(id))) ?? [];
-  const awake = (await updateWake($, ep, now)) ? " · keeping this Mac awake" : "";
+  const holding = await updateWake($, ep, now);
+  const awake = holding
+    ? ` · keeping this ${wakeTarget?.kind === "darwin" ? "Mac" : "computer"} awake`
+    : "";
   if (ep?.state === "armed" && ep.fireAt !== undefined) {
     $.ui.status(`Continues at ${at(ep.fireAt, now)}${awake} · /rewake cancel`);
   } else if (ep?.state === "offered") {
@@ -340,6 +447,22 @@ async function onLimitOnce($, id) {
     await refreshStatus($, id, now);
     return;
   }
+  if (resetAt === undefined && rehits > 0) {
+    // The limit came back right after Rewake continued, with no new reset time: the first request
+    // after the reset was refused (seen at reset + 61 s). The person already said yes, so try
+    // again after the usual wait; the re-hit cap above bounds the tries.
+    const next = {
+      state: "armed",
+      createdAt: now,
+      rehits,
+      attempts: 0,
+      fireAt: now + backoffMs(rehits - 1),
+    };
+    await save($, id, next);
+    await arm($, id, next);
+    await refreshStatus($, id, now);
+    return;
+  }
   const ep = { state: "waiting", createdAt: now, rehits, attempts: 0 };
   if (resetAt === undefined) {
     // No reset time yet, or a limit that a wait doesn't fix (credits, a spending cap, an API
@@ -391,7 +514,9 @@ async function onNotification($, e) {
 async function standDown($) {
   const id = await $.session.id();
   const ep = await $.store.get(limitKey(id));
-  if (ep && ep.state !== "sent") await drop($, id);
+  // The person (or Claude Code itself) moved on: also tells Rewake, in case it planned to continue
+  // this session after Claude Code was closed.
+  if (ep && ep.state !== "sent") await drop($, id, await $.clock.now());
   await refreshStatus($, id, await $.clock.now());
 }
 
@@ -511,6 +636,9 @@ async function reopen($) {
       return;
     }
   }
+  // This process has the session open now: Rewake must not continue it headless meanwhile.
+  const open = await $.store.get(limitKey(id));
+  if (open) await mirror($, id, open);
   await refreshStatus($, id, now);
 }
 
@@ -731,6 +859,8 @@ export function register(on) {
     isInteractive = e.isInteractive;
     sessionCwd = e.cwd;
     entrypoint = await $.env.get("CLAUDE_CODE_ENTRYPOINT").catch(() => undefined);
+    inert = Boolean(await $.env.get("AGENT_REWAKE_FIRE").catch(() => undefined));
+    if (inert) return next(e);
     surface = surfaceOf({ surface: e.surface, entrypoint });
     try {
       nativeSetting = { value: (await $.settings.read()).autoContinueAtUsageLimit };
@@ -738,6 +868,7 @@ export function register(on) {
       nativeSetting = undefined;
     }
     await loadConfig($);
+    await loadSessionInfo($);
     $.clock.every(TICK_MS, () => void tick($));
     void reopen($);
     for (const entry of [
@@ -757,6 +888,7 @@ export function register(on) {
   });
 
   on("classic.SessionStart", ($, e, next) => {
+    if (inert) return next(e);
     // An in-process switch (/resume, /clear, /branch): the armed timer belongs to the old one.
     if (e.source === "resume" || e.source === "clear" || e.source === "fork") {
       disarm();
@@ -767,23 +899,24 @@ export function register(on) {
 
   on("classic.StopFailure", ($, e, next) => {
     // Main conversation only: helper and subagent failures carry agent_id.
-    if (e.error === "rate_limit" && e.agent_id === undefined) void onLimit($, e.session_id);
+    if (!inert && e.error === "rate_limit" && e.agent_id === undefined)
+      void onLimit($, e.session_id);
     return next(e);
   }).catch(passOn);
 
   on("session.measure", ($, e, next) => {
-    if (e.changed.includes("rateLimits")) void onMeasure($, e.rateLimits);
+    if (!inert && e.changed.includes("rateLimits")) void onMeasure($, e.rateLimits);
     return next(e);
   }).catch(passOn);
 
   on("classic.Notification", ($, e, next) => {
-    if (e.notification_type.startsWith("quota_auto_resume_")) void onNotification($, e);
+    if (!inert && e.notification_type.startsWith("quota_auto_resume_")) void onNotification($, e);
     return next(e);
   }).catch(passOn);
 
   on("prompt.submit", ($, e, next) => {
     // Observe only: the person typed, or Claude Code's own auto-continue fired.
-    if (MOVED_ON.has(e.origin.kind)) void standDown($);
+    if (!inert && MOVED_ON.has(e.origin.kind)) void standDown($);
     return next(e);
   }).catch(passOn);
 

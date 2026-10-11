@@ -49,6 +49,11 @@ export type AgentProfile =
   | "grok"
   | "generic";
 
+/** Every agent with its own rules (not "generic"), once each, for tools that try them all. */
+export function agentProfiles(): AgentProfile[] {
+  return [...new Set(Object.values(PROFILE_BY_ID))];
+}
+
 const PROFILE_BY_ID: Record<string, AgentProfile> = {
   "claude-acp": "claude",
   "claude-code-acp": "claude",
@@ -97,7 +102,11 @@ export function profileFor(agentId: string | undefined, agentName: unknown): Age
 }
 
 /** A usage-limit classification may carry the reset time the error's own text gives. */
-export type LimitClassification = Classification & { resetAt?: number };
+export type LimitClassification = Classification & {
+  resetAt?: number;
+  /** Read from the agent's last message, which a model writes, not from an error or a field. */
+  viaText?: boolean;
+};
 
 /** What else Rewake saw during the turn, for agents that report limits outside the error. */
 export interface TurnContext {
@@ -462,6 +471,9 @@ function byProfile(
         return { kind: "transient", text };
       if (/monthly usage limit/i.test(text))
         return { kind: "not_recoverable", text, reason: "billing" };
+      // A 402 with no reset to wait for (unsnooze 1.20.0, src/agents/kimi.js terminalPatterns).
+      if (/Membership expired/i.test(text))
+        return { kind: "not_recoverable", text, reason: "billing" };
       return undefined;
     case "glm":
       if (/Rate limit reached for requests|temporarily overloaded/i.test(text))
@@ -541,6 +553,17 @@ function byProfile(
         )
       )
         return { kind: "not_recoverable", text, reason: "billing" };
+      // The Go plan's limit as OpenCode words it now (packages/opencode/src/session/retry.ts at
+      // anomalyco/opencode 055d95bb): "<name> usage limit reached. It will reset in 2 hours 5 minutes."
+      if (/\busage limit reached\.\s+It will reset in /i.test(text)) {
+        if (/\bIt will reset in less than a minute\b/i.test(text)) return usage(text, now + 60_000);
+        const m = /\bIt will reset in (\d[^.]*)\./.exec(text);
+        const wait = m?.[1] === undefined ? undefined : parseDuration(m[1]);
+        return usage(text, wait === undefined ? undefined : now + wait);
+      }
+      // Zen's free tier used up (unsnooze 1.20.0, src/agents/opencode.js and test/opencode.test.js).
+      // The text gives no reset, so the person is asked for a time.
+      if (/^Free usage exceeded\b/m.test(text)) return usage(text);
       // OpenCode Zen's free tier: a daily limit, though worded like a short one.
       if (/^Rate limit exceeded\. Please try again later\.$/m.test(text)) return usage(text);
       return undefined;
@@ -653,7 +676,7 @@ function turnEnd(
         return { kind: "not_recoverable", text, reason: "billing" };
       // Copilot's own rate-limit sentences (CLI 1.0.92, older CLIs, and the raw BYOK status line).
       if (
-        /^(?:\d{3} )?(?:Sorry, )?you've (?:reached your weekly|hit your session|hit the|hit your|hit a|exceeded your(?: weekly)?) rate limit/i.test(
+        /^(?:\d{3} )?(?:Sorry, )?you(?:'ve| have) (?:reached your weekly|hit your session|hit the|hit your|hit a|exceeded your(?: weekly)?) rate limit/i.test(
           text,
         )
       )

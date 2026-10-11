@@ -43,7 +43,14 @@ import {
 } from "./core/options-bridge.js";
 import { type AgentRequest, LinkStore, RequestStore } from "./core/requests.js";
 import { decideArm, decideFire, FAR_RESET_MS } from "./core/resume.js";
-import { applySettings, type KeepAwake, loadSettings, saveSettings } from "./core/settings.js";
+import {
+  applySettings,
+  KEEP_AWAKE_SAVED,
+  KEEP_AWAKE_VALUES,
+  type KeepAwake,
+  loadSettings,
+  saveSettings,
+} from "./core/settings.js";
 import { MAX_FOLLOW_UPS, type Schedule, ScheduleStore, TERMINAL_STATUSES } from "./core/store.js";
 import { DEFAULT_RESUME_PROMPT, ThreadStore } from "./core/threads.js";
 import { clockTime, formatClock, formatWhen, parseWhen, TEXT_LOCALE } from "./core/time.js";
@@ -361,6 +368,17 @@ export class SchedulingAddon {
     this.wake.release();
   }
 
+  /**
+   * Rewake's own handling failed and the router now only relays: stop the timers and watchers, and
+   * pass on the user messages held back for a scheduled reply, which nothing else would send.
+   */
+  failOpen(): void {
+    for (const session of this.sessions.values()) {
+      for (const held of session.heldPrompts.splice(0)) this.router?.forwardClientRequest(held);
+    }
+    this.stop();
+  }
+
   hooks(): RouterHooks {
     return {
       onClientMessage: (m) => this.onClientMessage(m),
@@ -398,7 +416,15 @@ export class SchedulingAddon {
     const text = promptText(params.prompt);
     const command = REWAKE_TYPED.exec(text.trim());
     if (command) {
-      setImmediate(() => this.runCommand(session, m.id as JsonRpcId, command[1] ?? ""));
+      setImmediate(() => {
+        try {
+          this.runCommand(session, m.id as JsonRpcId, command[1] ?? "");
+        } catch (err) {
+          // The command's turn must still end, or the person's thread waits for ever.
+          this.router?.respondToClient(m.id as JsonRpcId, { result: { stopReason: "end_turn" } });
+          throw err;
+        }
+      });
       return CONSUME;
     }
     if (session.delivering) {
@@ -414,7 +440,14 @@ export class SchedulingAddon {
     session.userTurnCommand = text.trim().startsWith("/");
     this.startTurn(session);
     if (session.needsReattach) {
-      void this.reattach(session).then((ok) => this.forwardAfterReattach(session, m, ok));
+      void this.reattach(session).then(
+        (ok) => this.forwardAfterReattach(session, m, ok),
+        (err: unknown) => {
+          // Answer the held message with the usual error rather than leave it waiting.
+          this.forwardAfterReattach(session, m, false);
+          throw err;
+        },
+      );
       return CONSUME;
     }
     return FORWARD;
@@ -1048,7 +1081,7 @@ export class SchedulingAddon {
       now,
       session.lastMessageChunks,
     );
-    if (fromText) return fromText;
+    if (fromText) return { ...fromText, viaText: true };
     // Nova reports its token quota as a session update of its own.
     if (session.turnError?.code === "TOKEN_LIMIT_EXCEEDED")
       return { kind: "usage_limit", text: session.turnError.message, limitType: "other" };
@@ -1165,7 +1198,7 @@ export class SchedulingAddon {
       if (s.status === "missed" || s.status === "needs_attention")
         this.store.cancel(s.scheduleId, now);
     const thread = this.threads.get(session.sessionId);
-    const gate = this.autoGate(session, resetAt);
+    const gate = this.autoGate(session, resetAt, c.viaText === true);
     // The shared rules decide (src/core/resume.ts): billing never, a reset a day away is asked
     // about, no reset time waits the time last chosen in the resume form (C2).
     const delay = thread?.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS;
@@ -1195,7 +1228,11 @@ export class SchedulingAddon {
   }
 
   /** Why a remembered automatic resume may not run, or undefined if it may. */
-  private autoGate(session: SessionState, resetAt: number | undefined): string | undefined {
+  private autoGate(
+    session: SessionState,
+    resetAt: number | undefined,
+    viaText = false,
+  ): string | undefined {
     if (this.opts.allowAutomaticResume === false)
       return "automatic resume is turned off in Agent Rewake's settings.";
     if (this.claudeAgent && claudeAutoContinueDisabled(this.env, session.cwd)) {
@@ -1207,6 +1244,10 @@ export class SchedulingAddon {
     ) {
       return "this thread bypasses permissions, and your setting excludes those threads.";
     }
+    // A limit read only from the agent's own message could be text a model was steered into
+    // writing: with no permission prompts to fall back on, a person decides.
+    if (viaText && isBypassMode(session.permissionMode))
+      return "the limit was read from the agent's message, and this thread skips permission prompts, so a person should confirm it.";
     if (resetAt === undefined) {
       const delay = this.threads.get(session.sessionId)?.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS;
       const started = session.limit?.startedAt ?? this.now();
@@ -2184,11 +2225,8 @@ export class SchedulingAddon {
       : now;
     const newThreads = choice === "off" ? "off" : choice === "ask" ? "ask" : "on";
     const autoWhenPromptsSkipped = choice !== "exceptBypass";
-    const keepAwake: KeepAwake = (["plugged-in", "always", "never"] as const).includes(
-      content.keepAwake as KeepAwake,
-    )
-      ? (content.keepAwake as KeepAwake)
-      : current.keepAwake;
+    const keepAwake: KeepAwake =
+      KEEP_AWAKE_VALUES.find((v) => v === content.keepAwake) ?? current.keepAwake;
     saveSettings(this.opts.stateDir, {
       ...current,
       clock,
@@ -2199,16 +2237,7 @@ export class SchedulingAddon {
     applySettings(this.opts.stateDir);
     const changed: string[] = [];
     if (clock !== current.clock) changed.push(`Times now show like ${clockTime(15, 19)}.`);
-    if (keepAwake !== current.keepAwake)
-      changed.push(
-        {
-          "plugged-in":
-            "Rewake keeps this computer awake for resumes and scheduled messages while it's plugged in.",
-          always:
-            "Rewake keeps this computer awake for resumes and scheduled messages, also on battery.",
-          never: "Rewake lets this computer sleep, even with messages scheduled.",
-        }[keepAwake],
-      );
+    if (keepAwake !== current.keepAwake) changed.push(KEEP_AWAKE_SAVED[keepAwake]);
     if (choice !== now)
       changed.push(
         {
@@ -3320,7 +3349,13 @@ export class SchedulingAddon {
         limited.resetAt,
       );
       const delay = this.threads.get(session.sessionId)?.resumeDelayMs ?? DEFAULT_RESUME_DELAY_MS;
-      const started = session.limit?.startedAt ?? schedule.createdAt;
+      // A scheduled message counts its day from its first try, not from when it was scheduled.
+      const started =
+        schedule.kind === "user"
+          ? (schedule.attempts[0]?.startedAt ?? now)
+          : (session.limit?.startedAt ?? schedule.createdAt);
+      // A message the person scheduled is automation: it waits for the reset without asking.
+      const scheduled = schedule.kind === "user";
       const dueAt = resetAt === undefined ? undefined : this.resumeAt(resetAt);
       const farAway = resetAt !== undefined && resetAt - now > 24 * 3_600_000;
       if (
@@ -3345,22 +3380,28 @@ export class SchedulingAddon {
       ) {
         this.store.update(scheduleId, (x) => ({ ...x, status: "scheduled", dueAt }), now);
         if (session.limit) session.limit.resetAt = resetAt;
+        const until = formatWhen(resetAt, now, this.opts.locale);
         this.status(
           session,
-          `Rewake: Paused again. ${capitalize(this.agentName)} is still at its usage limit, now until ${formatWhen(resetAt, now, this.opts.locale)}. Rewake will try again when it resets.`,
+          scheduled
+            ? `Rewake: ${capitalize(this.agentName)} is at its usage limit until ${until}. Your scheduled message goes when it resets.`
+            : `Rewake: Paused again. ${capitalize(this.agentName)} is still at its usage limit, now until ${until}. Rewake will try again when it resets.`,
         );
       } else if (
         resetAt === undefined &&
-        schedule.kind === "auto_limit_resume" &&
+        (schedule.kind === "auto_limit_resume" || scheduled) &&
         delay &&
         now + delay - started <= 24 * 3_600_000
       ) {
         // The agent never says when it resets: wait the chosen time again, for up to a day (C2).
         const next = now + delay;
         this.store.update(scheduleId, (x) => ({ ...x, status: "scheduled", dueAt: next }), now);
+        const at = formatWhen(next, now, this.opts.locale);
         this.status(
           session,
-          `Rewake: Paused again. ${capitalize(this.agentName)} is still at its usage limit. Rewake will try again at ${formatWhen(next, now, this.opts.locale)}.`,
+          scheduled
+            ? `Rewake: ${capitalize(this.agentName)} is at its usage limit and didn't say when it resets. Your scheduled message will be tried again at ${at}.`
+            : `Rewake: Paused again. ${capitalize(this.agentName)} is still at its usage limit. Rewake will try again at ${at}.`,
         );
       } else {
         this.store.update(

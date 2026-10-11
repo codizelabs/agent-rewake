@@ -1,6 +1,8 @@
 import type { ChildProcess } from "node:child_process";
+import { statSync } from "node:fs";
 import type { Schedule } from "../core/store.js";
 import { errorLine } from "../util/error-line.js";
+import { killTree } from "../util/spawn.js";
 
 /**
  * What an integration outside Zed (Codex, Copilot CLI, Grok, Gemini CLI, Antigravity) provides so
@@ -46,6 +48,8 @@ export interface HostFacts {
   nativeContinued?: boolean;
   /** The session is open in a UI, so Rewake mustn't write to it (one writer). */
   sessionOpen?: boolean;
+  /** The agent's own files show the session changed after the limit, by something Rewake can't see. */
+  changedSince?: boolean;
 }
 
 export type SendResult =
@@ -66,18 +70,56 @@ export function withMessage(output: string): { message?: string } {
   return message === undefined ? {} : { message };
 }
 
-/** The longest a headless resume run may take before Rewake stops it. */
-export const RESUME_TIMEOUT_MS = 30 * 60_000;
+/**
+ * Whether the folder a session was started in is gone (moved, renamed or deleted). A headless
+ * resume runs in that folder, so without it the agent can't start (`spawn` says only ENOENT) or
+ * can't find the session, which Gemini keeps per project folder. An empty `cwd` means the host
+ * records none: nothing to check.
+ */
+export function folderGone(cwd: string | undefined): boolean {
+  if (!cwd) return false;
+  try {
+    return !statSync(cwd).isDirectory();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  }
+}
+
+/** The failed result a resume gives when its folder is gone: `fire` tells the person (FailCause). */
+export const FOLDER_GONE: SendResult = { ok: false, reason: "failed", detail: "folder-gone" };
 
 /**
- * Stop a resume run that is still going after `ms` (waiting on an approval, hung). Returns a check,
- * read when the child exits, of whether it was stopped this way.
+ * The longest a headless resume run may take before Rewake stops it: long enough for a night's
+ * work, short enough that a run stuck on something never ends up holding the session for days.
  */
-export function resumeDeadline(child: ChildProcess, ms = RESUME_TIMEOUT_MS): () => boolean {
+export const RESUME_TIMEOUT_MS = 3 * 60 * 60_000;
+
+let runStarted: ((pid: number) => void) | undefined;
+
+/** `fire`: hear when a host starts its headless run, with the agent's process id. */
+export function onResumeRun(listener: ((pid: number) => void) | undefined): void {
+  runStarted = listener;
+}
+
+/**
+ * Stop a resume run that is still going after `ms` (hung). Returns a check, read when the child
+ * exits, of whether it was stopped this way. Also reports the run's start (`onResumeRun`).
+ *
+ * The whole process tree is stopped: on Windows `kill()` ends only the direct child, and an
+ * agent started as `node <script>` often runs its own programs (a native binary, shells, tool
+ * servers), which would keep working on the session after Rewake said it stopped.
+ */
+export function resumeDeadline(
+  child: ChildProcess,
+  ms = RESUME_TIMEOUT_MS,
+  stop: (child: ChildProcess) => void = (c) => killTree(c),
+): () => boolean {
+  if (child.pid !== undefined) runStarted?.(child.pid);
   let stopped = false;
   const timer = setTimeout(() => {
     stopped = true;
-    child.kill();
+    stop(child);
   }, ms);
   child.once("exit", () => clearTimeout(timer));
   child.once("error", () => clearTimeout(timer));

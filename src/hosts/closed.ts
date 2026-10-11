@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { basename } from "node:path";
 import { decideArm, FAR_RESET_MS, RESET_MARGIN_MS } from "../core/resume.js";
 import { loadSettings, type Settings } from "../core/settings.js";
@@ -6,12 +7,13 @@ import { DEFAULT_RESUME_PROMPT } from "../core/threads.js";
 import { formatAt } from "../core/time.js";
 import { rewake } from "../util/command.js";
 import { type AgentProcess, stillRunning } from "../util/proc.js";
+import { SECRET_NAME } from "../util/secrets.js";
 import type { HostAdapter, HostFacts, SendResult } from "./host.js";
 import { type SessionLimit, type SessionRecord, SessionRecords } from "./sessions.js";
 
 /**
- * The hosts whose sessions Rewake continues after they're closed: Copilot CLI, Grok, Gemini CLI,
- * Antigravity CLI. Their hooks record the session (open or closed, when the person last typed,
+ * The hosts whose sessions Rewake continues after they're closed: Claude Code, Copilot CLI, Grok,
+ * Gemini CLI, Qwen Code, OpenCode, Antigravity CLI, Cursor. Their hooks (Claude Code's plugin) record the session (open or closed, when the person last typed,
  * the last usage limit); when the person agrees, a one-shot timer runs `fire`, which resumes the
  * closed session headless with the agent's own resume command. An open session is never written
  * to (one writer): the person is told instead.
@@ -52,12 +54,16 @@ export interface ClosedHost {
   settingsVars?: readonly string[];
   /** The agent's key variables: only whether each was set is recorded, never its value. */
   keyVars?: readonly string[];
+  /**
+   * Whether the agent's own files show the session changed after `since` (when the limit was seen,
+   * or the last time Rewake tried), by something Rewake can't see: the person went on in it, or
+   * another tool did. Rewake then tells the person instead of writing into it.
+   */
+  changedSince?(record: SessionRecord, since: number, env: NodeJS.ProcessEnv): boolean;
 }
 
 /** Folders every agent may be told to use through the environment. */
 const COMMON_VARS = ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
-/** A name that looks secret is never recorded, whatever a host's list says. */
-const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
 
 /** What to record from a hook's environment for this host. */
 export function sessionEnv(
@@ -65,11 +71,22 @@ export function sessionEnv(
   env: NodeJS.ProcessEnv,
 ): { env?: Record<string, string>; keysSet?: string[] } {
   const vars: Record<string, string> = {};
+  const carriesSecret: string[] = [];
   for (const name of [...COMMON_VARS, ...(host.settingsVars ?? [])]) {
     const v = env[name];
-    if (v !== undefined && v !== "" && !SECRET_NAME.test(name)) vars[name] = v;
+    if (v === undefined || v === "" || SECRET_NAME.test(name)) continue;
+    // An address with a user name, password or query in it (often a key) is treated as a key:
+    // only that it was set is recorded.
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v) && (/\/\/[^/?#]*@/.test(v) || /[?#]/.test(v))) {
+      carriesSecret.push(name);
+      continue;
+    }
+    vars[name] = v;
   }
-  const keys = (host.keyVars ?? []).filter((k) => env[k] !== undefined && env[k] !== "");
+  const keys = [
+    ...(host.keyVars ?? []).filter((k) => env[k] !== undefined && env[k] !== ""),
+    ...carriesSecret,
+  ];
   return {
     ...(Object.keys(vars).length > 0 && { env: vars }),
     ...(keys.length > 0 && { keysSet: keys }),
@@ -261,17 +278,49 @@ export function onPrompt(host: ClosedHost, sessionId: string, cwd: string, d: Cl
   }
 }
 
+/**
+ * A session's history this big (the agent's own transcript file) is worth a warning before it is
+ * continued: continuing re-reads all of it, after the agent's cache has expired, and that counts
+ * against the person's plan. A rough guide taken from the file's size, not a token count.
+ */
+export const LARGE_HISTORY_BYTES = 5 * 1024 * 1024;
+
+/** A file's size in bytes from its directory entry, without reading it; undefined if unknown. */
+export function fileBytes(path: unknown): number | undefined {
+  if (typeof path !== "string" || path === "") return undefined;
+  try {
+    const s = statSync(path);
+    return s.isFile() ? s.size : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** One plain sentence for a continue of a large session, or nothing below the threshold. */
+export function largeHistoryText(host: ClosedHost, bytes: number | undefined): string | undefined {
+  if (bytes === undefined || bytes < LARGE_HISTORY_BYTES) return undefined;
+  const mb = Math.round(bytes / (1024 * 1024));
+  return `This ${host.noun ?? "session"} is large (about ${mb} MB of history); continuing it re-reads that and uses your plan.`;
+}
+
 export function onLimit(
   host: ClosedHost,
   sessionId: string,
   cwd: string,
   limit: Omit<SessionLimit, "seenAt">,
   d: ClosedDeps,
+  /** The agent's transcript file, where its hook gives one: only its size is looked at. */
+  historyFile?: unknown,
 ): void {
-  new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (r) => ({
-    ...r,
-    limit: { ...limit, seenAt: d.now },
-  }));
+  const bytes = fileBytes(historyFile);
+  new SessionRecords(d.stateDir, host.id).update(sessionId, cwd, d.now, (r) => {
+    const { historyBytes: _old, ...rest } = r;
+    return {
+      ...rest,
+      limit: { ...limit, seenAt: d.now },
+      ...(bytes !== undefined && { historyBytes: bytes }),
+    };
+  });
 }
 
 /**
@@ -306,7 +355,13 @@ export function onSessionEnd(
   });
   if (decision.action === "arm") {
     armClosed(host, r, decision.fireAt, d);
-    d.notify("Agent Rewake", armedText(host, r.cwd, decision.fireAt, d.now));
+    const large = largeHistoryText(host, r.historyBytes);
+    d.notify(
+      "Agent Rewake",
+      large
+        ? `${armedText(host, r.cwd, decision.fireAt, d.now)} ${large}`
+        : armedText(host, r.cwd, decision.fireAt, d.now),
+    );
     return;
   }
   if (decision.action !== "offer") return;
@@ -337,7 +392,11 @@ function followLaterReset(host: ClosedHost, r: SessionRecord, d: ClosedDeps): vo
     }
     store.update(s.scheduleId, (x) => ({ ...x, dueAt: at }), d.now);
     d.arm(s.scheduleId, at);
-    d.notify("Agent Rewake", armedText(host, r.cwd, at, d.now));
+    const large = largeHistoryText(host, r.historyBytes);
+    d.notify(
+      "Agent Rewake",
+      large ? `${armedText(host, r.cwd, at, d.now)} ${large}` : armedText(host, r.cwd, at, d.now),
+    );
   }
 }
 
@@ -356,9 +415,12 @@ export function closedAdapter(
     async check(s): Promise<HostFacts> {
       const r = records.get(s.sessionRef?.sessionId ?? s.sessionId);
       if (!r) return {};
+      const since = Math.max(r.limit?.seenAt ?? 0, s.attempts.at(-1)?.startedAt ?? 0);
       return {
         userTypedSince: (r.lastPromptAt ?? 0) > s.createdAt,
         sessionOpen: stillOpen(r) || host.isOpen?.(r) === true,
+        ...(since > 0 &&
+          host.changedSince?.(r, since, { ...env, ...r.env }) === true && { changedSince: true }),
       };
     },
     async send(s): Promise<SendResult> {

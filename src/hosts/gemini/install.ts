@@ -4,7 +4,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse } from "jsonc-parser";
 import { writeFileAtomic } from "../../core/store.js";
-import { compareVersions, geminiPrograms, type Program } from "../../install/detect.js";
+import {
+  chooseProgram,
+  compareVersions,
+  geminiPrograms,
+  type Program,
+} from "../../install/detect.js";
 import {
   unknownVersionText,
   type VersionProbe,
@@ -16,6 +21,7 @@ import { rewake } from "../../util/command.js";
 import { ensurePrivateDir } from "../../util/paths.js";
 import { VERSION } from "../../version.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
+import { hookCommand } from "../hook-command.js";
 import { newerThanTested, untestedText, versionOf } from "../versions.js";
 import { REWAKE_MARKER } from "./host.js";
 
@@ -71,7 +77,17 @@ export function geminiApiKeyAuth(env: NodeJS.ProcessEnv, home: string): boolean 
   return (s?.security?.auth?.selectedType ?? s?.selectedAuthType) === "gemini-api-key";
 }
 
-export function geminiHooksJson(node: string, launcher: string): string {
+/**
+ * On Windows, Gemini CLI runs a command hook through PowerShell (`powershell.exe` or `pwsh.exe`
+ * with `-Command`; gemini-cli packages/core/src/hooks/hookRunner.ts and utils/shell-utils.ts
+ * `getShellConfiguration`), so its commands there use PowerShell's call operator (hook-command.ts).
+ */
+export function geminiHooksJson(
+  node: string,
+  launcher: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const shell = platform === "win32" ? "powershell" : "posix";
   // Gemini CLI prints a hook's name after the message it adds: "[Agent Rewake]", not an internal id.
   const NAMES: Record<string, string> = {
     SessionStart: "Agent Rewake (session start)",
@@ -88,7 +104,7 @@ export function geminiHooksJson(node: string, launcher: string): string {
             {
               type: "command",
               name: NAMES[event] ?? "Agent Rewake",
-              command: `"${node}" "${launcher}" hook gemini-cli ${event}`,
+              command: hookCommand(node, launcher, `hook gemini-cli ${event}`, shell),
               timeout: 5000,
             },
           ],
@@ -143,9 +159,7 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
   const home = o.env.HOME || o.env.USERPROFILE || homedir();
   const programs = o.programs ?? geminiPrograms({ env: o.env, home, platform: process.platform });
   const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
-  const picked = [...programs].sort((a, b) =>
-    compareVersions(b.version ?? "0", a.version ?? "0"),
-  )[0];
+  const picked = chooseProgram(programs);
   const gemini = picked && !o.uninstall ? withVersion(picked, probe) : picked;
   const run =
     o.run ??

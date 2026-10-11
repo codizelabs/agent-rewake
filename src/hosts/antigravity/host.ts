@@ -17,7 +17,7 @@ import {
 } from "../closed.js";
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult } from "../host.js";
+import { FOLDER_GONE, folderGone, resumeDeadline, type SendResult, withMessage } from "../host.js";
 import { type SessionRecord, safeSessionId } from "../sessions.js";
 
 /**
@@ -117,14 +117,23 @@ export function resumeAgy(
       reason: "unsupported",
       detail: "no Antigravity CLI found",
     });
+  if (folderGone(r.cwd)) return Promise.resolve(FOLDER_GONE);
   const program = nodeAware(r.program, process.execPath);
   // KNOWN GAP: the message is still an argument here, so another process on this machine can read
   // it from `ps`. Every other host now avoids that (stdin for Copilot CLI and Gemini CLI, a 0600
-  // file for Grok Build). The Antigravity CLI (`agy`) is the one Rewake has never run: there is no
-  // pinned version, no contract test and no help output to read, and its documented flags give
-  // neither a prompt on stdin nor a prompt-file flag. Rewake will not guess a flag that may not
-  // exist. Fix this the moment `agy` can be run and its `--help` read (plan §9.5, experiments
-  // AG-E1..AG-E7); until then the Antigravity preview leaks the scheduled message locally.
+  // file for Grok Build). `agy` has a documented stdin alternative (antigravity.google/docs/cli/
+  // headless, checked 2026-10-10) but it is not a plain-text pipe: `--input-format stream-json`
+  // `--output-format stream-json`, one JSON object per line each way —
+  //   in:  {"event":"user","message":{"content":"<text>"}}
+  //   out: one "init" event, then "step_update" events, then one "result" event (its "response"
+  //        and "status" fields are the reply and outcome) — "wait for result before writing the
+  //        next prompt" per the docs.
+  // What isn't documented, and Rewake has no real `agy` to check: whether the process exits on its
+  // own after that "result" event, or keeps running for another prompt and has to be told to stop
+  // (closing stdin? a signal?). Getting that wrong risks a hung or orphaned process, worse than
+  // today's argv exposure. Rewake will not guess it. Fix this the moment a real `agy` can be run
+  // (plan §9.5, experiments AG-E1..AG-E7) and that question answered; until then the Antigravity
+  // preview leaks the scheduled message locally.
   return new Promise((resolve) => {
     let out = "";
     const child = spawn(
@@ -133,16 +142,23 @@ export function resumeAgy(
       {
         cwd: r.cwd || undefined,
         env: { ...env, AGY_CLI_DISABLE_AUTO_UPDATE: "true" },
-        stdio: ["ignore", "pipe", "ignore"],
+        stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       },
     );
     child.stdout.on("data", (d: Buffer) => {
       if (out.length < 1 << 20) out += d.toString("utf8");
     });
+    // Since agy 1.2.6 a turn that ends on a model or API failure prints `AGY_ERROR: {...}` on
+    // stderr and exits 3 (research impl-google L5, from Google's changelog; the line's field names
+    // are not known, so only its text is read).
+    let err = "";
+    child.stderr.on("data", (d: Buffer) => {
+      if (err.length < 1 << 16) err += d.toString("utf8");
+    });
     const timedOut = resumeDeadline(child);
     child.on("error", () => resolve({ ok: false, reason: "failed", detail: "spawn" }));
-    child.on("exit", () => {
+    child.on("exit", (code) => {
       if (timedOut()) return resolve({ ok: false, reason: "failed", detail: "timeout" });
       // Judged by the response, not the exit status: Antigravity has reported a resumed
       // conversation's old quota error after a successful turn, and exited 0 on a new one.
@@ -160,7 +176,19 @@ export function resumeAgy(
         return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       }
       if (response.trim()) return resolve({ ok: true });
-      resolve({ ok: false, reason: "failed", detail: "no response" });
+      // No response: the quota text may be only on stderr (`AGY_ERROR`), and the next try waits
+      // for its reset.
+      if (ANTIGRAVITY_QUOTA.test(err)) {
+        const stop = { terminationReason: "error", error: err };
+        const resetsAt = classifyAntigravityStop(stop, Date.now())?.resetsAt;
+        return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
+      }
+      resolve({
+        ok: false,
+        reason: "failed",
+        detail: code === 3 ? "exit 3" : "no response",
+        ...withMessage(err),
+      });
     });
   });
 }

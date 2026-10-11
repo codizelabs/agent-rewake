@@ -21,6 +21,10 @@ export interface Mock {
     claim?: "five_hour" | "seven_day";
     profile?: "" | "copilot" | "xai-free" | "xai-402";
     reply?: string;
+    /** Refuses unconditionally, regardless of `until`, until cleared with `limitForce: false`. */
+    limitForce?: boolean;
+    /** Answer model requests after six seconds, as a model does (default off). */
+    think?: boolean;
   }): void;
   /** "METHOD /path" of every request, in order. */
   requests(): string[];

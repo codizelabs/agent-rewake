@@ -17,6 +17,10 @@ import { findOnWindows, npmShimTarget } from "../util/spawn.js";
  *   - GitHub Copilot CLI: npm `@github/copilot`; install script `~/.local/bin/copilot`.
  *   - Grok Build: `${GROK_BIN_DIR:-~/.grok/bin}/grok` beside `grok-<v>`; npm `@xai-official/grok`.
  *   - Gemini CLI: npm `@google/gemini-cli`; Homebrew.
+ *   - Qwen Code: npm `@qwen-code/qwen-code`; Homebrew `qwen-code`; its own install script (where
+ *     that puts `qwen` is not established, so only PATH finds it).
+ *   - OpenCode: npm `opencode-ai`; its install script `~/.opencode/bin/opencode`; Homebrew,
+ *     Chocolatey, Scoop and others only by PATH.
  *   - Antigravity: `agy` (`~/.local/bin`, Windows `%LOCALAPPDATA%\agy\bin`), `Antigravity.app`,
  *     `Antigravity IDE.app`. Its version is read only from an app's Info.plist.
  */
@@ -26,6 +30,8 @@ export type PlaceId =
   | "copilot-cli"
   | "grok"
   | "gemini-cli"
+  | "qwen-code"
+  | "opencode"
   | "antigravity"
   | "jetbrains"
   | "devin-desktop"
@@ -212,7 +218,6 @@ export function claudeDesktopPrograms(h: DetectHost): Program[] {
 function claudeCode(h: DetectHost): Found | undefined {
   const cli = claudePrograms(h);
   const bins = cli.map((p) => p.path);
-  const versions = cli.map((p) => p.version);
   // The desktop app's Code tab: `claude-code/<version>/<build>/claude.app` (macOS).
   const desktop: string[] = [];
   if (h.platform === "darwin") {
@@ -234,7 +239,8 @@ function claudeCode(h: DetectHost): Found | undefined {
     }
   }
   if (bins.length === 0 && desktop.length === 0) return undefined;
-  const version = highest([...versions, ...desktop]);
+  // The terminal copy `doctor` and `install` go by; the desktop app's versions only when there is none.
+  const version = cli[0] ? cli[0].version : highest(desktop);
   return {
     id: "claude-code",
     name: "Claude Code",
@@ -252,6 +258,18 @@ export interface Program {
   version?: string;
   /** Where it came from: "terminal" for a CLI install, "ChatGPT app" for the bundled copy. */
   surface: string;
+}
+
+/**
+ * The copy of an agent that `doctor` judges and `install` sets up: the first terminal program
+ * (the lists run PATH first, then the installers' own folders, so it is the one the person's
+ * shell starts); with no terminal copy, the newest of the others (a desktop app's own copy).
+ * Both use this, so they never judge different copies.
+ */
+export function chooseProgram<T extends Program>(programs: T[]): T | undefined {
+  const first = programs.find((p) => p.surface === "terminal");
+  if (first) return first;
+  return [...programs].sort((a, b) => compareVersions(b.version ?? "0", a.version ?? "0"))[0];
 }
 
 /** Every Codex program: CLI installs, then the copy inside the ChatGPT desktop app (macOS). */
@@ -286,7 +304,7 @@ export function codexPrograms(h: DetectHost): Program[] {
 function codex(h: DetectHost): Found | undefined {
   const found = codexPrograms(h);
   if (found.length === 0) return undefined;
-  const version = highest(found.map((p) => p.version));
+  const version = chooseProgram(found)?.version;
   return {
     id: "codex",
     name: "Codex",
@@ -328,6 +346,29 @@ export function geminiPrograms(h: DetectHost): Program[] {
   });
 }
 
+/** Every Qwen Code program (`qwen`), with versions from its package.json. */
+export function qwenPrograms(h: DetectHost): Program[] {
+  const appData = h.env.APPDATA;
+  const extra = h.platform === "win32" && appData ? [join(appData, "npm", "qwen")] : [];
+  return programs("qwen", h, extra).map((path) => {
+    const version = npmVersion(path, "@qwen-code/qwen-code");
+    return { path, surface: "terminal", ...(version && { version }) };
+  });
+}
+
+/** Every OpenCode program (`opencode`), with versions from its npm package.json. */
+export function opencodePrograms(h: DetectHost): Program[] {
+  const appData = h.env.APPDATA;
+  const extra = [
+    join(h.home, ".opencode", "bin", "opencode"),
+    ...(h.platform === "win32" && appData ? [join(appData, "npm", "opencode")] : []),
+  ];
+  return programs("opencode", h, extra).map((path) => {
+    const version = npmVersion(path, "opencode-ai");
+    return { path, surface: "terminal", ...(version && { version }) };
+  });
+}
+
 /** Every Antigravity CLI program (`agy`); its version isn't recorded in a file. */
 export function agyPrograms(h: DetectHost): Program[] {
   const localAppData = h.env.LOCALAPPDATA;
@@ -347,12 +388,11 @@ function simpleCli(
   pathVersion?: RegExp,
 ): Found | undefined {
   const bins = programs(command, h, extra);
-  if (bins.length === 0) return undefined;
-  const version = highest(
-    bins.map(
-      (b) => npmVersion(b, pkg) ?? (pathVersion ? versionInPath(b, pathVersion) : undefined),
-    ),
-  );
+  const first = bins[0];
+  if (first === undefined) return undefined;
+  // The first copy on PATH: the one `doctor` and `install` both go by.
+  const version =
+    npmVersion(first, pkg) ?? (pathVersion ? versionInPath(first, pathVersion) : undefined);
   return { id, name, ...(version && { version }), surfaces: ["terminal"] };
 }
 
@@ -392,10 +432,33 @@ export function terminalAgents(h: DetectHost): { id: PlaceId; version?: string }
     ["copilot-cli", copilotPrograms(h)],
     ["grok", grokPrograms(h)],
     ["gemini-cli", geminiPrograms(h)],
+    ["qwen-code", qwenPrograms(h)],
+    ["opencode", opencodePrograms(h)],
   ];
   return found.flatMap(([id, ps]) => {
-    const p = ps[0];
+    const p = chooseProgram(ps);
     return p ? [{ id, ...(p.version && { version: p.version }) }] : [];
+  });
+}
+
+/**
+ * Every terminal copy of each agent that is here more than once, with the one `doctor` and
+ * `install` go by (see `chooseProgram`). For `doctor --details`.
+ */
+export function agentCopies(h: DetectHost): { name: string; copies: Program[]; chosen: Program }[] {
+  const all: [string, Program[]][] = [
+    ["Claude Code", claudePrograms(h)],
+    ["Codex", codexPrograms(h).filter((p) => p.surface === "terminal")],
+    ["GitHub Copilot CLI", copilotPrograms(h)],
+    ["Grok Build", grokPrograms(h)],
+    ["Gemini CLI", geminiPrograms(h)],
+    ["Qwen Code", qwenPrograms(h)],
+    ["OpenCode", opencodePrograms(h)],
+    ["Antigravity", agyPrograms(h)],
+  ];
+  return all.flatMap(([name, copies]) => {
+    const chosen = chooseProgram(copies);
+    return chosen && copies.length > 1 ? [{ name, copies, chosen }] : [];
   });
 }
 
@@ -422,6 +485,11 @@ export function detectAgents(h: DetectHost): Found[] {
       /[\\/]grok-(\d+\.\d+\.\d+)/,
     ),
     simpleCli(h, "gemini-cli", "Gemini CLI", "gemini", "@google/gemini-cli", npmWin("gemini")),
+    simpleCli(h, "qwen-code", "Qwen Code", "qwen", "@qwen-code/qwen-code", npmWin("qwen")),
+    simpleCli(h, "opencode", "OpenCode", "opencode", "opencode-ai", [
+      join(h.home, ".opencode", "bin", "opencode"),
+      ...npmWin("opencode"),
+    ]),
     antigravity(h),
   ].filter((f): f is Found => f !== undefined);
 }

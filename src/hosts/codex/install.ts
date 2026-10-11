@@ -1,5 +1,10 @@
 import { homedir } from "node:os";
-import { codexPrograms, compareVersions, type Program as Found } from "../../install/detect.js";
+import {
+  chooseProgram,
+  codexPrograms,
+  compareVersions,
+  type Program as Found,
+} from "../../install/detect.js";
 import {
   unknownVersionText,
   type VersionProbe,
@@ -52,11 +57,9 @@ export interface CodexInstallOptions {
   list?: typeof listHooks;
 }
 
-/** The Codex to install with: the newest CLI, else the copy inside the ChatGPT app. */
+/** The Codex to install with: the first CLI on PATH (the one `doctor` judges), else the ChatGPT app's copy. */
 export function pickCodex(programs: Found[]): Found | undefined {
-  const byVersion = (a: Found, b: Found) => compareVersions(b.version ?? "0", a.version ?? "0");
-  const cli = programs.filter((p) => p.surface === "terminal").sort(byVersion);
-  return cli[0] ?? [...programs].sort(byVersion)[0];
+  return chooseProgram(programs);
 }
 
 export async function runCodexInstall(o: CodexInstallOptions): Promise<number> {

@@ -7,18 +7,24 @@ import { resolveClaudeAdapter } from "./adapters/claude/spawn.js";
 import { loadSettings } from "./core/settings.js";
 import { ScheduleStore } from "./core/store.js";
 import { TEXT_LOCALE } from "./core/time.js";
-import { compareVersions, type Found, otherAgentsNote } from "./install/detect.js";
+import { errorReportsEnabled } from "./errors/consent.js";
+import { readLedger } from "./errors/ledger.js";
+import { compareVersions, type Found, otherAgentsNote, type Program } from "./install/detect.js";
 import {
   AGENT_NAME,
   agentPanelKey,
   type LaunchCommand,
+  launchCommand,
   missingLaunchFiles,
   pinnedVersion,
   planInstall,
   quitZed,
   unwrappedEntry,
+  wrapsClaudeAdapter,
 } from "./install.js";
 import { agentName, detectSetup } from "./setup.js";
+import { launcherVersion } from "./timers/launcher.js";
+import { nodeShimPath } from "./timers/node-shim.js";
 import { rewake } from "./util/command.js";
 import { readText } from "./util/fs.js";
 import { stateDir, zedConfigDir, zedDataDir } from "./util/paths.js";
@@ -58,6 +64,7 @@ export type Area =
   | "Sign-in"
   | "Scheduled messages"
   | "Sleep settings"
+  | "Error reports"
   | "Outside Zed"
   | "Recently";
 
@@ -82,8 +89,12 @@ export interface DoctorContext {
   nodeVersion: string;
   /** Other coding agents on this computer (src/install/detect.ts); none when not given. */
   agents?: () => Found[];
+  /** Agents installed more than once, with their copies and the one Rewake goes by (src/install/detect.ts agentCopies). */
+  copies?: () => { name: string; copies: Program[]; chosen: Program }[];
   /** Names of the previews set up here (src/hosts/previews.ts); none when not given. */
   previews?: () => string[];
+  /** When Rewake was last installed here, from its own folder (src/util/installed.ts). */
+  installed?: () => { version: string; at: number } | undefined;
   /** This computer's sleep settings, and how Rewake can hold it awake itself; not checked when absent. */
   sleep?: () => { settings: SleepSettings; hold: "plugged-in" | "always" | "none" };
 }
@@ -153,7 +164,7 @@ function readTextSafe(file: string): string {
   }
 }
 
-interface LogRecord {
+export interface LogRecord {
   t: number;
   event: string;
   pid?: number;
@@ -232,8 +243,12 @@ export function diagnose(ctx: DoctorContext): Finding[] {
   const update = `npx ${"@codizelabs/agent-rewake"}@latest install`;
 
   // Other coding agents on this computer, and whether the line about them was shown yet.
-  const reach = otherAgentsNote(ctx.agents?.() ?? [], ctx.previews?.() ?? []);
+  const found = ctx.agents?.() ?? [];
+  const previewNames = ctx.previews?.() ?? [];
+  const reach = otherAgentsNote(found, previewNames);
   let reachShown = false;
+  // Agents to set up, or already set up, outside Zed: first-run advice starts from these when Zed isn't here.
+  const elsewhere = found.length > 0 || previewNames.length > 0;
 
   // ---- Zed ------------------------------------------------------------------------------------
   const apps = ctx.zedApps();
@@ -251,12 +266,20 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       });
     else add({ area: "Zed", level: "ok", text: `Found ${label}.` });
   } else if (settings.state === "missing") {
-    add({
-      area: "Zed",
-      level: "problem",
-      text: "Zed doesn't seem to be installed on this computer (no Zed app and no Zed settings).",
-      fix: "Install Zed from zed.dev, open it once, then run the install command again.",
-    });
+    if (elsewhere)
+      // Someone who runs their agents in a terminal doesn't need Zed: not a problem, and no advice to install it.
+      add({
+        area: "Zed",
+        level: "info",
+        text: "Zed isn't installed on this computer. Rewake doesn't need it for agents you use in a terminal.",
+      });
+    else
+      add({
+        area: "Zed",
+        level: "problem",
+        text: "Zed doesn't seem to be installed on this computer (no Zed app and no Zed settings), and no coding agent for a terminal was found either.",
+        fix: "Install Zed from zed.dev, open it once, then run the install command again. Or install Claude Code, Codex, Gemini CLI or GitHub Copilot CLI and run it.",
+      });
   }
   if (settings.state === "missing" && apps.length > 0)
     add({
@@ -330,7 +353,23 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       fix: `Run the install command again: ${install}`,
     });
   }
-  if (setup.withRewake.length === 0) {
+  const noZed = apps.length === 0 && settings.state === "missing";
+  if (setup.withRewake.length === 0 && noZed && elsewhere) {
+    // No Zed here: the places that were found, not "open Zed once". Nothing to do when set up already.
+    if (found.length > 0) {
+      const ids = [...new Set(found.map((f) => f.id))].join(",");
+      const here = [...new Set(found.map((f) => f.name))].join(", ");
+      add({
+        area: "Rewake",
+        level: "todo",
+        text:
+          previewNames.length > 0
+            ? `Rewake isn't set up yet for: ${here}.`
+            : `Rewake isn't set up yet. Found on this computer: ${here}.`,
+        fix: `Run: ${install}  (pick the ones you want), or name them: ${install} --only ${ids}`,
+      });
+    }
+  } else if (setup.withRewake.length === 0) {
     add({
       area: "Rewake",
       level: "todo",
@@ -350,6 +389,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
     const plan = planInstall({
       dir: zedDir,
       launch: ctx.launch,
+      claudeLaunch: launchCommand(),
       keybinding: false,
       env,
       stateDir: state,
@@ -384,15 +424,32 @@ export function diagnose(ctx: DoctorContext): Finding[] {
     add({
       area: "Rewake",
       level: "problem",
-      text: "Zed would start Rewake with a Node.js or a Rewake copy that has moved or been removed (after a Node.js upgrade, for example), so those agents won't start.",
+      text: "Zed would start Rewake with a Node.js or a Rewake copy that has moved or been removed (a Node.js upgrade or a cleaned-up Rewake folder, for example), so those agents won't start.",
       fix: `Run the install command again to update Zed's settings: ${update}`,
     });
 
-  // Which version Zed starts, from the pinned `@codizelabs/agent-rewake@<version>` argument.
+  // Entries from earlier versions start Rewake through npm or one Node.js folder; this version can
+  // start it from Rewake's own folder instead (macOS and Linux).
+  const stable = ctx.launch?.command === nodeShimPath(state) ? ctx.launch.command : undefined;
+  const wrappedEntries = Object.values(servers).filter(
+    (e): e is Record<string, unknown> => isRecord(e) && unwrappedEntry(e) !== undefined,
+  );
+  // (The Claude adapter's entries are the exception: they start from the package, which holds it.)
+  if (stable && wrappedEntries.some((e) => e.command !== stable && !wrapsClaudeAdapter(e)))
+    add({
+      area: "Rewake",
+      level: "todo",
+      text: "Zed starts Rewake through npm or one Node.js folder. An upgrade of that Node.js, or no network, can stop those agents from starting.",
+      fix: `Run the install command again, then quit Zed completely and open it again: ${update}`,
+    });
+
+  // Which version Zed starts: the pinned `@codizelabs/agent-rewake@<version>` argument of an earlier
+  // entry, or the version of the copy in Rewake's own folder.
   const pins = new Set<string>();
-  for (const entry of Object.values(servers)) {
-    if (!isRecord(entry) || unwrappedEntry(entry) === undefined) continue;
-    const pin = pinnedVersion(entry);
+  for (const entry of wrappedEntries) {
+    const pin =
+      pinnedVersion(entry) ??
+      (entry.command === nodeShimPath(state) ? launcherVersion(state) : undefined);
     if (pin) pins.add(pin);
   }
   for (const pin of pins) {
@@ -510,7 +567,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
         add({
           area: "Rewake",
           level: "info",
-          text: `Rewake works only in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI. It can't reach Zed's own agent${setup.usesZedAgent ? " (your settings pick a model for it)" : ""}, the Claude desktop app, claude.ai, or Claude Code in a terminal; Claude Code and the desktop app have their own setting to continue after a usage limit.`,
+          text: `Rewake works in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI. It can't reach Zed's own agent${setup.usesZedAgent ? " (your settings pick a model for it)" : ""}, the Claude desktop app or claude.ai. Claude Code, Codex and other agents you run in a terminal are set up separately: install offers each one it finds. The Claude desktop app has its own setting to continue after a usage limit.`,
         });
       add({
         area: "Rewake",
@@ -629,7 +686,7 @@ export function diagnose(ctx: DoctorContext): Finding[] {
       area: "Rewake",
       level: "info",
       text: "New threads don't offer automatic resume (you chose Never). Rewake still asks at each limit.",
-      fix: "To change it: Rewake menu → Settings…",
+      fix: `To change it: Rewake menu → Settings…, or ${rewake("settings new-threads ask")}`,
     });
   if (setup.withRewake.includes(CLAUDE_REGISTRY_ID) && claudeAutoContinueDisabled(env, ""))
     add({
@@ -691,9 +748,39 @@ export function diagnose(ctx: DoctorContext): Finding[] {
     });
 
   // ---- Other coding agents here: say plainly that Rewake doesn't reach them on their own ------
-  if (reach && !reachShown) add({ area: "Rewake", level: "info", text: reach });
+  if (reach && !reachShown && !noZed) add({ area: "Rewake", level: "info", text: reach });
+
+  // ---- How old the installed version is: from the install time kept here, never the network -----
+  const installed = ctx.installed?.();
+  if (installed) {
+    const days = Math.max(0, Math.floor((now - installed.at) / DAY));
+    const age = days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`;
+    add({
+      area: "Rewake",
+      level: "info",
+      text:
+        installed.version === ctx.version
+          ? `Rewake ${installed.version}, installed ${age}.`
+          : `Rewake ${installed.version} was installed ${age}; this copy is ${ctx.version}.`,
+      fix: `To update: ${update}`,
+    });
+  }
 
   if (ctx.sleep) for (const f of sleepFindings(ctx.sleep())) add(f);
+
+  // ---- Error reports (opt-in; see src/errors) -------------------------------------------------
+  {
+    const settings = loadSettings(state);
+    const ledger = readLedger(state);
+    const on = errorReportsEnabled(settings, env);
+    add({
+      area: "Error reports",
+      level: "info",
+      text: on
+        ? `On: Rewake sends scrubbed error reports to its maintainer. ${ledger.length} recorded locally in the last 200.`
+        : `Off (the default). ${ledger.length} recorded locally in the last 200, never sent. Turn on: agent-rewake errors on`,
+    });
+  }
   return findings;
 }
 
@@ -772,25 +859,35 @@ const AREAS: Area[] = [
   "Sign-in",
   "Scheduled messages",
   "Sleep settings",
+  "Error reports",
   "Outside Zed",
   "Recently",
 ];
 
 /** The report people read. ASCII marks where the terminal may not show symbols. */
+/** Each level in words as well as a symbol, for screen readers and terminals without colour. */
+export const LEVEL_WORDS: Record<Level, string> = {
+  ok: "OK:",
+  info: "Note:",
+  todo: "To do:",
+  problem: "Problem:",
+};
+
 export function render(
   findings: Finding[],
   opts: { version: string; ascii: boolean; details?: string[] },
 ): string {
+  // Where symbols may not show, the words alone say each level.
   const mark: Record<Level, string> = opts.ascii
-    ? { ok: "ok", info: "--", todo: "!!", problem: "XX" }
-    : { ok: "✓", info: "•", todo: "!", problem: "✗" };
+    ? { ok: "", info: "", todo: "", problem: "" }
+    : { ok: "✓ ", info: "• ", todo: "! ", problem: "✗ " };
   const lines = [`Agent Rewake ${opts.version}: checking your setup`];
   for (const area of AREAS) {
     const items = findings.filter((f) => f.area === area);
     if (items.length === 0) continue;
     lines.push("", area);
     for (const f of items) {
-      lines.push(`  ${mark[f.level]} ${f.text}`);
+      lines.push(`  ${mark[f.level]}${LEVEL_WORDS[f.level]} ${f.text}`);
       if (f.fix) lines.push(`    ${opts.ascii ? "->" : "→"} ${f.fix}`);
     }
   }
@@ -812,6 +909,35 @@ export function render(
   }
   if (!opts.details) lines.push(`More detail for a bug report: ${rewake("doctor --details")}`);
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * `doctor --json`: the same findings for scripts. Levels are "ok", "info", "todo" and "problem";
+ * the text is the same plain words. Names no folders, accounts or keys (`details`, with `--details`,
+ * has versions and folders, the home folder as ~).
+ */
+export function renderJson(
+  findings: Finding[],
+  opts: { version: string; details?: string[] },
+): string {
+  const problems = findings.filter((f) => f.level === "problem").length;
+  const todos = findings.filter((f) => f.level === "todo").length;
+  return `${JSON.stringify(
+    {
+      version: opts.version,
+      problems,
+      todos,
+      findings: findings.map(({ area, level, text, fix }) => ({
+        area,
+        level,
+        text,
+        ...(fix && { fix }),
+      })),
+      ...(opts.details && { details: opts.details }),
+    },
+    null,
+    2,
+  )}\n`;
 }
 
 /** Versions and folders for `--details`, the home folder shortened to ~. No values of settings. */
@@ -848,6 +974,15 @@ export function detailLines(ctx: DoctorContext): string[] {
         .map((a) => `${a.name} ${a.version ?? "(version unknown)"} [${a.surfaces.join(", ")}]`)
         .join(", ") || "none found"
     }`,
+    ...(ctx.copies?.() ?? []).map(
+      (c) =>
+        `${c.name} is installed ${c.copies.length} times; Rewake uses the first one on your PATH: ${c.copies
+          .map(
+            (p) =>
+              `${tilde(p.path)} ${p.version ?? "(version unknown)"}${p === c.chosen ? " (used)" : ""}`,
+          )
+          .join("; ")}`,
+    ),
     `Last start: ${last ? `${new Date(last.t).toISOString()}, Rewake ${String(last.version ?? "?")}, Node.js ${String(last.node ?? "?")}` : "none in the last 14 days"}`,
   ];
   const set = Object.keys(env).filter((k) => k.startsWith("AGENT_REWAKE_"));

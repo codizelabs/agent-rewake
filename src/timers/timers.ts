@@ -1,7 +1,9 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { RESUME_TIMEOUT_MS } from "../hosts/host.js";
 import { ensurePrivateDir } from "../util/paths.js";
+import { SECRET_NAME } from "../util/secrets.js";
 
 /**
  * One-shot OS timers: at a resume's time, the operating system runs `<node> <cli> fire <id>` once.
@@ -64,6 +66,43 @@ export interface TimerHost {
   waiterRunning?: (pid: number) => boolean;
 }
 
+/** Names a timer's own commands may keep; everything else is dropped (see `timerEnv`). */
+const KEEP_ENV =
+  /^(PATH|HOME|USER|LOGNAME|TMPDIR|LANG|LC_[A-Z_]+|XDG_[A-Z_]+|DBUS_SESSION_BUS_ADDRESS|AGENT_REWAKE_[A-Z0-9_]+)$/;
+
+/**
+ * The environment `at`, `systemd-run` and the background waiter get. `at` writes every variable
+ * of its caller into a job file on disk, and a long-lived waiter would pass its first caller's
+ * variables to every later resume, so keys an agent's hook happened to hold must not come along:
+ * a timer runs without the shell's keys, which is what the missing-key check relies on.
+ */
+export function timerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [name, v] of Object.entries(env)) {
+    if (v !== undefined && KEEP_ENV.test(name) && !SECRET_NAME.test(name)) out[name] = v;
+  }
+  return out;
+}
+
+/** Commands that store or hand on their environment. */
+const SCRUBBED = new Set(["at", "systemd-run"]);
+
+/**
+ * The programs that create, list or remove real OS jobs. Rewake's own tests set
+ * AGENT_REWAKE_TEST_NO_OS_TIMERS so a test can never leave a launchd, systemd, at or Task Scheduler
+ * job behind in the person's session (and never starts the waiter): these then answer "no".
+ */
+const OS_JOB_COMMANDS = new Set([
+  "launchctl",
+  "systemctl",
+  "systemd-run",
+  "at",
+  "atq",
+  "atrm",
+  "schtasks",
+]);
+const noOsJobs = () => process.env.AGENT_REWAKE_TEST_NO_OS_TIMERS === "1";
+
 export function defaultTimerHost(stateDir: string, node: string, cli: string): TimerHost {
   return {
     platform: process.platform,
@@ -71,17 +110,26 @@ export function defaultTimerHost(stateDir: string, node: string, cli: string): T
     node,
     cli,
     run: (command, args, input) => {
+      if (noOsJobs() && OS_JOB_COMMANDS.has(command))
+        return { status: 1, stdout: "", stderr: "OS timers are off for tests" };
       const r = spawnSync(command, args, {
         encoding: "utf8",
         timeout: 5000,
         windowsHide: true,
+        ...(SCRUBBED.has(command) && { env: timerEnv(process.env) }),
         ...(input !== undefined && { input }),
       });
       return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
     },
     detached: (command, args) => {
+      if (noOsJobs()) return;
       try {
-        spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
+        spawn(command, args, {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+          ...(process.platform !== "win32" && { env: timerEnv(process.env) }),
+        }).unref();
       } catch {
         // Best effort: the next sweep tidies up.
       }
@@ -139,6 +187,24 @@ export function timerNames(id: string, h: TimerHost): string[] {
     if (name !== f && ID.test(name) && parseTimerName(name).id === id) names.add(name);
   }
   return [...names];
+}
+
+/** The ids of every resume that has a timer file in the state folder (for removing them all). */
+export function timerIds(h: TimerHost): string[] {
+  let files: string[] = [];
+  try {
+    files = readdirSync(join(h.stateDir, "timers"));
+  } catch {
+    return [];
+  }
+  const ids = new Set<string>();
+  for (const f of files) {
+    const name = f
+      .replace(/^codizelabs\.agent-rewake\./, "")
+      .replace(/\.(plist|systemd|task|at|at-time|wait)$/, "");
+    if (name !== f && ID.test(name)) ids.add(parseTimerName(name).id);
+  }
+  return [...ids];
 }
 
 // ---- macOS: launchd ------------------------------------------------------------------------------
@@ -322,6 +388,16 @@ export function localIso(at: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${off >= 0 ? "+" : "-"}${p(Math.trunc(off / 60))}:${p(off % 60)}`;
 }
 
+/**
+ * How long Task Scheduler lets a task run before it stops it ("By default, a task will be stopped
+ * 72 hours after it starts to run": learn.microsoft.com/windows/win32/api/taskschd/
+ * nf-taskschd-itasksettings-get_executiontimelimit; the XML element is
+ * taskschedulerschema-executiontimelimit-settingstype-element).
+ * `fire` may run a headless resume for up to RESUME_TIMEOUT_MS and stops it itself then, so the
+ * task's own limit is an hour longer: Task Scheduler never cuts a resume off before Rewake does.
+ */
+export const TASK_TIME_LIMIT = `PT${Math.ceil(RESUME_TIMEOUT_MS / 3_600_000) + 1}H`;
+
 export function taskXml(
   id: string,
   at: number,
@@ -346,7 +422,7 @@ export function taskXml(
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <ExecutionTimeLimit>${TASK_TIME_LIMIT}</ExecutionTimeLimit>
   </Settings>
   <Actions Context="Author">
     <Exec><Command>conhost.exe</Command><Arguments>--headless "${xml(node)}" "${xml(cli)}" fire ${id}${stateDir ? ` --state-dir "${xml(stateDir)}"` : ""}</Arguments></Exec>

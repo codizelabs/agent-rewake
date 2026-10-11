@@ -1,0 +1,12 @@
+{
+  "name": "agent-rewake",
+  "owner": { "name": "Codize Labs", "url": "https://github.com/codizelabs" },
+  "description": "Agent Rewake's plugin for Claude Code.",
+  "plugins": [
+    {
+      "name": "rewake",
+      "source": "./src/hosts/claude-code/mod",
+      "description": "Continues this session when your usage limit resets, and sends messages you schedule into it."
+    }
+  ]
+}

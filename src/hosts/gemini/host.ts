@@ -12,6 +12,7 @@ import {
   type ClosedHost,
   ensureProgram,
   FIRE_ENV,
+  largeHistoryText,
   onLimit,
   onPrompt,
   onSessionEnd,
@@ -21,7 +22,14 @@ import {
 import { codexProgram as nodeAware } from "../codex/cli.js";
 import { readTail } from "../codex/rollout.js";
 import type { HookContext, HookHandler } from "../hook.js";
-import { resumeDeadline, type SendResult, sendPromptOnStdin, withMessage } from "../host.js";
+import {
+  FOLDER_GONE,
+  folderGone,
+  resumeDeadline,
+  type SendResult,
+  sendPromptOnStdin,
+  withMessage,
+} from "../host.js";
 import {
   type SessionLimit,
   type SessionRecord,
@@ -40,7 +48,8 @@ import {
  *   - Fire: `gemini --resume <uuid> --approval-mode default -o json` in the session's folder,
  *     with the message on stdin and never as an argument (sendPromptOnStdin), only when it's
  *     closed (Gemini has no session lock). `--approval-mode default` never widens the person's
- *     mode; `--skip-trust` is never passed.
+ *     mode; `--skip-trust` is never passed. A headless run can't ask for approval: Gemini refuses
+ *     the tool (TOOL_REFUSED), and the person is told so.
  *   - Gemini's hook env has GEMINI_SESSION_ID (and CLAUDE_PROJECT_DIR "for compatibility", which is
  *     why the guard doesn't look at that).
  */
@@ -112,6 +121,15 @@ export function withApiKeyReset(
   return { ...limit, resetsAt: nextMidnight("America/Los_Angeles", now) };
 }
 
+/**
+ * What a headless Gemini CLI writes to stderr when a tool needs approval it can't ask for: the
+ * policy engine turns "ask the user" into "deny" without a terminal (policy-engine.ts, policy.ts),
+ * and the non-interactive run reports each failed tool as `Error executing tool <name>: <message>`
+ * (nonInteractiveCli.ts, utils/errors.ts; Gemini CLI at 44d764e). The run still exits 0.
+ */
+export const TOOL_REFUSED =
+  /Error executing tool [^\n]*: Tool execution denied by policy|requires user confirmation, which is not supported in non-interactive mode/i;
+
 export function resumeGemini(
   r: SessionRecord,
   text: string,
@@ -120,6 +138,7 @@ export function resumeGemini(
 ): Promise<SendResult> {
   if (!r.program)
     return Promise.resolve({ ok: false, reason: "unsupported", detail: "no Gemini CLI found" });
+  if (folderGone(r.cwd)) return Promise.resolve(FOLDER_GONE);
   const program = nodeAware(r.program, node);
   return new Promise((resolve) => {
     let out = "";
@@ -156,6 +175,10 @@ export function resumeGemini(
         const resetsAt = classifyGeminiError(said, Date.now())?.resetsAt;
         return resolve({ ok: false, reason: "limited", ...(resetsAt && { resetsAt }) });
       }
+      // The run ended well, but Gemini refused a tool that needs the person's approval: the message
+      // arrived, the work didn't get done, and Rewake never approves for them.
+      if (code === 0 && TOOL_REFUSED.test(err))
+        return resolve({ ok: false, reason: "failed", detail: "needs-approval" });
       if (code === 0) return resolve({ ok: true });
       resolve({
         ok: false,
@@ -256,7 +279,8 @@ export function rewakeCommand(args: string, id: string, cwd: string, d: ClosedDe
     if (store.cancel(s.scheduleId, d.now)) d.disarm(s.scheduleId);
   }
   armClosed(geminiHost, r, at, d);
-  return `Rewake will continue this conversation ${formatAt(at, d.now)}, if Gemini CLI is closed by then and this computer is awake. To cancel: /rewake cancel`;
+  const large = largeHistoryText(geminiHost, r.historyBytes);
+  return `Rewake will continue this conversation ${formatAt(at, d.now)}, if Gemini CLI is closed by then and this computer is awake. To cancel: /rewake cancel${large ? ` ${large}` : ""}`;
 }
 
 export function geminiHooks(deps: GeminiHookDeps): HookHandler {
@@ -289,7 +313,9 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
           break;
         }
         case "AfterAgent": {
-          if (ctx.input.stop_hook_active) break;
+          // No `stop_hook_active` guard: another extension's AfterAgent (Ralph, for one) starts
+          // turns that carry it, and a limit in such a turn must be seen. This check only reads, and
+          // Rewake never denies in AfterAgent, so it can't start a loop.
           const t = ctx.input.transcript_path;
           const text = typeof t === "string" ? lastErrorText(t) : undefined;
           const limit = text
@@ -297,7 +323,7 @@ export function geminiHooks(deps: GeminiHookDeps): HookHandler {
             : undefined;
           if (limit) {
             const l = withApiKeyReset(limit, deps.apiKey?.(ctx.env) === true, ctx.now);
-            onLimit(geminiHost, id, cwd, l, d);
+            onLimit(geminiHost, id, cwd, l, d, t);
             // Offered in the session, where the person is: /rewake answers without a model call.
             if (!l.billing)
               return JSON.stringify({ systemMessage: offerText(l.resetsAt, ctx.now) });

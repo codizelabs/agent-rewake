@@ -134,29 +134,57 @@ export function npmScript(
   return undefined;
 }
 
+/** Runs taskkill with these arguments and gives its exit status (tests give their own). */
+export type TaskKill = (args: string[]) => number | null;
+
+const taskkill: TaskKill = (args) => {
+  const exe = join(
+    dirname(process.env.ComSpec ?? "C:\\Windows\\System32\\cmd.exe"),
+    "taskkill.exe",
+  );
+  return spawnSync(existsSync(exe) ? exe : "taskkill", args, {
+    stdio: "ignore",
+    windowsHide: true,
+  }).status;
+};
+
 /**
  * Stop a child and everything it started. On Windows, kill() ends only the direct child, so a
- * program behind cmd.exe would be left running; taskkill /T ends the whole tree.
+ * program behind cmd.exe would be left running; taskkill /T ends the whole tree ("Ends the
+ * specified process and any child processes started by it": learn.microsoft.com/windows-server/
+ * administration/windows-commands/taskkill).
  */
 export function killTree(
   child: { pid?: number | undefined; kill: (signal?: NodeJS.Signals) => boolean },
   p: NodeJS.Platform = osPlatform(),
   signal: NodeJS.Signals = "SIGTERM",
+  run: TaskKill = taskkill,
 ): void {
   if (p === "win32" && child.pid !== undefined) {
-    const taskkill = join(
-      dirname(process.env.ComSpec ?? "C:\\Windows\\System32\\cmd.exe"),
-      "taskkill.exe",
-    );
-    const r = spawnSync(
-      existsSync(taskkill) ? taskkill : "taskkill",
-      ["/pid", String(child.pid), "/T", "/F"],
-      {
-        stdio: "ignore",
-        windowsHide: true,
-      },
-    );
-    if (r.status === 0) return;
+    if (run(["/pid", String(child.pid), "/T", "/F"]) === 0) return;
   }
   child.kill(signal);
+}
+
+/** `killTree` for a process known only by its id (one this process started, but not as a child). */
+export function killPidTree(
+  pid: number,
+  p: NodeJS.Platform = osPlatform(),
+  run: TaskKill = taskkill,
+): void {
+  killTree(
+    {
+      pid,
+      kill: (signal) => {
+        try {
+          return process.kill(pid, signal);
+        } catch {
+          return false; // Already ended.
+        }
+      },
+    },
+    p,
+    "SIGTERM",
+    run,
+  );
 }

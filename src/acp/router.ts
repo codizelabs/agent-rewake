@@ -46,6 +46,14 @@ export interface RouterOptions {
   onTraffic?: (event: TrafficEvent) => void;
   onClientEnd?: () => void;
   onAgentEnd?: () => void;
+  /**
+   * Called each time Rewake's own handling throws (a hook, or `failOpen` from the process-level
+   * handlers); `first` is true the first time. After the first, the hooks are never called again:
+   * the router only relays.
+   */
+  onFailOpen?: (where: string, error: unknown, first: boolean) => void;
+  /** Said to the person once, in the thread they're in, after Rewake switched itself off. */
+  failOpenNotice?: string;
 }
 
 export interface TrafficEvent {
@@ -87,10 +95,65 @@ export class Router {
   private readonly ownToAgent = new Map<string, Pending>();
   private readonly ownToClient = new Map<string, Pending>();
   private nextId = 1;
+  /** Rewake's own handling failed: relay only. */
+  private failedOpen = false;
+  /** The threads the client has used, and which were told, for the one notice each after a failure. */
+  private readonly seenSessions = new Set<string>();
+  private readonly toldSessions = new Set<string>();
 
   constructor(private readonly opts: RouterOptions) {
     this.toClient = new LineWriter(opts.clientOut);
     this.toAgent = new LineWriter(opts.agentOut);
+  }
+
+  /**
+   * Rewake's own handling failed: stop calling hooks so the router only relays what the agent and
+   * the client say to each other, and tell the person once. Safe to call more than once.
+   */
+  failOpen(where: string, error: unknown): void {
+    const first = !this.failedOpen;
+    this.failedOpen = true;
+    try {
+      this.opts.onFailOpen?.(where, error, first);
+    } catch {
+      // Failing open must not itself throw.
+    }
+    for (const id of this.seenSessions) this.sayFailOpen(id);
+  }
+
+  /** Tell one thread, once. */
+  private sayFailOpen(sessionId: string): void {
+    const text = this.opts.failOpenNotice;
+    if (!text || this.toldSessions.has(sessionId)) return;
+    this.toldSessions.add(sessionId);
+    try {
+      this.notifyClient("session/update", {
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          messageId: `${REWAKE_ID_PREFIX}notice-${this.toldSessions.size}`,
+          content: { type: "text", text },
+        },
+      });
+    } catch {
+      // The client is gone: nothing to tell.
+    }
+  }
+
+  /** Whether Rewake's own handling failed and the router now only relays. */
+  get failedOpenNow(): boolean {
+    return this.failedOpen;
+  }
+
+  /** Run one of Rewake's hooks; if it throws, fail open and use `fallback`. */
+  private guard<T>(where: string, run: () => T, fallback: T): T {
+    if (this.failedOpen) return fallback;
+    try {
+      return run();
+    } catch (err) {
+      this.failOpen(where, err);
+      return fallback;
+    }
   }
 
   start(): void {
@@ -218,7 +281,18 @@ export class Router {
         return;
       }
     }
-    const action = this.opts.hooks?.onClientMessage?.(message) ?? FORWARD;
+    const sessionId = (message.params as { sessionId?: unknown } | undefined)?.sessionId;
+    if (typeof sessionId === "string") {
+      this.seenSessions.add(sessionId);
+      // A thread first used after the failure is told with its first message.
+      if (this.failedOpen) this.sayFailOpen(sessionId);
+    }
+    const action =
+      this.guard<Action | undefined>(
+        "client-message",
+        () => this.opts.hooks?.onClientMessage?.(message),
+        undefined,
+      ) ?? FORWARD;
     if (action.kind !== "consume" && isRequest(message) && message.id != null && message.method) {
       this.clientRequests.set(key(message.id), {
         id: message.id,
@@ -258,10 +332,10 @@ export class Router {
       const request = this.clientRequests.get(key(message.id));
       if (request) {
         this.clientRequests.delete(key(message.id));
-        const replaced = this.opts.hooks?.onAgentResponse?.(
-          request.method,
-          request.params,
-          message,
+        const replaced = this.guard<JsonRpcMessage | null | undefined>(
+          "agent-response",
+          () => this.opts.hooks?.onAgentResponse?.(request.method, request.params, message),
+          undefined,
         );
         const action: Action =
           replaced === null ? CONSUME : replaced ? { kind: "replace", message: replaced } : FORWARD;
@@ -276,7 +350,12 @@ export class Router {
         return;
       }
     }
-    const action = this.opts.hooks?.onAgentMessage?.(message) ?? FORWARD;
+    const action =
+      this.guard<Action | undefined>(
+        "agent-message",
+        () => this.opts.hooks?.onAgentMessage?.(message),
+        undefined,
+      ) ?? FORWARD;
     this.trace({
       direction: "agent->client",
       kind: kindOf(message),

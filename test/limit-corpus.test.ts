@@ -218,6 +218,26 @@ describe("Claude Code", () => {
         nextUtc(21, 20),
       ],
       [
+        // As Claude sends it: a spend cap is a billing_error, even with the plan's weekly reset.
+        "Claude: individual spend limit as billing_error, with a weekly reset",
+        "claude",
+        claude(
+          "You’ve hit your individual spend limit · run /usage-credits to ask your admin for a higher limit · your weekly limit resets Oct 13 at 6am (Asia/Karachi)",
+          "billing_error",
+        ),
+        "usage_limit",
+        utc(2026, 9, 13, 1),
+      ],
+      [
+        "Claude: individual spend limit as billing_error, no plan reset",
+        "claude",
+        claude(
+          "You've hit your individual spend limit · run /usage-credits to ask your admin for a higher limit",
+          "billing_error",
+        ),
+        "billing",
+      ],
+      [
         "Claude: org spend limit",
         "claude",
         limit(

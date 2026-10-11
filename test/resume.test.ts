@@ -106,6 +106,19 @@ describe("decideFire", () => {
     expect(decideFire(base({ sessionOpen: true }))).toEqual({ action: "notify", why: "open" });
   });
 
+  it("only notifies when the session changed after the limit, by something Rewake can't see", () => {
+    expect(decideFire(base({ changedSince: true }))).toEqual({ action: "notify", why: "changed" });
+    // The person typing in it is the clearer fact: nothing to tell them.
+    expect(decideFire(base({ changedSince: true, userTypedSince: true }))).toEqual({
+      action: "skip",
+      why: "typed",
+    });
+    expect(decideFire(base({ changedSince: true, sessionOpen: true }))).toEqual({
+      action: "notify",
+      why: "open",
+    });
+  });
+
   it("only notifies when more than 30 minutes late", () => {
     expect(decideFire(base({ now: NOW + LATE_MS + 1 }))).toEqual({ action: "notify", why: "late" });
     expect(decideFire(base({ now: NOW + LATE_MS }))).toEqual({ action: "send" });

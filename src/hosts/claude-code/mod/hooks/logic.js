@@ -22,6 +22,15 @@ export const MAX_REARMS = 4;
 export const REHIT_WINDOW_MS = 15 * MINUTE;
 /** Re-hits in a row before Rewake stops continuing this session (Claude Code's own cap is 2). */
 export const MAX_REHITS = 2;
+/** Waits when the limit is back and no new reset time is known: 2, 5, 10, then 20 minutes. */
+const BACKOFF_MS = [2, 5, 10, 20].map((m) => m * MINUTE);
+
+/** How long to wait before trying again after `rearms` tries (Rewake's backoffMs, src/core/resume.ts). */
+export function backoffMs(rearms) {
+  const i = Math.max(0, Math.min(BACKOFF_MS.length - 1, Math.floor(rearms)));
+  return BACKOFF_MS[i];
+}
+
 /**
  * Sent as the person's message, so it says who sent it (Rewake's AUTO_LABEL, src/addon.ts):
  * automation never speaks as the person (zed-launch A-5).
@@ -127,6 +136,167 @@ export function expired(ep, now) {
   if (ep.state === "native") return ep.fireAt === undefined || now - ep.fireAt > STALE_MS;
   if (ep.state === "offered") return ep.fireAt === undefined || now - ep.fireAt > FAR_RESET_MS;
   return false;
+}
+
+/**
+ * Set by Rewake's `fire` on the Claude Code it starts to continue a closed session: that run is
+ * Rewake's own, so the plugin stays out of it (it is not a person at a prompt, and it must not
+ * touch the session's record while it works).
+ */
+export const FIRE_ENV = "AGENT_REWAKE_FIRE";
+
+/**
+ * The settings variables a continue of a closed session needs as the session had them, and the key
+ * variables of which only the names that were set are copied. Kept in step with Rewake's lists
+ * (src/hosts/claude-code/host.ts); a test in Rewake's repository fails if they drift apart.
+ * A name that looks secret is never copied, whatever this list says.
+ */
+export const SETTINGS_VARS = [
+  "CLAUDE_CONFIG_DIR",
+  "CLAUDE_CODE_PROJECT_DIR_NAME",
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_MODEL",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "CLAUDE_CODE_USE_FOUNDRY",
+];
+export const KEY_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
+const SECRET_NAME = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
+
+/**
+ * What to copy from the session's environment, read with `get(name)`: `env` (a name to its value)
+ * and `keysSet` (the key variables that were set, by name only).
+ */
+export function sessionVars(get) {
+  const env = {};
+  for (const name of SETTINGS_VARS) {
+    const v = get(name);
+    if (typeof v === "string" && v !== "" && !SECRET_NAME.test(name)) env[name] = v;
+  }
+  const keysSet = KEY_VARS.filter((k) => {
+    const v = get(k);
+    return typeof v === "string" && v !== "";
+  });
+  return {
+    ...(Object.keys(env).length > 0 && { env }),
+    ...(keysSet.length > 0 && { keysSet }),
+  };
+}
+
+/** States in which this plugin hasn't answered the limit: if Claude Code closes, it stays so. */
+const UNANSWERED = new Set(["armed", "offered", "native"]);
+
+/**
+ * The limit as Rewake's session records keep it (src/hosts/sessions.ts `SessionLimit`), for the
+ * states nobody has answered and with a reset time. Undefined once continued, declined, cancelled,
+ * or answered by the person typing: then nothing is left for Rewake to continue.
+ */
+export function limitOf(ep) {
+  if (!ep || !UNANSWERED.has(ep.state)) return undefined;
+  if (typeof ep.resetAt !== "number" || typeof ep.createdAt !== "number") return undefined;
+  const kind = ep.kind === "five_hour" ? "session" : isWeekly(ep.kind) ? "weekly" : "other";
+  return {
+    kind,
+    billing: false,
+    resetsAt: ep.resetAt,
+    seenAt: ep.createdAt,
+    confidence: "structured",
+  };
+}
+
+const isWeekly = (kind) => typeof kind === "string" && kind.startsWith("seven_day");
+
+/**
+ * The Claude Code process, from the output of
+ * `echo "$PPID"; ps -o comm= -p "$PPID"; command -v claude` run in a shell Claude Code started:
+ * its id and program name as Rewake's own check reads them (src/util/proc.ts). Undefined when
+ * either is missing.
+ */
+export function parseProcess(stdout) {
+  const [first, comm = ""] = String(stdout).split("\n");
+  const pid = Number(first?.trim());
+  if (!Number.isInteger(pid) || pid <= 1 || comm.trim() === "") return undefined;
+  const name = (comm.trim().split(/[\\/]/).pop() ?? "").replace(/^-/, "");
+  return name === "" ? undefined : { pid, name };
+}
+
+/**
+ * Where `claude` is on the session's own PATH (a timer's PATH is minimal): the third line of the
+ * output above. Undefined unless it is an absolute path.
+ */
+export function parseProgram(stdout) {
+  const line = String(stdout).split("\n")[2]?.trim() ?? "";
+  return line.startsWith("/") ? line : undefined;
+}
+
+// Keeping the computer awake: the same commands as Rewake's src/util/keep-awake.ts (holdCommand,
+// onMains), copied because the plugin is plain files that import nothing from Rewake.
+
+/**
+ * Run through the shell (macOS, Linux): Claude Code's PID (the shell's parent), the system name
+ * and the hold program, when the computer has one.
+ */
+export const WAKE_PROBE =
+  'echo "$PPID"; uname -s; for p in /usr/bin/caffeinate /usr/bin/systemd-inhibit /bin/systemd-inhibit; do [ -x "$p" ] && { echo "$p"; break; }; done';
+
+/** Windows has no shell here: PowerShell, whose parent is Claude Code. */
+export const WINDOWS_POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+export const WINDOWS_PROBE =
+  '(Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId';
+
+/** Linux: "mains" unless there is a battery and no mains supply online (keep-awake.ts onMains). */
+export const LINUX_MAINS =
+  'b=0; m=0; for d in /sys/class/power_supply/*; do t=$(cat "$d/type" 2>/dev/null); [ "$t" = Battery ] && b=1; [ "$t" = Mains ] && [ "$(cat "$d/online" 2>/dev/null)" = 1 ] && m=1; done; if [ $b = 0 ] || [ $m = 1 ]; then echo mains; else echo battery; fi';
+
+/** Windows: Win32_Battery.BatteryStatus, or "none" for a desktop (the query in keep-awake.ts). */
+export const WINDOWS_MAINS =
+  "$b = Get-CimInstance Win32_Battery; if ($b) { $b.BatteryStatus } else { 'none' }";
+
+/** The shell probe's answer: { kind: "darwin" | "linux", pid, program }, or undefined. */
+export function parseWake(stdout) {
+  const [pid = "", system, program = ""] = String(stdout)
+    .split("\n")
+    .map((l) => l.trim());
+  if (!/^\d+$/.test(pid)) return undefined;
+  if (system === "Darwin" && program === "/usr/bin/caffeinate")
+    return { kind: "darwin", pid, program };
+  if (system === "Linux" && program.endsWith("/systemd-inhibit"))
+    return { kind: "linux", pid, program };
+  return undefined;
+}
+
+/** Whether a mains check's answer means mains power; unknown counts as mains, as in keep-awake.ts. */
+export function mainsFrom(kind, stdout) {
+  const text = String(stdout).trim();
+  if (kind === "linux") return text !== "battery";
+  if (text === "" || text === "none") return true;
+  return text.split(/\s+/).some((n) => ["2", "6", "7", "8", "9"].includes(n));
+}
+
+/** The program and arguments that hold the computer awake until process `pid` ends. */
+export function holdArgv(kind, mode, pid, program) {
+  if (kind === "darwin") return [program, mode === "always" ? "-i" : "-s", "-w", pid];
+  if (kind === "linux")
+    return [
+      program,
+      "--what=idle",
+      "--who=Agent Rewake",
+      "--why=A planned resume is due",
+      "--mode=block",
+      "sh",
+      "-c",
+      'while kill -0 "$0" 2>/dev/null; do sleep 5; done',
+      pid,
+    ];
+  return [
+    WINDOWS_POWERSHELL,
+    "-NoProfile",
+    "-NonInteractive",
+    "-WindowStyle",
+    "Hidden",
+    "-Command",
+    `$t = Add-Type -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);' -Name W -Namespace R -PassThru; $null = $t::SetThreadExecutionState(0x80000001); while (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 5 }`,
+  ];
 }
 
 /** "3:05 PM" or "15:05", in the person's clock ("12h" by default, as in Rewake's settings). */

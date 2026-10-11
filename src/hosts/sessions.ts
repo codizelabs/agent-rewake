@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { HostLimit } from "../core/limits/types.js";
 import { SessionLock } from "../core/lock.js";
@@ -9,7 +9,7 @@ import { ensurePrivateDir } from "../util/paths.js";
  * What Rewake's hooks remember about an agent's session, one small file per session:
  * `<stateDir>/hosts/<host>/sessions/<sessionId>.json`. Metadata only: never prompt, reply or error
  * text. Used by the hosts whose sessions Rewake resumes after they're closed (Copilot CLI, Grok,
- * Gemini CLI, Antigravity CLI): whether the session is open, when the person last typed, and the
+ * Gemini CLI, Qwen Code, OpenCode, Antigravity CLI): whether the session is open, when the person last typed, and the
  * last usage limit seen with its reset time.
  */
 export interface SessionRecord {
@@ -22,6 +22,10 @@ export interface SessionRecord {
   program?: string;
   openedAt?: number;
   closedAt?: number;
+  /** A sub-agent's own session (OpenCode): never resumed by itself, its parent is the person's. */
+  child?: true;
+  /** OpenCode: when a turn last ended in an error; the idle status that follows it isn't the person. */
+  errorAt?: number;
   /**
    * The agent processes that have the session open (the same session can be open in two
    * terminals), seen at session start: one session end doesn't close it while another runs, and a
@@ -34,6 +38,11 @@ export interface SessionRecord {
   /** When the person last sent a prompt (Rewake's own resume runs aren't counted). */
   lastPromptAt?: number;
   limit?: SessionLimit;
+  /**
+   * The size of the agent's transcript file when the limit was seen, where the hook gives its path
+   * (from the file's size only; the file is never read for this). For `continue`'s large-session note.
+   */
+  historyBytes?: number;
   /**
    * The agent's own settings variables as the session had them (its home folder, provider base
    * URL…: never a key), so a resume from a timer, which starts without the person's shell, finds
@@ -53,9 +62,12 @@ export interface SessionLimit extends HostLimit {
 /** A short sleep without a timer (hooks are short synchronous runs). */
 const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 
-/** Session ids become file names: only the shapes agents use. */
+/**
+ * Session ids become file names and command arguments: only the shapes agents use, and never a
+ * leading "-" (which a command would read as an option).
+ */
 export const safeSessionId = (id: unknown): id is string =>
-  typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id);
+  typeof id === "string" && /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/.test(id);
 
 function valid(v: unknown, host: string): v is SessionRecord {
   if (typeof v !== "object" || v === null) return false;
@@ -93,7 +105,7 @@ export class SessionRecords {
   put(record: SessionRecord): void {
     if (!safeSessionId(record.sessionId) || record.host !== this.host) return;
     writeFileAtomic(
-      ensurePrivateDir(this.dir),
+      ensurePrivateDir(this.dir, { tighten: true }),
       `${record.sessionId}.json`,
       `${JSON.stringify(record)}\n`,
     );
@@ -137,6 +149,13 @@ export class SessionRecords {
     const next = { ...change({ ...current, cwd: cwd || current.cwd }), updatedAt: now };
     this.put(next);
     return next;
+  }
+
+  /** Delete one session's record. Returns whether there was one. */
+  remove(sessionId: string): boolean {
+    if (!this.get(sessionId)) return false;
+    rmSync(join(this.dir, `${sessionId}.json`), { force: true });
+    return true;
   }
 
   list(): SessionRecord[] {

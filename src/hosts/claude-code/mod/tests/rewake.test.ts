@@ -26,10 +26,14 @@ function harness(
     store?: Record<string, unknown>;
     config?: string;
     settings?: string;
-    /** Whether this machine has caffeinate (the mod asks once, through the shell). */
-    caffeinate?: boolean;
+    /** Which computer this is (the mod asks once). "none" is Linux without systemd-inhibit. */
+    system?: "darwin" | "linux" | "win32" | "none";
+    /** Linux and Windows: on battery power instead of mains. */
+    battery?: boolean;
     /** How Claude Code was started (`CLAUDE_CODE_ENTRYPOINT`). */
     entrypoint?: string;
+    /** Other variables of Claude Code's environment. */
+    env?: Record<string, string>;
   } = {},
 ) {
   const clock = mock.clock(on, { now: T0 });
@@ -44,12 +48,20 @@ function harness(
     spawned: [] as string[][],
     commands: [] as string[],
   };
-  on("process.run", () => ({
-    value:
-      opts.caffeinate === false
-        ? { exitCode: 1, stdout: "", stderr: "" }
-        : { exitCode: 0, stdout: "4242\n", stderr: "" },
-  }));
+  const system = opts.system ?? "darwin";
+  on("process.run", (_: unknown, e: Ev) => {
+    const last = String((e.argv as string[]).at(-1));
+    const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: "" } });
+    if (last.includes("ps -o comm="))
+      return ok("4242\n/usr/local/bin/claude\n/usr/local/bin/claude\n");
+    if (last.includes("ParentProcessId")) return ok("4242\n");
+    if (last.includes("Win32_Battery")) return ok(opts.battery ? "1\n" : "2\n");
+    if (last.includes("/sys/class/power_supply")) return ok(opts.battery ? "battery\n" : "mains\n");
+    if (system === "win32") return { value: { exitCode: 127, stdout: "", stderr: "" } };
+    if (system === "linux") return ok("4242\nLinux\n/usr/bin/systemd-inhibit\n");
+    if (system === "none") return ok("4242\nLinux\n");
+    return ok("4242\nDarwin\n/usr/bin/caffeinate\n");
+  });
   // The kit runs no processes: record the request, then refuse it (the mod drops the hold).
   on("process.spawn", async function* (_: unknown, e: Ev) {
     seen.spawned.push(e.argv as string[]);
@@ -62,7 +74,7 @@ function harness(
     return { value: undefined };
   });
   on("env.get", (_: unknown, e: Ev) => ({
-    value: e.name === "CLAUDE_CODE_ENTRYPOINT" ? opts.entrypoint : undefined,
+    value: e.name === "CLAUDE_CODE_ENTRYPOINT" ? opts.entrypoint : opts.env?.[e.name as string],
   }));
   on("session.id", () => ({ value: "S1" }));
   on("session.usage", () => ({
@@ -436,6 +448,83 @@ test("a copy of the record, without text, goes to the shared state folder", asyn
   expect(JSON.stringify(copy)).not.toContain("Continue from");
 });
 
+const COPY = "/state/hosts/claude-code/sessions/S1.json";
+
+test("the copy is a Rewake session record: open, the process, the limit, the settings, no keys", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+    config: JSON.stringify({ stateDir: "/state" }),
+    env: {
+      CLAUDE_CONFIG_DIR: "/home/me/.claude-work",
+      ANTHROPIC_BASE_URL: "https://gateway.example",
+      ANTHROPIC_API_KEY: "sk-ant-not-a-real-key",
+    },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  const copy = JSON.parse(seen.files[COPY] ?? "{}");
+  expect(copy).toMatchObject({
+    schemaVersion: 1,
+    host: "claude-code",
+    sessionId: "S1",
+    cwd: "/work",
+    open: true,
+    agents: [{ pid: 4242, name: "claude" }],
+    program: "/usr/local/bin/claude",
+    limit: {
+      kind: "session",
+      billing: false,
+      resetsAt: Date.parse("2026-10-06T11:00:00Z"),
+      seenAt: T0,
+    },
+    env: {
+      CLAUDE_CONFIG_DIR: "/home/me/.claude-work",
+      ANTHROPIC_BASE_URL: "https://gateway.example",
+    },
+    keysSet: ["ANTHROPIC_API_KEY"],
+  });
+  // Only the key's name is kept, never its value.
+  expect(JSON.stringify(copy)).not.toContain("sk-ant-not-a-real-key");
+});
+
+test("a limit that was continued, declined or answered leaves no limit in the copy", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+    config: JSON.stringify({ stateDir: "/state" }),
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(JSON.parse(seen.files[COPY] ?? "{}").limit).toBeDefined();
+  // The person types: the copy says so, and has no limit left to continue.
+  await $.prompt.submit({ text: "carry on", wait: false, origin: { kind: "composer" } } as never);
+  await clock.advance(1);
+  const copy = JSON.parse(seen.files[COPY] ?? "{}");
+  expect(copy.limit).toBeUndefined();
+  expect(copy.lastPromptAt).toBe(T0 + 1);
+});
+
+test("Rewake's own headless continue (AGENT_REWAKE_FIRE) is left alone: no record, no question", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    setting: false,
+    config: JSON.stringify({ stateDir: "/state" }),
+    env: { AGENT_REWAKE_FIRE: "abc" },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.asked).toBe(0);
+  expect(seen.commands).toEqual([]);
+  expect(seen.files[COPY]).toBeUndefined();
+  expect(seen.store["limit:S1"]).toBeUndefined();
+});
+
 test("Claude Code's own auto-continuation (origin auto-continuation) settles the episode", async ($, on) => {
   const { clock, seen } = harness(on, {
     setting: false,
@@ -668,12 +757,101 @@ test("doesn't keep the Mac awake where it can't", async ($, on) => {
     setting: false,
     windows: () => fiveHour("2026-10-06T11:00:00Z"),
     store: { prefs: { autoContinue: "always" } },
-    caffeinate: false,
+    system: "none",
   });
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await $.classic.StopFailure(limit());
   await clock.advance(1);
   expect((seen.store["limit:S1"] as Episode).state).toBe("armed");
+  expect(seen.spawned).toEqual([]);
+});
+
+const LINUX_HOLD = [
+  "/usr/bin/systemd-inhibit",
+  "--what=idle",
+  "--who=Agent Rewake",
+  "--why=A planned resume is due",
+  "--mode=block",
+  "sh",
+  "-c",
+  'while kill -0 "$0" 2>/dev/null; do sleep 5; done',
+  "4242",
+];
+
+async function armedOn(
+  opts: { system: "linux" | "win32"; battery?: boolean; settings?: string },
+  $: Parameters<Parameters<typeof test>[1]>[0],
+  on: Parameters<Parameters<typeof test>[1]>[1],
+) {
+  const { clock, seen } = harness(on, {
+    setting: false,
+    windows: () => fiveHour("2026-10-06T11:00:00Z"),
+    store: { prefs: { autoContinue: "always" } },
+    ...(opts.settings ? { config: JSON.stringify({ stateDir: "/state" }) } : {}),
+    ...opts,
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  return seen;
+}
+
+test("keeps a Linux computer awake with systemd-inhibit, tied to Claude Code, on mains power", async ($, on) => {
+  const seen = await armedOn({ system: "linux" }, $, on);
+  expect(seen.spawned).toEqual([LINUX_HOLD]);
+  expect(seen.status.at(-1)).toContain("keeping this computer awake");
+});
+
+test("keeps a Windows computer awake with PowerShell, tied to Claude Code, on mains power", async ($, on) => {
+  const seen = await armedOn({ system: "win32" }, $, on);
+  expect(seen.spawned).toHaveLength(1);
+  const [program, ...args] = seen.spawned[0] ?? [];
+  expect(program).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  expect(args.slice(0, 5)).toEqual([
+    "-NoProfile",
+    "-NonInteractive",
+    "-WindowStyle",
+    "Hidden",
+    "-Command",
+  ]);
+  expect(args[5]).toContain("SetThreadExecutionState(0x80000001)");
+  expect(args[5]).toContain("Get-Process -Id 4242 ");
+});
+
+test("on battery, the default holds nothing on Linux", async ($, on) => {
+  const seen = await armedOn({ system: "linux", battery: true }, $, on);
+  expect(seen.spawned).toEqual([]);
+});
+
+test("on battery, the default holds nothing on Windows", async ($, on) => {
+  const seen = await armedOn({ system: "win32", battery: true }, $, on);
+  expect(seen.spawned).toEqual([]);
+});
+
+test('"always" holds on battery on Linux', async ($, on) => {
+  const seen = await armedOn(
+    { system: "linux", battery: true, settings: JSON.stringify({ keepAwake: "always" }) },
+    $,
+    on,
+  );
+  expect(seen.spawned).toEqual([LINUX_HOLD]);
+});
+
+test('"never" holds nothing on Linux', async ($, on) => {
+  const seen = await armedOn(
+    { system: "linux", settings: JSON.stringify({ keepAwake: "never" }) },
+    $,
+    on,
+  );
+  expect(seen.spawned).toEqual([]);
+});
+
+test('"never" holds nothing on Windows', async ($, on) => {
+  const seen = await armedOn(
+    { system: "win32", settings: JSON.stringify({ keepAwake: "never" }) },
+    $,
+    on,
+  );
   expect(seen.spawned).toEqual([]);
 });
 
@@ -785,6 +963,37 @@ test("the limit coming back right after continuing: continued once more, then of
   expect(seen.store["limit:S1"] as Episode).toMatchObject({ state: "offered", rehits: 2 });
   expect(seen.asked).toBe(0);
   await clock.set(Date.parse("2026-10-06T13:05:00Z"));
+  expect(seen.submitted.length).toBe(2);
+});
+
+test("refused just after the reset with no new reset time: tried again after the wait, once", async ($, on) => {
+  let windows = fiveHour("2026-10-06T11:00:00Z");
+  const { clock, seen } = harness(on, {
+    windows: () => windows,
+    setting: false,
+    store: { prefs: { autoContinue: "always" } },
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  await clock.set(Date.parse("2026-10-06T11:01:00Z"));
+  expect(seen.submitted.length).toBe(1);
+  // Refused at reset + 61 s: the usage figures carry no future reset.
+  windows = [];
+  await clock.advance(MIN);
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.store["limit:S1"] as Episode).toMatchObject({ state: "armed", rehits: 1 });
+  await clock.advance(MIN);
+  expect(seen.submitted.length).toBe(1);
+  await clock.advance(2 * MIN);
+  expect(seen.submitted.length).toBe(2);
+  // Refused again: the cap is reached, so it stops instead of trying for ever.
+  await clock.advance(MIN);
+  await $.classic.StopFailure(limit());
+  await clock.advance(1);
+  expect(seen.store["limit:S1"]).toBeUndefined();
+  await clock.advance(30 * MIN);
   expect(seen.submitted.length).toBe(2);
 });
 
