@@ -16,10 +16,13 @@ import antigravityLogo from "../assets/agents/antigravity-color.svg?raw";
 import claudeLogo from "../assets/agents/claude-color.svg?raw";
 import clineLogo from "../assets/agents/cline.svg?raw";
 import codexLogo from "../assets/agents/codex-color.svg?raw";
+import cursorLogo from "../assets/agents/cursor.svg?raw";
+import devinLogo from "../assets/agents/devin-color.svg?raw";
 import geminiLogo from "../assets/agents/gemini-color.svg?raw";
 import copilotLogo from "../assets/agents/githubcopilot.svg?raw";
 import gooseLogo from "../assets/agents/goose.svg?raw";
 import grokLogo from "../assets/agents/grok.svg?raw";
+import jetbrainsLogo from "../assets/agents/jetbrains.svg?raw";
 import kimiLogo from "../assets/agents/kimi.svg?raw";
 import mistralLogo from "../assets/agents/mistral-color.svg?raw";
 import opencodeLogo from "../assets/agents/opencode.svg?raw";
@@ -191,6 +194,9 @@ const previews = [
   { name: "Qwen Code", id: "qwen-code", svg: qwenLogo, what: "Continues a closed session after the reset.", tag: "Preview · not yet tried" },
   { name: "OpenCode", id: "opencode", svg: opencodeLogo, what: "Continues a closed session after the reset.", tag: "Preview · not yet tried" },
   { name: "Antigravity CLI", id: "antigravity-cli", svg: antigravityLogo, what: "Continues a closed session after the reset.", tag: "Preview · not yet tried" },
+  { name: "Cursor", id: "cursor", svg: cursorLogo, what: "At a usage limit, continues the chat at the time you choose, within 4 hours.", tag: "Preview · limit not tried yet" },
+  { name: "JetBrains IDEs", id: "outside-zed-previews", svg: jetbrainsLogo, what: "Resumes after a limit through the same add-on as in Zed, while the IDE stays open.", tag: "Preview · not tried yet" },
+  { name: "Devin Desktop", id: "outside-zed-previews", svg: devinLogo, what: "Resumes after a limit through the same add-on as in Zed, while it stays open.", tag: "Preview · not tried yet" },
 ];
 /**
  * "What works where": the README's "Where you work" table, with what must stay open added from the
@@ -511,7 +517,7 @@ const words ="Hit a limit? Rewake picks the thread back up.".split(" ");
             </div>
             <p>Then check it with <code>npx @codizelabs/agent-rewake doctor</code>, and undo it with <code>npx @codizelabs/agent-rewake uninstall</code>.</p>
           </details>
-          <p class="install-meta">For six coding agents in a terminal, Claude Code's VS Code and Cursor panel, and Zed's Agent Panel (<a href={href("docs/#is-it-for-you")}>is it for you?</a>) · Needs Node.js 22+, plus Zed 1.22+ for Zed; each agent's minimum version is in <a href={href("docs/#outside-zed-previews")}>its guide</a> · macOS, Linux and Windows (previews tried by hand on macOS so far) · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
+          <p class="install-meta">For seven coding agents in a terminal, Claude Code's panel in VS Code or Cursor, Cursor's own agent, JetBrains IDEs, Devin Desktop, and Zed's Agent Panel (<a href={href("docs/#is-it-for-you")}>is it for you?</a>) · Needs Node.js 22+, plus Zed 1.22+ for Zed; each agent's minimum version is in <a href={href("docs/#outside-zed-previews")}>its guide</a> · macOS, Linux and Windows (previews tried by hand on macOS so far) · Undo any time with <code>npx @codizelabs/agent-rewake uninstall</code></p>
         </div>
       </section>
 
@@ -645,7 +651,7 @@ const words ="Hit a limit? Rewake picks the thread back up.".split(" ");
         <div class="wrap" data-reveal>
           <p class="kicker">Works with</p>
           <h2>Your coding agent, where you already use it.</h2>
-          <p class="sub">In a terminal, in Claude Code's panel in VS Code or Cursor, and in Zed's Agent Panel with every external agent. Each preview installs on its own. Pick yours for its step-by-step guide.</p>
+          <p class="sub">In a terminal, in Claude Code's panel in VS Code or Cursor, in Cursor's own agent, in a JetBrains IDE or Devin Desktop, and in Zed's Agent Panel with every external agent. Each preview installs on its own. Pick yours for its step-by-step guide.</p>
           <ul class="agent-grid">
             {
               previews.map((a) => (
