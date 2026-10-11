@@ -15,7 +15,10 @@ The logos on the landing page's "Works with" list. Each file is copied unchanged
 | `qwen-color.svg` | Qwen Code | LobeHub Icons 1.95.1 | MIT |
 | `cline.svg` | Cline | LobeHub Icons 1.95.1 | MIT |
 | `mistral-color.svg` | Mistral Vibe | LobeHub Icons 1.95.1 | MIT |
+| `cursor.svg` | Cursor's own agent | LobeHub Icons 1.95.1 | MIT |
+| `devin-color.svg` | Devin Desktop | LobeHub Icons 1.95.1 | MIT |
 | `zedindustries.svg` | Zed | [Simple Icons](https://simpleicons.org) 16.34.0 (`simple-icons`) | CC0 1.0 |
 | `kimi.svg` | Kimi | Simple Icons 16.34.0 | CC0 1.0 |
+| `jetbrains.svg` | JetBrains IDEs | Simple Icons 16.34.0 | CC0 1.0 |
 
 The licences cover the files, not the trademarks. Each logo belongs to its owner and is shown only to say which agents Agent Rewake works with. The site's footer says the project isn't affiliated with any of them.
