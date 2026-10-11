@@ -2,8 +2,8 @@
 // A stand-in for the `copilot` CLI in tests. `--resume=<id> … --output-format json` with the
 // prompt on stdin prints JSONL events like Copilot CLI 1.0.92 (research note §B.3.3) and records
 // its arguments, working folder, stdin and Rewake's marker in $FAKE_COPILOT_LOG.
-//   FAKE_COPILOT = ok | limited | fail | gone; FAKE_COPILOT_ERROR: the limit's message
-import { appendFileSync } from "node:fs";
+//   FAKE_COPILOT = ok | limited | fail | gone | sleep (runs until stopped, its pid in FAKE_COPILOT_PIDFILE); FAKE_COPILOT_ERROR: the limit's message
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 
@@ -28,6 +28,14 @@ if (process.env.FAKE_COPILOT_LOG)
   );
 const outcome = process.env.FAKE_COPILOT ?? "ok";
 process.stdout.write(`${JSON.stringify({ type: "session.start", data: {} })}\n`);
+if (outcome === "sleep") {
+  // FAKE_COPILOT_STUBBORN: ignores SIGTERM, so only a kill ends it.
+  if (process.env.FAKE_COPILOT_STUBBORN) process.on("SIGTERM", () => {});
+  if (process.env.FAKE_COPILOT_PIDFILE)
+    writeFileSync(process.env.FAKE_COPILOT_PIDFILE, String(process.pid));
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+}
 if (outcome === "limited") {
   process.stdout.write(
     `${JSON.stringify({ type: "session.error", data: { errorType: "rate_limit", errorCode: "user_weekly_rate_limited", message: process.env.FAKE_COPILOT_ERROR ?? "You've reached your weekly rate limit." } })}\n`,

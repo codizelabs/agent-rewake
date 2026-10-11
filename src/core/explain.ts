@@ -32,6 +32,8 @@ export interface ExplainInput {
    * it has nothing to compare (not a git folder) or the check is off.
    */
   workspaceChanged?: "tell" | "note" | "hold";
+  /** How to run it at once instead of waiting (a resume outside Zed): a command, in words. */
+  now?: string;
 }
 
 /** Statuses a planned resume still waits in. */
@@ -58,6 +60,7 @@ export function explainResume(r: ExplainInput, now: number, locale?: string): st
       `  When: ${when}`,
       `  What Rewake will do: send your message "${oneLine(r.text)}" into the ${r.noun} once.`,
       `  Nothing is sent now: this view only reads. ${r.cancel}`,
+      ...(r.now ? [`  ${r.now}`] : []),
     );
     return lines;
   }
@@ -100,5 +103,6 @@ export function explainResume(r: ExplainInput, now: number, locale?: string): st
     "  - A credit or billing limit: Rewake never resumes it, because waiting doesn't fix it.",
     `  Nothing is sent now: this view only reads. ${r.cancel}`,
   );
+  if (r.now) lines.push(`  ${r.now}`);
   return lines;
 }
