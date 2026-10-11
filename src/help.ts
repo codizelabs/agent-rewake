@@ -194,10 +194,12 @@ export const COMMANDS: CommandInfo[] = [
   {
     name: "continue",
     summary: "Continue a closed agent session after its usage limit",
-    usage: ["continue [--always | --ask | --cancel [<id>]]"],
+    usage: ["continue [--always | --ask | --cancel [<id>] | --now [<id>] [--yes]]"],
     about: [
       "Continues a session you closed at its usage limit, when the limit resets. Run alone, it asks",
       "which session and when.",
+      "--now is for a planned resume outside Zed that shouldn't wait for the reset (you upgraded",
+      "your plan, or the limit lifted early). In Zed, use Rewake → Change a scheduled message….",
     ],
     options: [
       { flag: "--always", text: "Continue sessions by itself from now on" },
@@ -206,10 +208,26 @@ export const COMMANDS: CommandInfo[] = [
         flag: "--cancel",
         text: "Cancel a planned resume: pick it, or give its id",
       },
+      {
+        flag: "--now",
+        arg: "[<id>]",
+        text: "Continue a planned resume now, without waiting for the reset (outside Zed)",
+      },
+      {
+        flag: "--yes",
+        alias: "-y",
+        text: "With --now: don't ask first (needed without a terminal)",
+      },
     ],
     footer: [
-      "With several planned and a terminal, --cancel lists them to pick one, or all. The ids are",
-      "in square brackets in `agent-rewake schedules`.",
+      "With several planned and a terminal, --cancel and --now list them to pick one (--cancel also",
+      "all). --now shows what it will send and asks first; without a terminal it needs the id and",
+      "--yes. It stays busy until the agent finishes; Ctrl+C stops it and cancels that resume. If the",
+      "limit is still on, the session is open or changed, you typed after the limit, the agent",
+      "continued, or the message can't reach the agent (signed out, session deleted or archived,",
+      "folder gone), nothing is sent and the resume stays planned. Other errors end it as failed.",
+      "The ids are in square",
+      "brackets in `agent-rewake schedules`.",
     ],
   },
   {

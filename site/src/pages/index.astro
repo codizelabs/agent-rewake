@@ -90,6 +90,12 @@ const faq: Array<{ q: string; a: string[] }> = [
     ],
   },
   {
+    q: "What if I don't want to wait for the reset?",
+    a: [
+      "If you upgraded your plan, or the limit lifted early, run `npx @codizelabs/agent-rewake continue --now` for a resume Rewake planned outside Zed. It names the agent and folder, says what it will send, and asks first; or give the id from `agent-rewake schedules`. It makes the same checks as at the reset. If you typed in the session, if it is open or has changed, if the agent already continued, if the limit is still on, or if the message can't reach the agent (signed out, session deleted or archived, folder gone), nothing is sent and your resume stays planned for its time. The window stays busy while the agent works, and Ctrl+C stops it and cancels the resume. In Zed, use Rewake → Change a scheduled message….",
+    ],
+  },
+  {
     q: "What if my computer is asleep at the reset?",
     a: [
       "Nothing is sent while it sleeps. When it wakes, a resume more than half an hour late (15 minutes in Zed) isn't sent on its own: Rewake asks or tells you instead. On macOS (and, not yet tried by hand, Linux with systemd and Windows), Rewake keeps the computer from idling to sleep while a resume is due within six hours (while plugged in, by default); closing the lid still puts it to sleep. `agent-rewake doctor` says if your own sleep settings would let it sleep, and the docs list [the settings to change](@docs/#keep-your-computer-awake).",
