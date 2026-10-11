@@ -27,7 +27,7 @@ Rewake sends messages into your agent while you may be away, so it should be cle
 - **It never types into your terminal.** It reaches each agent through that agent's own plugin, hooks or resume command, and in Zed, JetBrains IDEs and Devin Desktop through the connection between the editor and the agent. It doesn't send keystrokes to a window.
 - **It never resumes a limit that waiting won't fix.** Credit, billing and spending limits get a message, not a resume.
 - **It never sends what you didn't choose.** It sends only the messages you scheduled, ones you approved in the thread, or the resume message you turned on.
-- **It sends nothing about you anywhere,** and it never sees your credentials: sign-in goes through each agent's own flow. Its only network use is fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it.
+- **It sends nothing about you anywhere unless you turn on error reports,** and it never sees your credentials: sign-in goes through each agent's own flow. Its only network use is fetching an agent's own program (a download, or `npm install`) when Zed hasn't already done it, and error reports, which are off unless you turn them on (`agent-rewake errors on`). What an error report holds, and what it never holds, is listed under [Error reports](../#error-reports).
 - **It doesn't put message text in its logs.** Logs hold metadata only.
 
 ## What runs where
