@@ -279,18 +279,29 @@ export function classifyGrokFailure(
  * puts "Quota exhausted: " before the message it shows. The text carries no year: the reset is the
  * next such time. One within the last RESET_GRACE_MS counts as now; an impossible date (29 February
  * in a year without one) is unknown, never rolled into March. Any other 429 is a short throttle Qwen retries itself.
- * `billing_error` (HTTP 402 or 403, or "billing" or "quota" with another status) is money: never resumed.
+ *
+ * Qwen's own fail-fast path for this exact case (retry.ts:404-418, llm-chat.ts:3822-3829) rethrows
+ * `new Error(formatQuotaExhaustedMessage(error), { cause: error })` — a plain Error whose own shape
+ * carries no status, the original 429 left behind under `.cause`. The CLI's `classifyApiError`
+ * (packages/cli/src/utils/classify-api-error.ts:9-40) reads only `error.status`, finds none, and
+ * falls through past its `status === 429` branch into its text branch, where this very message's
+ * "quota" wins `billing_error` before `rate_limit` is ever considered. So every real, resumable
+ * quota-reset hits the hook as `billing_error`, not `rate_limit` — confirmed empirically against a
+ * real Qwen Code build (2026-10-11), not assumed. `billing_error` is still checked first below, but
+ * only falls straight to money when the text doesn't also carry this exact quota-exhausted shape;
+ * a genuine billing rejection (HTTP 402/403, "billing") never does.
  */
 export function classifyQwenFailure(
   input: { error?: unknown; errorDetails?: unknown },
   now: number,
 ): SessionLimit | undefined {
-  if (input.error === "billing_error") return { kind: "billing", billing: true };
-  if (input.error !== "rate_limit") return undefined;
+  if (input.error !== "billing_error" && input.error !== "rate_limit") return undefined;
   const text = normalize(str(input.errorDetails)).slice(0, 4096);
   const spent = /\bquota\b/i.test(text) && /\b(?:exhausted|exceeded)\b/i.test(text);
-  if (!spent || !(/will reset|reset at/i.test(text) || /^Quota exhausted: /m.test(text)))
+  if (!spent || !(/will reset|reset at/i.test(text) || /^Quota exhausted: /m.test(text))) {
+    if (input.error === "billing_error") return { kind: "billing", billing: true };
     return undefined;
+  }
   const at = qwenReset(text, now);
   return {
     kind: /\b1-week\b|weekly/i.test(text) ? "weekly" : "other",

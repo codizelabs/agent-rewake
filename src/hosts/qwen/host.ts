@@ -35,7 +35,10 @@ import { type SessionRecord, SessionRecords, safeSessionId } from "../sessions.j
  *
  *   - Claude-style hooks in the person's user `settings.json` (src/hosts/qwen/install.ts):
  *     SessionStart / SessionEnd, `Stop` (a turn ended well: the person carried on) and
- *     `StopFailure`, whose `error` is `rate_limit` for a 429 and `billing_error` for money. Qwen
+ *     `StopFailure`, whose `error` is usually `rate_limit` for a 429 and `billing_error` for
+ *     money — but a plan quota that ran out and will reset on its own also reaches the hook as
+ *     `billing_error` (Qwen's own fail-fast rethrow for that case drops the original status;
+ *     classifyQwenFailure in core/limits/agents.ts reads the message text either way). Qwen
  *     doesn't fire `StopFailure` for an API error in a headless (`-p`) run.
  *   - The reset time is in the error text ("The quota will reset at 07-27 09:25:00 UTC."), without
  *     a year: classifyQwenFailure reads it as the next such time.
