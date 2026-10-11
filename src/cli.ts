@@ -117,7 +117,7 @@ import { Logger } from "./util/log.js";
 import { ensurePrivateDir, stateDir } from "./util/paths.js";
 import { agentProcess } from "./util/proc.js";
 import { readSleepSettings } from "./util/sleep-settings.js";
-import { resolveCommand } from "./util/spawn.js";
+import { killPidTree, resolveCommand } from "./util/spawn.js";
 import { noColorFrom, paint } from "./util/style.js";
 import { VERSION } from "./version.js";
 import {
@@ -149,6 +149,12 @@ const KNOWN_OPTIONS: Record<string, string[]> = {
   schedules: ["--all", "--json", "--explain"],
   history: ["--days"],
 };
+
+/** A planned resume that nothing has started yet. */
+const WAITING_STATES: ReadonlySet<string> = new Set(["scheduled", "waiting_for_limit"]);
+
+const CONTINUE_USAGE =
+  "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel [<id>] | --now [<id>] [--yes]]\n";
 
 /** An agent outside Zed as people know it ("Codex"), from its host id, without starting anything. */
 function hostLabel(host: string): string | undefined {
@@ -538,6 +544,18 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     return code;
   }
   if (first === "continue") {
+    // `--now [<id>]`, with `--yes` (or `-y`) in either place: resume one planned resume at once.
+    if (argv.includes("--now")) {
+      const rest = argv.slice(1).filter((a) => a !== "--now");
+      const yes = rest.some((a) => a === "--yes" || a === "-y");
+      const names = rest.filter((a) => a !== "--yes" && a !== "-y");
+      const nowId = names[0];
+      if (names.length > 1 || nowId?.startsWith("-")) {
+        process.stderr.write(CONTINUE_USAGE);
+        return 2;
+      }
+      return runContinueCommand(env, "now", undefined, nowId, yes);
+    }
     const flag = argv[1];
     const mode =
       flag === "--always"
@@ -551,9 +569,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const cancelId = mode === "cancel" ? argv[2] : undefined;
     const extra = argv.length > (cancelId === undefined ? 2 : 3);
     if ((flag !== undefined && mode === undefined) || extra || cancelId?.startsWith("-")) {
-      process.stderr.write(
-        "agent-rewake: usage: agent-rewake continue [--always | --ask | --cancel [<id>]]\n",
-      );
+      process.stderr.write(CONTINUE_USAGE);
       return 2;
     }
     return runContinueCommand(env, mode, cancelId);
@@ -1426,16 +1442,77 @@ async function prompt(question: string): Promise<string> {
 /** `agent-rewake continue`: continue a closed session after its usage limit (src/continue.ts). */
 async function runContinueCommand(
   env: NodeJS.ProcessEnv,
-  mode?: "always" | "ask" | "cancel",
+  mode?: "always" | "ask" | "cancel" | "now",
   cancelId?: string,
+  nowId?: string,
+  yes = false,
 ): Promise<number> {
   const { state, timers, sweepDeps, node } = timerDeps(env);
   sweepQuietly(env);
   const adapters = hostAdapters(env, node, state);
-  return runContinue({
+  const log = new Logger(env);
+  let interrupted = false;
+  let sentAnyway = false;
+  const code = await runContinue({
     sleepSettings: () => readSleepSettings({ env }),
     ...(mode && { mode }),
     ...(cancelId !== undefined && { cancelId }),
+    ...(nowId !== undefined && { nowId }),
+    yes,
+    // The resume's own timer run, at once; what it would tell by notification is said here.
+    fireNow: async (id) => {
+      // Ctrl+C asks the run to stop the way `continue --cancel` does; fire ends the agent.
+      const store = new ScheduleStore(state);
+      const onInterrupt = () => {
+        if (interrupted) {
+          // A second press: don't wait for the agent to end on its own.
+          const pid = store.get(id)?.attempts.at(-1)?.pid;
+          if (pid !== undefined) {
+            killPidTree(pid, undefined, undefined, "SIGKILL");
+            process.stdout.write("Ended the agent now.\n");
+          }
+          return;
+        }
+        interrupted = true;
+        const s = store.get(id);
+        // Already done (sent, or ended some other way): let the run report what happened.
+        if (s !== undefined && s.status !== "sending" && !WAITING_STATES.has(s.status)) return;
+        if (s?.status !== "sending") {
+          process.stdout.write("Stopped. Nothing was sent, and your resume is still planned.\n");
+          process.exit(130);
+        }
+        store.update(
+          id,
+          (x) => ({
+            ...x,
+            attempts: x.attempts.map((a, i) =>
+              i === x.attempts.length - 1 ? { ...a, stopped: true } : a,
+            ),
+          }),
+          Date.now(),
+        );
+        process.stdout.write(
+          "Stopping. The agent ends within a few seconds; what it has done so far stays. The planned resume is cancelled too.\n",
+        );
+      };
+      process.on("SIGINT", onInterrupt);
+      try {
+        const outcome = await fire(id, {
+          stateDir: state,
+          now: Date.now,
+          hosts: adapters,
+          timers,
+          notify: (_title, body) => process.stdout.write(`${body}\n`),
+          log: (event, fields) => log.info(event, fields),
+          immediate: true,
+        });
+        // The message went in before the stop was seen: it was sent, and that is what is said.
+        sentAnyway = outcome === "sent";
+        return outcome;
+      } finally {
+        process.off("SIGINT", onInterrupt);
+      }
+    },
     // Codex's resumes too, which `continue` doesn't arm itself.
     hostOf: (id) => adapters.get(id),
     hosts: CLOSED_HOSTS,
@@ -1454,6 +1531,7 @@ async function runContinueCommand(
     err: (t) => process.stderr.write(t),
     ask: prompt,
   });
+  return interrupted && !sentAnyway ? 130 : code;
 }
 
 /** The previews set up on this computer, by name. */

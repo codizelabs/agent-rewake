@@ -27,6 +27,13 @@ export interface ExplainInput {
   lateMs?: number;
   /** How to cancel it, in words: a command or a page. */
   cancel: string;
+  /**
+   * What Rewake does if the project's git state differs from when this was planned: absent when
+   * it has nothing to compare (not a git folder) or the check is off.
+   */
+  workspaceChanged?: "tell" | "note" | "hold";
+  /** How to run it at once instead of waiting (a resume outside Zed): a command, in words. */
+  now?: string;
 }
 
 /** Statuses a planned resume still waits in. */
@@ -53,6 +60,7 @@ export function explainResume(r: ExplainInput, now: number, locale?: string): st
       `  When: ${when}`,
       `  What Rewake will do: send your message "${oneLine(r.text)}" into the ${r.noun} once.`,
       `  Nothing is sent now: this view only reads. ${r.cancel}`,
+      ...(r.now ? [`  ${r.now}`] : []),
     );
     return lines;
   }
@@ -71,6 +79,10 @@ export function explainResume(r: ExplainInput, now: number, locale?: string): st
     lines.push(
       "  Its time has already passed by too long, so Rewake won't send it by itself. It will tell you.",
     );
+  if (r.workspaceChanged === "tell" || r.workspaceChanged === "note")
+    lines.push(
+      `  Before sending, Rewake checks whether the project's latest git commit or tracked files differ from when this was planned (only the commit id and a summary of file names and status, never contents). If they do, ${r.workspaceChanged === "note" ? "it adds a line to the message asking the agent to re-read files before editing, and tells you" : "it tells you and sends the message as it is"}.`,
+    );
   // One pattern for every bullet: what happens, then what Rewake does about it.
   lines.push("  What could stop it:");
   lines.push(
@@ -81,11 +93,16 @@ export function explainResume(r: ExplainInput, now: number, locale?: string): st
     lines.push(
       `  - The ${r.noun} is open in a window or terminal then: Rewake sends nothing and tells you.`,
     );
+  if (r.workspaceChanged === "hold")
+    lines.push(
+      "  - The project's latest git commit or tracked files differ from when this was planned (Rewake reads only the commit id and a summary of file names and status, never contents): Rewake sends nothing and tells you.",
+    );
   lines.push(
     "  - The agent is still at its usage limit: Rewake waits for the new reset and tries again, or tells you if it can't.",
     "  - The computer is off or asleep then: Rewake sends nothing if it runs much later, and tells you.",
     "  - A credit or billing limit: Rewake never resumes it, because waiting doesn't fix it.",
     `  Nothing is sent now: this view only reads. ${r.cancel}`,
   );
+  if (r.now) lines.push(`  ${r.now}`);
   return lines;
 }

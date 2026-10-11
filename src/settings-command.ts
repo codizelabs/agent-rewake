@@ -8,7 +8,9 @@ import {
   NEW_THREADS_VALUES,
   type Settings,
   saveSettings,
+  USAGE_WARNINGS_VALUES,
   validResumePrompt,
+  WORKSPACE_CHANGED_VALUES,
 } from "./core/settings.js";
 import { DEFAULT_RESUME_PROMPT } from "./core/threads.js";
 import { clockTime } from "./core/time.js";
@@ -29,6 +31,8 @@ export const SETTING_NAMES = [
   "clock",
   "keep-awake",
   "resume-prompt",
+  "workspace-changed",
+  "usage-warnings",
 ] as const;
 export type SettingName = (typeof SETTING_NAMES)[number];
 
@@ -138,6 +142,50 @@ const SETTINGS: Setting[] = [
       v && v !== DEFAULT_RESUME_PROMPT
         ? "Resumes send your message from now on."
         : "Resumes send Rewake's own message again.",
+  },
+  {
+    name: "workspace-changed",
+    title: "Project changed while waiting",
+    short: "What Rewake does when the project changed while a resume waited, outside Zed.",
+    more: "It compares the project's latest git commit and its tracked files (their names and status, never their contents, only on this computer).",
+    choices: () => [
+      ["tell", "Only tell you, and send the message as it is"],
+      ["note", "Also add a line asking the agent to re-read files before editing"],
+      ["hold", "Send nothing and ask you first"],
+      ["off", "Don't check"],
+    ],
+    get: (s) => s.workspaceChanged,
+    set: (s, v) => ({
+      ...s,
+      workspaceChanged: WORKSPACE_CHANGED_VALUES.find((x) => x === v) ?? s.workspaceChanged,
+    }),
+    saved: (v) =>
+      v === "hold"
+        ? "When the project changed while a resume waited, Rewake sends nothing and tells you."
+        : v === "off"
+          ? "Rewake won't check whether the project changed while a resume waited."
+          : v === "note"
+            ? "When the project changed while a resume waited, Rewake tells you and adds a line asking the agent to re-read files."
+            : "When the project changed while a resume waited, Rewake tells you and sends the message as it is.",
+  },
+  {
+    name: "usage-warnings",
+    title: "Warnings before a usage limit",
+    short: "Whether Claude Code warns you when a usage window is nearly used up.",
+    more: "Claude Code only. It uses Claude Code's own usage figures, with no network and no sign-in, and never types anything for you.",
+    choices: () => [
+      ["on", "Warn at 80% and 95% used, and when the pace would reach the limit within 45 minutes"],
+      ["off", "Don't warn"],
+    ],
+    get: (s) => s.usageWarnings,
+    set: (s, v) => ({
+      ...s,
+      usageWarnings: USAGE_WARNINGS_VALUES.find((x) => x === v) ?? s.usageWarnings,
+    }),
+    saved: (v) =>
+      v === "off"
+        ? "Claude Code won't warn you before a usage limit."
+        : "Claude Code warns you at 80% and 95% of a usage limit, and when your pace would reach it within 45 minutes.",
   },
 ];
 

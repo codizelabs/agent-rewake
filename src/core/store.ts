@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { fsyncDir, renameWithRetry } from "../util/fs.js";
 import { ensurePrivateDir } from "../util/paths.js";
+import { validFingerprint, type WorkspaceFingerprint } from "../util/workspace.js";
 import { parseCron } from "./cron.js";
 import { SessionLock } from "./lock.js";
 
@@ -90,6 +91,11 @@ export interface Schedule {
   rearms?: number;
   /** Times a timer ran before its time and a new one was set for the right moment (missing = 0). */
   earlyRearms?: number;
+  /**
+   * The session's git folder when the resume was planned: the commit and a hash of the
+   * names-and-status summary, never a file name (src/util/workspace.ts). Outside Zed only.
+   */
+  workspace?: WorkspaceFingerprint;
 }
 
 /**
@@ -192,7 +198,10 @@ export function validateSchedule(value: unknown): Schedule | undefined {
     (s.rearms === undefined ||
       (typeof s.rearms === "number" && Number.isInteger(s.rearms) && s.rearms >= 0)) &&
     (s.earlyRearms === undefined ||
-      (typeof s.earlyRearms === "number" && Number.isInteger(s.earlyRearms) && s.earlyRearms >= 0));
+      (typeof s.earlyRearms === "number" &&
+        Number.isInteger(s.earlyRearms) &&
+        s.earlyRearms >= 0)) &&
+    (s.workspace === undefined || validFingerprint(s.workspace));
   return ok ? (value as Schedule) : undefined;
 }
 
