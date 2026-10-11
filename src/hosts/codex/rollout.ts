@@ -1,6 +1,7 @@
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { parseResetHint } from "../../adapters/reset.js";
 import { normalize } from "../../adapters/text.js";
+import type { UsageWindow } from "../../core/usage-warn.js";
 
 /**
  * Codex's session files ("rollouts", `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl`):
@@ -117,6 +118,43 @@ function chooseSnapshot(
   const fullest = (s: RateLimits) =>
     Math.max(...[s.primary, s.secondary].map((w) => (w ? (w.used_percent ?? 0) : 0)));
   return withWindows.reduce((a, b) => (fullest(b) > fullest(a) ? b : a));
+}
+
+/**
+ * The usage windows in the newest `token_count` snapshot of Codex's own limit bucket (no
+ * `limit_id`, or "codex"): what the previous reply left on disk. A window with no length or no
+ * figure is left out. Its kind comes from its length: about 5 hours, about 7 days, else whole hours.
+ */
+export function lastWindows(tail: string): UsageWindow[] {
+  let found: RateLimits | undefined;
+  for (const line of tail.split("\n")) {
+    if (!line.startsWith("{") || !line.includes('"token_count"')) continue;
+    try {
+      const p = (JSON.parse(line) as { type?: string; payload?: Record<string, unknown> }).payload;
+      const rl = p?.type === "token_count" ? (p.rate_limits as RateLimits | null) : undefined;
+      if (!rl || typeof rl !== "object") continue;
+      if (rl.limit_id && rl.limit_id !== "codex") continue;
+      if (rl.primary || rl.secondary) found = rl;
+    } catch {
+      // A partial or damaged line.
+    }
+  }
+  const out: UsageWindow[] = [];
+  for (const w of [found?.primary, found?.secondary]) {
+    const m = w?.window_minutes;
+    if (!w || typeof m !== "number" || !(m > 0) || typeof w.used_percent !== "number") continue;
+    out.push({
+      kind:
+        m >= 270 && m <= 330
+          ? "five_hour"
+          : m >= 9000 && m <= 11000
+            ? "seven_day"
+            : `${Math.max(1, Math.round(m / 60))}_hour`,
+      percentUsed: w.used_percent,
+      ...(typeof w.resets_at === "number" && { resetsAt: w.resets_at * 1000 }),
+    });
+  }
+  return out;
 }
 
 /** A window counts as spent from 99%: the server reports fractions, and a real stop read 99.0. */

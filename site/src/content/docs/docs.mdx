@@ -439,14 +439,14 @@ Outside Zed, the same settings are in a terminal: `agent-rewake settings` lists 
 | `clock` | `12h` (default), `24h` | **Time format** |
 | `keep-awake` | `plugged-in` (default), `always`, `never` | **Keep this computer awake…** (only where Rewake can keep the computer awake; not listed elsewhere) |
 | `workspace-changed` | `tell` (default), `note`, `hold`, `off` | Not in the form: what Rewake does when the project changed while a continue outside Zed waited (below) |
-| `usage-warnings` | `on` (default), `off` | Not in the form: whether Claude Code warns you before a usage limit ([below](#warnings-before-a-limit-claude-code)) |
+| `usage-warnings` | `on` (default), `off` | Not in the form: warn me when a usage limit is nearly used up (Claude Code, at the moment it happens; Codex, with your next prompt) ([below](#warnings-before-a-limit-claude-code-and-codex)) |
 | `resume-prompt` | Your own message, or Rewake's own (default) | Not in the form: the message a resume sends to a closed session or a Codex thread, and in new threads that automatic resume turns on |
 
 ### If the project changed while a continue waited
 
 A continue outside Zed can run hours after the limit, and you or another tool may have changed the project meanwhile. When the session's folder is a git folder, Rewake notes its latest commit and a hash of the list of changed tracked files when it plans the continue (a moment after it is planned, so planning is never slowed), and checks again just before it sends. If the commit or that list differs, the `workspace-changed` setting decides: `tell` (the default) tells you, and sends the message as it was; `note` also adds one fixed line to the message, saying the project changed while the session waited and the agent should re-read files before editing; `hold` sends nothing, tells you what changed and how to continue; `off` doesn't check. The notice names the setting. Only tracked files and the latest commit count: new untracked files (a `.DS_Store`, build output, logs) don't. Rewake reads only the commit id and the names-and-status summary of `git status --porcelain --untracked-files=no`, never file contents, keeps only the commit id and a hash (no file names), and uses local `git` commands only, with a couple of seconds at most. It does nothing when the folder isn't a git folder, `git` isn't installed or `git` is slow. Zed threads aren't checked.
 
-### Warnings before a limit (Claude Code)
+### Warnings before a limit (Claude Code and Codex)
 
 In Claude Code, Rewake's plugin can tell you before a usage window runs out, so you can finish or shorten what you are doing instead of being stopped mid-task. It reads the usage figures Claude Code already gives the plugin, as of Claude Code's last reply: it makes no network request and needs no sign-in of its own.
 
@@ -458,7 +458,15 @@ In Claude Code, Rewake's plugin can tell you before a usage window runs out, so 
 - It runs only where a person is at the prompt, not in `-p` or SDK runs without one.
 - **Turn it off or on** with `agent-rewake settings usage-warnings off` (or `on`, the default). A change applies from the next Claude Code session, and only when the plugin was installed with `agent-rewake install` (the setting is read from Rewake's settings file, which a plugin installed another way can't find).
 
-Codex and the other agents are not covered: this is built for Claude Code only.
+**Codex** gets the same warnings (80%, 95% and the pace, with the same limits and wording style), through the Codex plugin's existing prompt hook. Differences:
+
+- **When you see it:** when you send your next prompt, from the figures Codex stored after its previous reply. A warning is therefore one turn late by design, and nothing is shown before your first prompt of a thread. Codex shows it as a warning from Rewake; it is not sent to the model, and nothing is typed or compacted for you.
+- **Wording:** it says "as of Codex's last reply". It doesn't suggest compacting at 80%, because Rewake couldn't verify Codex's command for it; at 95% it says it is a good moment to wrap up or save what you are doing.
+- **Where it has been seen:** it is not yet confirmed in the Codex desktop app or the VS Code extension, so it may not appear there. Whether it appears in Codex's non-interactive runs (`codex exec`) is unknown; Rewake can't tell them apart from the hook's input.
+- **Once per window** for your Codex account (the Codex folder, `CODEX_HOME`), across threads and restarts. It is skipped when you send Rewake's own `rewake` command.
+- **Turn it off or on** with the same `agent-rewake settings usage-warnings off`. It takes effect from your next prompt.
+
+The other agents are not covered.
 
 ## Keep your computer awake
 
@@ -598,7 +606,7 @@ Every version updates with the two steps above. If a release ever needs anything
 
 ## Status
 
-Version 0.5. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: [what's been tried for each](#outside-zed-previews). Changes: the [changelog](../changelog/). The site aims for WCAG 2.2 AA; Zed's agent panel itself has limited screen-reader support. Report barriers as [issues](https://github.com/codizelabs/agent-rewake/issues/new/choose).
+Version 0.6. Rewake's automated tests run on macOS, Linux and Windows with Node.js 22 and 24, and the author uses it daily in Zed. The previews outside Zed are new: [what's been tried for each](#outside-zed-previews). Changes: the [changelog](../changelog/). The site aims for WCAG 2.2 AA; Zed's agent panel itself has limited screen-reader support. Report barriers as [issues](https://github.com/codizelabs/agent-rewake/issues/new/choose).
 
 ## Reference
 
