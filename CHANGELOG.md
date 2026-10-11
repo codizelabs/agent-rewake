@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- **A landing-page illustration's "Input Requested" dialog was cut off mid-field, with its Submit/Decline/Cancel buttons never shown.** Every item in a Zed-thread illustration (`src/components/scenes/*.astro`) could be shrunk by the flexbox layout to fit the window; the dialog's own `overflow: hidden` then silently clipped the bottom of whichever one got compressed, instead of the intended behaviour (older content fades out at the top). Now nothing in the thread shrinks below its own size.
+
 ## [0.5.0] - 2026-10-11
 
 ### Added
