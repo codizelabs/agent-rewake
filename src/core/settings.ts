@@ -42,6 +42,11 @@ export interface Settings {
    * does nothing.
    */
   workspaceChanged: WorkspaceChanged;
+  /**
+   * Claude Code plugin: a toast at 80% and 95% of a usage window, and when the pace would reach
+   * the limit within 45 minutes: "on" (the default) or "off".
+   */
+  usageWarnings: UsageWarnings;
   /** `install` has already asked about error reports: never ask again, whatever was answered. */
   errorReportsAsked?: boolean;
 }
@@ -50,6 +55,7 @@ export type NewThreads = "ask" | "on" | "off";
 export type KeepAwake = "plugged-in" | "always" | "never";
 export type ErrorReports = "on" | "off";
 export type WorkspaceChanged = "tell" | "note" | "hold" | "off";
+export type UsageWarnings = "on" | "off";
 
 /** The values each choice takes: the rules Zed's Settings form and `agent-rewake settings` share. */
 export const CLOCKS: readonly Clock[] = ["12h", "24h"];
@@ -61,6 +67,7 @@ export const WORKSPACE_CHANGED_VALUES: readonly WorkspaceChanged[] = [
   "hold",
   "off",
 ];
+export const USAGE_WARNINGS_VALUES: readonly UsageWarnings[] = ["on", "off"];
 /** The longest resume message kept (a longer one falls back to Rewake's own). */
 export const MAX_RESUME_PROMPT = 16_384;
 
@@ -84,6 +91,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keepAwake: "plugged-in",
   errorReports: "off",
   workspaceChanged: "tell",
+  usageWarnings: "on",
 };
 
 export function loadSettings(stateDir: string): Settings {
@@ -105,6 +113,7 @@ export function loadSettings(stateDir: string): Settings {
     const workspaceChanged =
       WORKSPACE_CHANGED_VALUES.find((v) => v === raw.workspaceChanged) ??
       DEFAULT_SETTINGS.workspaceChanged;
+    const usageWarnings = raw.usageWarnings === "off" ? "off" : DEFAULT_SETTINGS.usageWarnings;
     const errorReportsAsked = raw.errorReportsAsked === true;
     return {
       clock,
@@ -113,6 +122,7 @@ export function loadSettings(stateDir: string): Settings {
       keepAwake,
       errorReports,
       workspaceChanged,
+      usageWarnings,
       ...(resumePrompt && { resumePrompt }),
       ...(errorReportsAsked && { errorReportsAsked }),
     };

@@ -47,6 +47,7 @@ function harness(
     store: { ...(opts.store ?? {}) } as Record<string, unknown>,
     spawned: [] as string[][],
     commands: [] as string[],
+    toasts: [] as string[],
   };
   const system = opts.system ?? "darwin";
   on("process.run", (_: unknown, e: Ev) => {
@@ -110,7 +111,10 @@ function harness(
     seen.status.push(e.text as string | undefined);
     return { value: undefined };
   });
-  on("ui.toast", () => ({ value: undefined }));
+  on("ui.toast", (_: unknown, e: Ev) => {
+    seen.toasts.push(e.text as string);
+    return { value: undefined };
+  });
   on("prompt.fill", (_: unknown, e: Ev) => {
     seen.filled.push(e.text as string);
     return { isFilled: true };
@@ -133,6 +137,7 @@ function harness(
     seen.submitted.push(e.text as string);
     return { text: e.text };
   });
+  on("session.measure", (_: unknown, e: Ev) => ({ changed: e.changed }));
   on("classic.StopFailure", () => ({}));
   on("classic.Notification", () => ({}));
   on("classic.SessionStart", () => ({}));
@@ -1037,4 +1042,147 @@ test("a claim left by a process that stopped mid-send doesn't hold the continue 
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
   await clock.advance(3 * MIN);
   expect(seen.submitted).toEqual([CONTINUE]);
+});
+
+/** What Claude Code reports after a reply: the usage figures changed. */
+async function report(
+  $: { session: { measure(e: never): Promise<unknown> } },
+  clock: { advance(ms: number): Promise<unknown> },
+  rateLimits: Window[],
+  changed = ["rateLimits"],
+) {
+  await $.session.measure({ changed, rateLimits } as never);
+  // The mod's work after the event settles on the next tick.
+  await clock.advance(1);
+}
+
+test("warns once at 80% and once at 95% of a window, in the person's clock", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    config: JSON.stringify({ stateDir: "/state" }),
+    settings: JSON.stringify({ clock: "24h" }),
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  for (const p of [50, 79, 80, 82, 90, 95, 99]) {
+    await report($, clock, fiveHour("2026-10-06T15:00:00Z", p));
+    // Under 10 minutes in all: too short a span for a pace, so only the thresholds speak.
+    await clock.advance(MIN / 2);
+  }
+  expect(seen.toasts).toHaveLength(2);
+  expect(seen.toasts[0]).toMatch(
+    /^5-hour limit: 80% used, as of Claude Code's last reply\. It resets at /,
+  );
+  expect(seen.toasts[0]).toMatch(/It resets (at|on) .*\d{2}:\d{2}/);
+  expect(seen.toasts[0]).not.toMatch(/ (AM|PM)/);
+  expect(seen.toasts[0]).toContain("/compact now can make the rest last longer");
+  expect(seen.toasts[1]).toMatch(/^5-hour limit: 95% used/);
+  expect(seen.toasts[1]).not.toContain("compact");
+});
+
+test("a restart or a second session of the same account doesn't repeat a warning", async ($, on) => {
+  const { clock, seen } = harness(on, {});
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 85));
+  expect(seen.toasts).toHaveLength(1);
+  expect(Object.keys(seen.store).filter((k) => k.startsWith("usage:"))).toEqual(["usage:"]);
+  // The state is in $.store, which every session of the account shares: a new start reads it.
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 86));
+  expect(seen.toasts).toHaveLength(1);
+});
+
+test("different config dirs are different accounts: each has its own warnings", async ($, on) => {
+  const env = { CLAUDE_CONFIG_DIR: "/a/.claude" };
+  const { clock, seen } = harness(on, { env });
+  const open = async (dir: string) => {
+    env.CLAUDE_CONFIG_DIR = dir;
+    await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  };
+  await open("/a/.claude");
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 85));
+  expect(seen.toasts).toHaveLength(1);
+  // Another account has its own window: it is warned too.
+  await open("/b/.claude");
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 85));
+  expect(seen.toasts).toHaveLength(2);
+  // Back to the first: not repeated.
+  await open("/a/.claude");
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 86));
+  expect(seen.toasts).toHaveLength(2);
+  expect(
+    Object.keys(seen.store)
+      .filter((k) => k.startsWith("usage:"))
+      .sort(),
+  ).toEqual(["usage:/a/.claude", "usage:/b/.claude"]);
+});
+
+test("a jump past both thresholds shows only the higher; a full window shows nothing", async ($, on) => {
+  const { clock, seen } = harness(on, {});
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 97));
+  expect(seen.toasts).toHaveLength(1);
+  expect(seen.toasts[0]).toContain("97% used");
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 100));
+  expect(seen.toasts).toHaveLength(1);
+});
+
+test("spending caps and figures that didn't change are not warned about", async ($, on) => {
+  const { clock, seen } = harness(on, {});
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await report($, clock, [
+    { kind: "spend_limit", percentUsed: 90, resetsAt: "2026-10-31T00:00:00Z" },
+  ]);
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 90), ["context"]);
+  expect(seen.toasts).toEqual([]);
+});
+
+test("warns about the pace as a range, once, before the window resets", async ($, on) => {
+  const { clock, seen } = harness(on, {});
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  // One point a minute from 30%: after 30 minutes the limit is about 40 minutes away.
+  for (const p of [30, 40, 50, 60, 61]) {
+    await report($, clock, fiveHour("2026-10-06T15:00:00Z", p));
+    await clock.advance(10 * MIN);
+  }
+  expect(seen.toasts).toHaveLength(1);
+  expect(seen.toasts[0]).toMatch(
+    /^At this pace you reach the 5-hour limit in about \d+ to \d+ minutes, before it resets at /,
+  );
+});
+
+test("no pace warning when the figure is flat or the window resets first", async ($, on) => {
+  const { clock, seen } = harness(on, {});
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  for (const p of [40, 40, 40, 40]) {
+    await report($, clock, fiveHour("2026-10-06T15:00:00Z", p));
+    await clock.advance(10 * MIN);
+  }
+  for (const p of [50, 60, 70]) {
+    await report($, clock, fiveHour("2026-10-06T10:50:00Z", p));
+    await clock.advance(10 * MIN);
+  }
+  expect(seen.toasts).toEqual([]);
+});
+
+test("the usage-warnings setting off means no warnings", async ($, on) => {
+  const { clock, seen } = harness(on, {
+    config: JSON.stringify({ stateDir: "/state" }),
+    settings: JSON.stringify({ usageWarnings: "off" }),
+  });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 96));
+  expect(seen.toasts).toEqual([]);
+});
+
+test("a -p or SDK session (no person at the prompt) gets no warnings", async ($, on) => {
+  const { clock, seen } = harness(on, {});
+  await $.session.start({ surface: "terminal", isInteractive: false, cwd: "/work" });
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 96));
+  expect(seen.toasts).toEqual([]);
+});
+
+test("Rewake's own headless continue gets no warnings", async ($, on) => {
+  const { clock, seen } = harness(on, { env: { AGENT_REWAKE_FIRE: "abc" } });
+  await $.session.start({ surface: "terminal", isInteractive: true, cwd: "/work" });
+  await report($, clock, fiveHour("2026-10-06T15:00:00Z", 96));
+  expect(seen.toasts).toEqual([]);
 });

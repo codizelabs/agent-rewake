@@ -439,11 +439,26 @@ Outside Zed, the same settings are in a terminal: `agent-rewake settings` lists 
 | `clock` | `12h` (default), `24h` | **Time format** |
 | `keep-awake` | `plugged-in` (default), `always`, `never` | **Keep this computer awake…** (only where Rewake can keep the computer awake; not listed elsewhere) |
 | `workspace-changed` | `tell` (default), `note`, `hold`, `off` | Not in the form: what Rewake does when the project changed while a continue outside Zed waited (below) |
+| `usage-warnings` | `on` (default), `off` | Not in the form: whether Claude Code warns you before a usage limit ([below](#warnings-before-a-limit-claude-code)) |
 | `resume-prompt` | Your own message, or Rewake's own (default) | Not in the form: the message a resume sends to a closed session or a Codex thread, and in new threads that automatic resume turns on |
 
 ### If the project changed while a continue waited
 
 A continue outside Zed can run hours after the limit, and you or another tool may have changed the project meanwhile. When the session's folder is a git folder, Rewake notes its latest commit and a hash of the list of changed tracked files when it plans the continue (a moment after it is planned, so planning is never slowed), and checks again just before it sends. If the commit or that list differs, the `workspace-changed` setting decides: `tell` (the default) tells you, and sends the message as it was; `note` also adds one fixed line to the message, saying the project changed while the session waited and the agent should re-read files before editing; `hold` sends nothing, tells you what changed and how to continue; `off` doesn't check. The notice names the setting. Only tracked files and the latest commit count: new untracked files (a `.DS_Store`, build output, logs) don't. Rewake reads only the commit id and the names-and-status summary of `git status --porcelain --untracked-files=no`, never file contents, keeps only the commit id and a hash (no file names), and uses local `git` commands only, with a couple of seconds at most. It does nothing when the folder isn't a git folder, `git` isn't installed or `git` is slow. Zed threads aren't checked.
+
+### Warnings before a limit (Claude Code)
+
+In Claude Code, Rewake's plugin can tell you before a usage window runs out, so you can finish or shorten what you are doing instead of being stopped mid-task. It reads the usage figures Claude Code already gives the plugin, as of Claude Code's last reply: it makes no network request and needs no sign-in of its own.
+
+- **At 80% and at 95% used**, for the 5-hour and the 7-day windows (and other windows of that kind), it shows one short message each, with the time the window resets in your time format. If a reading jumps past both, you get only the 95% one. Nothing is shown at 100%: the limit flow above takes over. Spending caps are left out.
+- **When the pace would reach the limit soon.** From how fast the figure has risen over the last hour (at least two readings 10 minutes apart, both within that hour), Rewake estimates when it would reach 100%. If that is within about 45 minutes and before the window resets, it shows it once per window as a range in 5-minute steps, for example "At this pace you reach the 5-hour limit in about 20 to 40 minutes, before it resets at 3:00 AM today". It is an estimate, never a precise minute, and nothing is shown while the pace is unknown or not rising.
+- **Once per window** for your Claude Code account: a restart, or another session of the same account (the same config folder), doesn't repeat a message you have seen.
+- The 80% message suggests `/compact` if you are in the middle of a task, and says compacting uses some quota too. The 95% message doesn't suggest it, because compacting is itself a request to the model; it says it is a good moment to wrap up or save what you are doing. Rewake only tells you; it never types, compacts or sends anything for you.
+- The estimate needs the figure to have moved: waiting without using Claude Code never produces a pace warning.
+- It runs only where a person is at the prompt, not in `-p` or SDK runs without one.
+- **Turn it off or on** with `agent-rewake settings usage-warnings off` (or `on`, the default). A change applies from the next Claude Code session, and only when the plugin was installed with `agent-rewake install` (the setting is read from Rewake's settings file, which a plugin installed another way can't find).
+
+Codex and the other agents are not covered: this is built for Claude Code only.
 
 ## Keep your computer awake
 
