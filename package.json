@@ -34,7 +34,7 @@
     "type": "git",
     "url": "git+https://github.com/codizelabs/agent-rewake.git"
   },
-  "homepage": "https://codizelabs.github.io/agent-rewake/",
+  "homepage": "https://rewake.js.org/",
   "bugs": {
     "url": "https://github.com/codizelabs/agent-rewake/issues"
   },

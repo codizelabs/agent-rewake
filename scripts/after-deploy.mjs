@@ -4,10 +4,7 @@
 import { appendFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const site = (process.env.PAGE_URL || "https://codizelabs.github.io/agent-rewake/").replace(
-  /\/?$/,
-  "/",
-);
+const site = (process.env.PAGE_URL || "https://rewake.js.org/").replace(/\/?$/, "/");
 const summary = (line) => {
   console.log(line);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`);
