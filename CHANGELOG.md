@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **The hero's recorded terminal responds more to you:** the chapter buttons (Hits the limit, Rewake asks, Continues after the reset) now show which one the recording is on; clicking anywhere on the terminal window itself, not only the small play button, pauses or resumes it; and on a phone, it now shows up right after the pitch instead of after the whole install block. Two CTAs that said "Get started" now say "See the install guide".
+
 ## [0.4.0] - 2026-10-11
 
 ### Added
