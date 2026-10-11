@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **The hero heading wrapped to three lines instead of two** ("Hit a limit? Rewake picks the thread back up."). Shortened to "Hit a limit? Rewake picks it back up."
+
 ## [0.6.0] - 2026-10-11
 
 ### Added
