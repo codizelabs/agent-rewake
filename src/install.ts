@@ -863,6 +863,16 @@ export function quitZed(p: NodeJS.Platform = platform()): string {
   return "quit Zed completely (Ctrl+Q)";
 }
 
+/**
+ * How to get Zed onto an updated Rewake: Zed keeps an agent it started until its connection is
+ * dropped. "Reload Agent" in the Agent Panel's menu does that for one thread (Zed 1.18.0 and
+ * newer, from its source: it drops the agent's cached connection and rebuilds the thread from its
+ * session); quitting Zed always works.
+ */
+export function reloadAgent(p: NodeJS.Platform = platform()): string {
+  return `choose "Reload Agent" in the Agent Panel's menu in each open thread (Zed 1.18 or newer), or ${quitZed(p)} and open it again`;
+}
+
 /** What to do next. `reachShown`: the specific "works only in Zed" line was shown already. */
 function nextSteps(reachShown = false): string {
   return [

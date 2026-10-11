@@ -102,6 +102,14 @@ describe("restart instructions", () => {
     expect(quitZed("linux")).toBe("quit Zed completely (Ctrl+Q)");
     expect(quitZed("win32")).toBe("close every Zed window so Zed exits");
   });
+
+  it("offer Reload Agent in the Agent Panel's menu first, with quitting Zed as the way that always works", async () => {
+    const { reloadAgent } = await import("../src/install.js");
+    expect(reloadAgent("darwin")).toBe(
+      'choose "Reload Agent" in the Agent Panel\'s menu in each open thread (Zed 1.18 or newer), or quit Zed completely (Cmd+Q) and open it again',
+    );
+    expect(reloadAgent("win32")).toContain("close every Zed window so Zed exits");
+  });
 });
 
 describe("doctor's check of Zed's agent entries", () => {
