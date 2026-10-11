@@ -1,13 +1,14 @@
 import { basename } from "node:path";
 import { continueOnly, type RewakePlace } from "../../core/command.js";
 import { decideArm, RESET_MARGIN_MS } from "../../core/resume.js";
-import { loadSettings } from "../../core/settings.js";
+import { applySettings, loadSettings } from "../../core/settings.js";
 import { type Schedule, ScheduleStore, TERMINAL_STATUSES } from "../../core/store.js";
 import { DEFAULT_RESUME_PROMPT } from "../../core/threads.js";
 import { formatAt } from "../../core/time.js";
 import { autoFor, withWorkspace } from "../closed.js";
 import type { HookContext, HookHandler } from "../hook.js";
 import { findCodexLimit, isCodexRollout, readTail, threadIdOf } from "./rollout.js";
+import { usageWarning } from "./usage.js";
 
 /**
  * Codex's hooks (installed as a Codex plugin, src/hosts/codex/plugin.ts). Codex runs no hook when
@@ -18,6 +19,7 @@ import { findCodexLimit, isCodexRollout, readTail, threadIdOf } from "./rollout.
  *     resume and is blocked, so it never reaches the model; "rewake cancel", "rewake list" and
  *     "rewake help" are answered the same way. Any other prompt cancels a pending
  *     resume for the thread: the person carried on.
+ *     Any other prompt may also show the person a warning before a usage limit (usage.ts).
  *   - SessionEnd: a limit nobody answered is armed when the person chose automatic resume and the
  *     reset is within a day; otherwise one notification says how to continue.
  *   - SessionStart: nothing beyond the sweep every hook does.
@@ -137,7 +139,10 @@ export function codexHooks(deps: CodexHookDeps): HookHandler {
         const m = REWAKE.exec(prompt);
         if (!m) {
           cancelPending(ctx, thread.id);
-          return undefined;
+          // Only a warning for the person, as JSON: plain text here would reach the model.
+          return applySettings(ctx.stateDir).usageWarnings === "off"
+            ? undefined
+            : usageWarning(ctx.stateDir, thread.path, ctx.now);
         }
         const c = continueOnly(CODEX_PLACE, m[1] ?? "", ctx.now);
         if (c.kind === "reply") return block(c.text);

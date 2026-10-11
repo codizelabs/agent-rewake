@@ -104,7 +104,7 @@ const faq: Array<{ q: string; a: string[] }> = [
   {
     q: "Does Rewake warn me before I hit a limit?",
     a: [
-      "In Claude Code, yes. The plugin tells you when a usage window passes 80% and 95% used, and when your pace over the last hour would reach the limit within about 45 minutes and before it resets, as a range such as \"in about 20 to 40 minutes\". It uses only the usage figures Claude Code already gives it, as of its last reply: no network, no sign-in. It only tells you: at 80% it mentions `/compact` (which uses some quota itself), and at 95% it says it is a good moment to wrap up. It never types or compacts for you. Turn it off with `agent-rewake settings usage-warnings off`. Codex and the other agents are not covered.",
+      "In Claude Code and Codex, yes. The plugin tells you when a usage window passes 80% and 95% used, and when your pace over the last hour would reach the limit within about 45 minutes and before it resets, as a range such as \"in about 20 to 40 minutes\". It uses only the usage figures Claude Code already gives it, as of its last reply: no network, no sign-in. It only tells you: at 80% it mentions `/compact` (which uses some quota itself), and at 95% it says it is a good moment to wrap up. It never types or compacts for you. Turn it off with `agent-rewake settings usage-warnings off`. In Codex the warning comes with your next prompt, from the figures of Codex's previous reply, so it is one turn late; it is not yet seen in the Codex desktop app or the VS Code extension. The other agents are not covered.",
     ],
   },
   {
