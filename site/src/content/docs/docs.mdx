@@ -546,10 +546,10 @@ The same two steps for every version, from any earlier one:
    ```
 
    It shows which agents it updates, and from which version to which, and asks first.
-2. **Restart the agent.** Zed keeps an agent it already started on the old version until its connection is restarted. In Zed 1.18 or newer, open the Agent Panel's menu (top right) and choose **Reload Agent**: Zed starts a fresh copy and reopens that thread's session. Do it in each open thread you want on the new version.
+2. **Restart the agent.** Zed keeps an agent it already started on the old version until its connection is restarted. In Zed 1.18 or newer, open the Agent Panel's menu (top right) and choose **Reload Agent**: Zed should start a fresh copy and reopen that thread's session. Do it in each open thread you want on the new version: a thread you don't reload keeps running on the old one until you do, or until you quit Zed.
    If you don't see **Reload Agent**, or something looks wrong afterwards, **quit Zed completely and open it again** (⌘Q on macOS, Ctrl+Q on Linux; on Windows, close every Zed window), which always works.
 
-Your threads, scheduled messages, automatic-resume choices and settings stay as they are: they live in Rewake's own folder, which an update doesn't touch. A message due while Zed is closed for the restart is sent when you reopen its thread, or, if it's more than 15 minutes late, Rewake asks first (a repeating message skips to its next run).
+Your threads, scheduled messages, automatic-resume choices and settings stay as they are: they live in Rewake's own folder, which an update doesn't touch. If you quit Zed to restart, a message due while it is closed is sent when you reopen its thread, or, if it's more than 15 minutes late, Rewake asks first (a repeating message skips to its next run).
 
 Check it with `npx @codizelabs/agent-rewake@latest doctor`. It says if Zed still starts an older version, and what to do. `doctor` also says how long ago the installed version was installed and how to update, from a note Rewake keeps in its own folder when you run `install`: it never looks online for a newer version.
 
@@ -557,9 +557,9 @@ To see which version a thread runs, hover over the **Rewake** menu. Picking **Re
 
 - **Why run install again:** on macOS and Linux, Zed starts the copy of Rewake in Rewake's own folder (`bin/agent-rewake.mjs`) for every agent except Claude Agent, and `install` is what replaces it with the new version, so Zed keeps the version you have until you run it. An older Rewake never replaces a newer copy. On Windows, `install` writes the exact version into Zed's settings. Either way, updates never happen behind your back.
 - **Why `@latest`:** `npx @codizelabs/agent-rewake install` without it may run a copy npx saved earlier.
-- **Installed with `npm install -g`:** run `npm install -g @codizelabs/agent-rewake@latest`, then `agent-rewake install`, then restart Zed.
+- **Installed with `npm install -g`:** run `npm install -g @codizelabs/agent-rewake@latest`, then `agent-rewake install`, then reload the agent in each open thread (or restart Zed).
 - **After you upgrade or move Node.js:** nothing to do on macOS and Linux: Rewake finds the new one. On Windows, run the install command again so Zed's settings point at it. `doctor` tells you when that's needed.
-- **Going back to an earlier version:** run that version's install, for example `npx @codizelabs/agent-rewake@0.1.1 install`, and restart Zed. Zed's entries then start that version the way it did. The copy in Rewake's folder, which hooks and timers use, only moves forward.
+- **Going back to an earlier version:** run that version's install, for example `npx @codizelabs/agent-rewake@0.1.1 install`, and reload the agent (or restart Zed). Zed's entries then start that version the way it did. The copy in Rewake's folder, which hooks and timers use, only moves forward.
 
 ### Version-specific steps
 
