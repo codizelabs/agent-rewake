@@ -8,6 +8,7 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 - **Updating in Zed: Reload Agent instead of quitting Zed.** After `install`, choose **Reload Agent** in the Agent Panel's menu (Zed 1.18 or newer) in each open thread; Zed then starts a fresh copy of Rewake and reopens the thread's session. Quitting Zed completely still always works, and the README, the docs and `doctor` say both. This comes from reading Zed's source (the entry drops the agent's connection and rebuilds the thread from its session); it has not been tried with Rewake by hand yet.
 - **The hero's recorded terminal responds more to you:** the chapter buttons (Hits the limit, Rewake asks, Continues after the reset) now show which one the recording is on; clicking anywhere on the terminal window itself, not only the small play button, pauses or resumes it; and on a phone, it now shows up right after the pitch instead of after the whole install block. Two CTAs that said "Get started" now say "See the install guide".
+- **The hero says less, so the headline, the pitch and the install command fit on a phone screen without scrolling:** the heading is shorter ("Hit a limit? Rewake picks the thread back up."), the opening paragraph is one sentence instead of three, and two paragraphs that repeated what the Install and Agents sections already say in full are gone from the hero.
 
 ## [0.4.0] - 2026-10-11
 
