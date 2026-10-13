@@ -29,8 +29,7 @@ import { type Mock, startMock } from "./e2e/mock-llm.mjs";
  * installs it.
  *
  *   1. `agent-rewake install --only gemini-cli --yes` in a terminal: Gemini's own
- *      `extensions link` runs and asks its own two questions (trust the folder, allow hooks),
- *      answered "y" as a person would.
+ *      `extensions link` runs with --consent and asks nothing; no folder is trusted.
  *   2. `agent-rewake continue --always`: automatic resume on.
  *   3. In Gemini's terminal UI, one turn is answered, then the next hits the "Individual quota"
  *      limit; the person picks "Stop" in Gemini's usage-limit dialog and quits with /quit.
@@ -194,35 +193,32 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
       const rewake = (...args: string[]) =>
         execFileSync(process.execPath, [bundle, ...args], { cwd: work, env, encoding: "utf8" });
 
-      // 1. Install, in a terminal: Gemini asks its own questions, answered "y"; Rewake's own
-      // error-reports question (interactive installs only) defaults to "no", left at that.
+      // 1. Install, in a terminal: no questions, Rewake's or Gemini's (--yes; Rewake links with
+      // --consent and never trusts a folder for Gemini).
       const install = terminal(
         [process.execPath, bundle, "install", "--only", "gemini-cli", "--yes"],
         work,
         env,
       );
       terminals.push(install);
-      let answered = 0;
-      let declined = 0;
       expect(
-        await install.until(() => {
-          const asked = install.screen().match(/\[Y\/n\]/g)?.length ?? 0;
-          for (; answered < asked; answered++) install.child.stdin.write("y\r");
-          const asksNo = install.screen().match(/\[y\/N\]/g)?.length ?? 0;
-          for (; declined < asksNo; declined++) install.child.stdin.write("\r");
-          return /Done\.|Nothing was changed/.test(install.screen());
-        }, 90_000),
+        await install.until(() => /Done\.|Nothing was changed/.test(install.screen()), 90_000),
       ).toBe(true);
       expect(await install.end(15_000)).toBe(0);
-      expect(install.screen()).toMatch(/"agent-rewake" linked successfully/);
       expect(install.screen()).toMatch(/Done\.\s+Next, start a new Gemini CLI session/);
-      expect(answered).toBe(2);
+      expect(install.screen()).not.toMatch(/\[Y\/n\]|\[y\/N\]|error report|not trusted/i);
+      // Nothing was added to Gemini's trusted folders (answering its prompt used to trust the folder).
+      const trusted = join(home, ".gemini", "trustedFolders.json");
+      expect(existsSync(trusted) ? readFileSync(trusted, "utf8") : "").not.toContain(work);
       expect(existsSync(join(home, ".gemini", "extensions", "agent-rewake"))).toBe(true);
 
       // 2. Automatic resume on.
       expect(rewake("continue", "--always")).toMatch(/^From now on/);
 
       // 3. A session in Gemini's terminal UI: one turn answered, the next stopped by the limit.
+      // The project folder is trusted the way the person answers Gemini's own question the first
+      // time they open Gemini there (Rewake's install trusts no folder).
+      writeFileSync(trusted, JSON.stringify({ [work]: "TRUST_FOLDER" }));
       const gemini = terminal(["gemini"], work, env);
       terminals.push(gemini);
       expect(await gemini.until(() => /Type your message/.test(gemini.screen()), 60_000)).toBe(

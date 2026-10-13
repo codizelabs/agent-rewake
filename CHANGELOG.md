@@ -4,6 +4,12 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **Installing for Gemini CLI asks nothing more after Rewake's own question, and trusts no folder.** Gemini CLI asked to trust the folder you ran `install` from (answering yes trusted it for Gemini; from your home folder, all of it), then showed its own warning about hooks. Rewake now links its extension with Gemini's `--consent` once you've said yes to Rewake's question, which says it adds hooks Gemini runs by itself, and without trusting any folder; Gemini's output shows only if the link fails. `install --only gemini-cli --yes` now also works without a terminal.
+- **Shorter results after `install`:** each place says its next step in a line or two. Zed's is: quit Zed and open it again, then start a thread with one of your agents; `agent-rewake doctor` shows when Rewake is working.
+- **`install` no longer asks about error reports.** They stay off unless you turn them on with `agent-rewake errors on` (and off again with `agent-rewake errors off`); the docs' *Error reports* section says what a report holds. A choice you made before is kept.
+
 ## [0.6.2] - 2026-10-14
 
 ### Changed
