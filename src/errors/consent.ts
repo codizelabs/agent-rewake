@@ -19,14 +19,3 @@ export function errorReportsEnabled(
 export function reportingEnvironment(fromSource: boolean): "production" | "development" {
   return fromSource ? "development" : "production";
 }
-
-/** A non-interactive install (no TTY, or CI) must never turn error reports on. */
-export function canAskAboutErrorReports(
-  interactive: boolean,
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (!interactive) return false;
-  if (env.CI === "true" || env.CI === "1") return false;
-  if (env.DO_NOT_TRACK === "1") return false;
-  return true;
-}

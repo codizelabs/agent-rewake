@@ -4,6 +4,10 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- **`install` no longer asks about error reports.** They stay off unless you turn them on with `agent-rewake errors on` (and off again with `agent-rewake errors off`); the docs' *Error reports* section says what a report holds. A choice you made before is kept.
+
 ## [0.6.2] - 2026-10-14
 
 ### Changed

@@ -194,8 +194,8 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
       const rewake = (...args: string[]) =>
         execFileSync(process.execPath, [bundle, ...args], { cwd: work, env, encoding: "utf8" });
 
-      // 1. Install, in a terminal: Gemini asks its own questions, answered "y"; Rewake's own
-      // error-reports question (interactive installs only) defaults to "no", left at that.
+      // 1. Install, in a terminal: Gemini asks its own questions, answered "y"; any default-No
+      // question is left at its default. Rewake itself asks nothing about error reports.
       const install = terminal(
         [process.execPath, bundle, "install", "--only", "gemini-cli", "--yes"],
         work,
@@ -217,6 +217,7 @@ describe.runIf(enabled)("Gemini CLI, offline: limit → automatic resume", () =>
       expect(install.screen()).toMatch(/"agent-rewake" linked successfully/);
       expect(install.screen()).toMatch(/Done\.\s+Next, start a new Gemini CLI session/);
       expect(answered).toBe(2);
+      expect(install.screen()).not.toMatch(/error report/i);
       expect(existsSync(join(home, ".gemini", "extensions", "agent-rewake"))).toBe(true);
 
       // 2. Automatic resume on.

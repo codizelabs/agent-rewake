@@ -22,7 +22,6 @@ import {
 import { buildReport, ISSUE_URL, REPORT_DAYS, writeReport } from "./doctor-report.js";
 import { errorReportsEnabled } from "./errors/consent.js";
 import { DEFAULT_DSN, parseDsn } from "./errors/dsn.js";
-import { maybeAskErrorReports } from "./errors/install-question.js";
 import { readLedger } from "./errors/ledger.js";
 import { buildEvent, newEventId } from "./errors/payload.js";
 import { sendOne } from "./errors/queue.js";
@@ -408,7 +407,6 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const uninstall = first === "uninstall";
     const ask = async (q: string) => /^y(es)?$/i.test((await prompt(q)).trim());
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-    if (!uninstall && !dryRun) await maybeAskErrorReports(stateDir(env), env, interactive, ask);
     /** One place's install (or uninstall), with how it asks and where it prints. */
     const runPlace = (
       id: string,
@@ -1304,7 +1302,7 @@ async function runErrorsCommand(sub: string, env: NodeJS.ProcessEnv): Promise<nu
   const dir = stateDir(env);
   if (sub === "on" || sub === "off") {
     const settings = loadSettings(dir);
-    saveSettings(dir, { ...settings, errorReports: sub, errorReportsAsked: true });
+    saveSettings(dir, { ...settings, errorReports: sub });
     process.stdout.write(
       sub === "on"
         ? "Error reports: on. Rewake will send a scrubbed error report (no messages, output, file contents, tokens or paths) when it hits a bug.\n"
