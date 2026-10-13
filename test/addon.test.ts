@@ -637,6 +637,30 @@ describe("resume after a usage limit", () => {
     h.addon.stop();
   });
 
+  it("treats a spend limit with the plan's reset at the end as a usage limit in Zed, never as an error", async () => {
+    // As Claude Code 2.1 words it for a Team seat whose own spend cap and session window are both
+    // used up (the owner's thread, 2026-10-14): the plan comes back at the reset.
+    const text =
+      "Internal error: You’ve hit your individual spend limit · run /usage-credits to ask your admin for a higher limit · your session limit resets 5pm (Europe/London)";
+    for (const [i, errorKind] of ["rate_limit", "billing_error"].entries()) {
+      const h = await harness(join(dir, `spend-${i}`), { claude: true });
+      h.prompt(2, "keep going");
+      await settle();
+      h.agent(rateEvent(RESET));
+      h.agent({ id: 2, error: { code: -32603, message: text, data: { errorKind } } });
+      await settle();
+      expect(h.toClient.find((m) => m.id === 2)).toMatchObject({
+        result: { stopReason: "end_turn" },
+      });
+      expect(h.toClient.find((m) => m.id === 2)?.error).toBeUndefined();
+      expect(h.texts().some((t) => t.startsWith("Rewake: Not resuming"))).toBe(false);
+      expect(formMessage(h)).toBe(
+        "Claude hit its usage limit. It resets at 17:00 today. Resume this thread when it resets?",
+      );
+      h.addon.stop();
+    }
+  });
+
   it("schedules the edited prompt for the reset + 1 minute when the user accepts", async () => {
     const h = await harness(dir, { claude: true });
     await hitLimit(h, 2);
