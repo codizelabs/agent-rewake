@@ -4,6 +4,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-14
+
 ### Changed
 
 - **A new intro film on the website (69 s).** The screenshots of people asking for auto-resume can now be read: each comes in large before it joins the grid. The film shows every place Rewake works with (Claude Code, Codex, Gemini CLI, GitHub Copilot, Cursor, Grok Build, Antigravity, Qwen Code, OpenCode, Zed, JetBrains, Devin Desktop, goose, Kimi, Mistral Vibe, Cline, and more), the install as the one command it is, and the site's address, rewake.js.org. It is encoded sharper, so text in the footage is clearer.
