@@ -32,9 +32,15 @@ import { REWAKE_MARKER } from "./host.js";
  *
  *   gemini extensions link <stateDir>/hosts/gemini-extension
  *
- * run with the terminal attached and without --consent, so the person answers Gemini's own
- * security question about hooks. Gemini runs extension hooks only when its `hooksConfig.enabled`
- * setting is on; install checks that first. Uninstall: `gemini extensions uninstall agent-rewake`.
+ * with --consent (owner, 2026-10-14): the person has already said yes to Rewake's own question,
+ * which says it adds hooks Gemini runs by itself, so Gemini's own hooks warning isn't asked again.
+ * GEMINI_CLI_TRUST_WORKSPACE=true for that one run: newer Gemini CLIs ask to trust the folder the
+ * command runs in before linking, and with --consent that would trust it silently (from a home
+ * folder, all of it); the variable makes Gemini treat this run's folder as trusted without writing
+ * anything to its trusted folders. The link runs in Rewake's own folder, so no project's
+ * .gemini/settings.json is read. Gemini's output is shown only when the link fails. Gemini runs
+ * extension hooks only when its `hooksConfig.enabled` setting is on; install checks that first.
+ * Uninstall: `gemini extensions uninstall agent-rewake`.
  */
 
 export const MIN_GEMINI = versionOf("gemini-cli").min;
@@ -161,12 +167,29 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
   const probe = o.probe ?? (o.programs ? () => undefined : versionProbe(o.env, o.node));
   const picked = chooseProgram(programs);
   const gemini = picked && !o.uninstall ? withVersion(picked, probe) : picked;
+  // What Gemini printed, kept to show only when it fails (its own warnings aren't needed otherwise).
+  let said = "";
   const run =
     o.run ??
     ((program: string, args: string[]) => {
       const p = nodeAware(program, o.node);
-      return spawnSync(p.command, [...p.args, ...args], { stdio: "inherit", env: o.env }).status;
+      const r = spawnSync(p.command, [...p.args, ...args], {
+        cwd: existsSync(extensionDir(o.stateDir)) ? extensionDir(o.stateDir) : undefined,
+        env: { ...o.env, GEMINI_CLI_TRUST_WORKSPACE: "true" },
+        stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf8",
+      });
+      said = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+      return r.status;
     });
+  const lastSaid = () =>
+    said
+      .trim()
+      .split("\n")
+      .filter((l) => l.trim())
+      .slice(-2)
+      .map((l) => `  ${l.trim()}`)
+      .join("\n");
   const installed = o.installed?.() ?? existsSync(extensionDir(o.stateDir));
   if (!gemini) {
     o.out(
@@ -203,7 +226,7 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
         `Agent Rewake (preview) will add its extension to Gemini CLI${gemini.version ? ` (version ${gemini.version} found)` : ""}, with Gemini's own command:`,
         `  gemini extensions link "${extensionDir(o.stateDir)}"`,
         "",
-        `It adds ${GEMINI_EVENTS.length} hooks that note when a session starts, ends, gets a message or stops at a usage limit. Gemini CLI asks you to confirm them.`,
+        `It adds ${GEMINI_EVENTS.length} hooks, which Gemini CLI runs by itself, that note when a session starts, ends, gets a message or stops at a usage limit.`,
         "",
       ].join("\n"),
     );
@@ -223,13 +246,8 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
     o.out("Dry run: nothing was changed.\n");
     return 0;
   }
-  if (!o.interactive) {
-    // Gemini asks its own question, which needs a terminal: never answered for the person.
-    o.out(
-      o.uninstall
-        ? "Not a terminal, so nothing was changed. Run this in a terminal: gemini extensions uninstall agent-rewake\n"
-        : `Not a terminal, so nothing was changed. Run "${rewake("install --only gemini-cli")}" in a terminal; Gemini CLI asks you to confirm.\n`,
-    );
+  if (!o.yes && !o.interactive) {
+    o.out("Not a terminal, so nothing was changed. Run again with --yes to apply.\n");
     return 1;
   }
   if (!o.yes && !(await o.ask("\nApply these changes? [y/N] "))) {
@@ -249,7 +267,7 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
   }
   const launcher = ensureLauncher(o.stateDir, o.bundle) ?? launcherPath(o.stateDir);
   const dir = writeExtension(o.stateDir, o.node, launcher);
-  const status = run(gemini.path, ["extensions", "link", dir]);
+  const status = run(gemini.path, ["extensions", "link", dir, "--consent"]);
   if (status === 41) {
     rmSync(dir, { recursive: true, force: true });
     o.out(
@@ -259,7 +277,9 @@ export async function runGeminiInstall(o: GeminiInstallOptions): Promise<number>
   }
   if (status !== 0) {
     rmSync(dir, { recursive: true, force: true });
-    o.out("Gemini CLI didn't add the extension, so nothing was changed.\n");
+    o.out(
+      `Gemini CLI didn't add the extension, so nothing was changed.${said ? ` It said:\n${lastSaid()}` : ""}\n`,
+    );
     return 1;
   }
   o.out(

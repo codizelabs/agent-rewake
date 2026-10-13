@@ -2,7 +2,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  readFileSync,
   rmSync,
   statSync,
   utimesSync,
@@ -12,9 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveSettings } from "../src/core/settings.js";
-import { canAskAboutErrorReports, errorReportsEnabled } from "../src/errors/consent.js";
+import { errorReportsEnabled } from "../src/errors/consent.js";
 import { parseDsn } from "../src/errors/dsn.js";
-import { maybeAskErrorReports } from "../src/errors/install-question.js";
 import { appendLedger, cleanOldLogs, readLedger } from "../src/errors/ledger.js";
 import { buildEnvelope, buildEvent, newEventId } from "../src/errors/payload.js";
 import { fingerprint, sendOne, underCap } from "../src/errors/queue.js";
@@ -74,58 +72,6 @@ describe("opt-in gating (off unless turned on)", () => {
     expect(errorReportsEnabled({ errorReports: "off" }, { AGENT_REWAKE_ERROR_REPORTS: "1" })).toBe(
       false,
     );
-  });
-});
-
-describe("install's question: once, interactive only, default No", () => {
-  it("never asks outside a terminal", async () => {
-    const ask = vi.fn();
-    await maybeAskErrorReports(dir, {}, false, ask, () => {});
-    expect(ask).not.toHaveBeenCalled();
-  });
-
-  it("never asks in CI, even in a terminal", async () => {
-    const ask = vi.fn();
-    await maybeAskErrorReports(dir, { CI: "true" }, true, ask, () => {});
-    expect(ask).not.toHaveBeenCalled();
-  });
-
-  it('asks once, interactively, and a "No" leaves reporting off', async () => {
-    const ask = vi.fn().mockResolvedValue(false);
-    await maybeAskErrorReports(dir, {}, true, ask, () => {});
-    expect(ask).toHaveBeenCalledTimes(1);
-    expect(errorReportsEnabled(loadSettingsFixture(dir), {})).toBe(false);
-  });
-
-  it('a "Yes" turns it on', async () => {
-    const ask = vi.fn().mockResolvedValue(true);
-    await maybeAskErrorReports(dir, {}, true, ask, () => {});
-    expect(errorReportsEnabled(loadSettingsFixture(dir), {})).toBe(true);
-  });
-
-  it("never asks again once answered", async () => {
-    const ask = vi.fn().mockResolvedValue(false);
-    await maybeAskErrorReports(dir, {}, true, ask, () => {});
-    await maybeAskErrorReports(dir, {}, true, ask, () => {});
-    expect(ask).toHaveBeenCalledTimes(1);
-  });
-});
-
-function loadSettingsFixture(stateDir: string) {
-  // Local require-free read, so this test file doesn't need to re-export loadSettings.
-  const raw = JSON.parse(readFileSync(join(stateDir, "settings.json"), "utf8"));
-  return { errorReports: raw.errorReports === "on" ? "on" : "off" } as const;
-}
-
-describe("canAskAboutErrorReports", () => {
-  it("is false without a terminal, in CI, or with DO_NOT_TRACK set", () => {
-    expect(canAskAboutErrorReports(false)).toBe(false);
-    expect(canAskAboutErrorReports(true, { CI: "1" })).toBe(false);
-    expect(canAskAboutErrorReports(true, { DO_NOT_TRACK: "1" })).toBe(false);
-  });
-
-  it("is true in a plain interactive terminal", () => {
-    expect(canAskAboutErrorReports(true, {})).toBe(true);
   });
 });
 

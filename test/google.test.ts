@@ -490,7 +490,7 @@ describe("Gemini CLI", () => {
     );
   });
 
-  it("checks that Gemini's hooks are on, links with Gemini's own command, and never answers its question", async () => {
+  it("checks that Gemini's hooks are on, links with Gemini's own command, and asks nothing after Rewake's own question", async () => {
     const home = join(dir, "home");
     const calls: string[][] = [];
     const run = (o: Partial<Parameters<typeof runGeminiInstall>[0]> = {}) => {
@@ -529,11 +529,17 @@ describe("Gemini CLI", () => {
     // Not set at all: on, as Gemini's own default is.
     writeFileSync(join(home, ".gemini", "settings.json"), "{}");
     expect((await run()).code).toBe(0);
-    expect(calls).toEqual([["extensions", "link", join(state, "hosts", "gemini-extension")]]);
-    expect(calls.flat()).not.toContain("--consent");
-    const noTerminal = await run({ interactive: false });
+    // --consent: the person said yes to Rewake's own question, which names the hooks.
+    expect(calls).toEqual([
+      ["extensions", "link", join(state, "hosts", "gemini-extension"), "--consent"],
+    ]);
+    // Without a terminal: only with --yes, as for every other place.
+    const noTerminal = await run({ interactive: false, yes: false });
     expect(noTerminal.code).toBe(1);
+    expect(noTerminal.output).toContain("Run again with --yes");
     expect(calls).toHaveLength(1);
+    expect((await run({ interactive: false, yes: true })).code).toBe(0);
+    expect(calls).toHaveLength(2);
   });
 });
 

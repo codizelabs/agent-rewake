@@ -28,8 +28,7 @@ import { type Mock, startMock } from "./e2e/mock-llm.mjs";
  * a real Qwen Code limit): the real Qwen Code (pinned in test/agents) against a local mock of its
  * OpenAI-compatible wire, with Rewake installed the way a person installs it.
  *
- *   1. `agent-rewake install --only qwen-code --yes` in a terminal: Rewake's own one question
- *      ("Apply these changes? [y/N]") answered "y" as a person would.
+ *   1. `agent-rewake install --only qwen-code --yes` in a terminal: it asks nothing.
  *   2. `agent-rewake continue --always`: automatic resume on.
  *   3. In Qwen Code's terminal UI, one turn is answered, then the next hits a plan quota that ran
  *      out and will reset on its own; Qwen shows its own "Quota exhausted: …" message (no dialog
@@ -196,24 +195,19 @@ describe.runIf(enabled)("Qwen Code, offline: limit → automatic resume", () => 
       const rewake = (...args: string[]) =>
         execFileSync(process.execPath, [bundle, ...args], { cwd: work, env, encoding: "utf8" });
 
-      // 1. Install, in a terminal: Rewake's own single question, answered "y".
+      // 1. Install, in a terminal: with --yes it asks nothing (Rewake asks no question about error reports).
       const install = terminal(
         [process.execPath, bundle, "install", "--only", "qwen-code", "--yes"],
         work,
         env,
       );
       terminals.push(install);
-      let answered = 0;
       expect(
-        await install.until(() => {
-          const asked = install.screen().match(/\[y\/N\]/g)?.length ?? 0;
-          for (; answered < asked; answered++) install.child.stdin.write("y\r");
-          return /Done\.|Nothing was changed/.test(install.screen());
-        }, 60_000),
+        await install.until(() => /Done\.|Nothing was changed/.test(install.screen()), 60_000),
       ).toBe(true);
       expect(await install.end(15_000)).toBe(0);
       expect(install.screen()).toMatch(/Done\.\s+Next, start a new Qwen Code session/);
-      expect(answered).toBe(1);
+      expect(install.screen()).not.toMatch(/\[y\/N\]|error report/i);
       const settingsAfter = readFileSync(join(home, ".qwen", "settings.json"), "utf8");
       expect(settingsAfter).toContain("hook qwen-code StopFailure");
 
