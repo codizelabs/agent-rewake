@@ -22,7 +22,6 @@ import {
 import { buildReport, ISSUE_URL, REPORT_DAYS, writeReport } from "./doctor-report.js";
 import { errorReportsEnabled } from "./errors/consent.js";
 import { DEFAULT_DSN, parseDsn } from "./errors/dsn.js";
-import { maybeAskErrorReports } from "./errors/install-question.js";
 import { readLedger } from "./errors/ledger.js";
 import { buildEvent, newEventId } from "./errors/payload.js";
 import { sendOne } from "./errors/queue.js";
@@ -408,7 +407,6 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const uninstall = first === "uninstall";
     const ask = async (q: string) => /^y(es)?$/i.test((await prompt(q)).trim());
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-    if (!uninstall && !dryRun) await maybeAskErrorReports(stateDir(env), env, interactive, ask);
     /** One place's install (or uninstall), with how it asks and where it prints. */
     const runPlace = (
       id: string,
@@ -1024,13 +1022,16 @@ export function summaryText(
       // The plan above said each file is backed up next to itself: the summary keeps to the next step.
       .filter((l) => l && !l.startsWith("Backup:"));
     const done = said.findIndex((l) => l.startsWith("Done"));
+    // At most two lines after "Done." (owner, 2026-10-14): the next step, and a warning if there is one.
     const next =
       c === 0
         ? done >= 0
           ? said
               .slice(done)
+              .map((l) => l.replace(/^Done\.?\s*/, ""))
+              .filter(Boolean)
+              .slice(0, 2)
               .join(" ")
-              .replace(/^Done\.?\s*/, "")
           : (said.at(-1) ?? "")
         : (said.at(-1) ?? "");
     const state = c === 0 ? "done" : "not changed";
@@ -1304,7 +1305,7 @@ async function runErrorsCommand(sub: string, env: NodeJS.ProcessEnv): Promise<nu
   const dir = stateDir(env);
   if (sub === "on" || sub === "off") {
     const settings = loadSettings(dir);
-    saveSettings(dir, { ...settings, errorReports: sub, errorReportsAsked: true });
+    saveSettings(dir, { ...settings, errorReports: sub });
     process.stdout.write(
       sub === "on"
         ? "Error reports: on. Rewake will send a scrubbed error report (no messages, output, file contents, tokens or paths) when it hits a bug.\n"
