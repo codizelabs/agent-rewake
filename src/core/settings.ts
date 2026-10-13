@@ -47,8 +47,6 @@ export interface Settings {
    * the limit within 45 minutes: "on" (the default) or "off".
    */
   usageWarnings: UsageWarnings;
-  /** `install` has already asked about error reports: never ask again, whatever was answered. */
-  errorReportsAsked?: boolean;
 }
 
 export type NewThreads = "ask" | "on" | "off";
@@ -114,7 +112,6 @@ export function loadSettings(stateDir: string): Settings {
       WORKSPACE_CHANGED_VALUES.find((v) => v === raw.workspaceChanged) ??
       DEFAULT_SETTINGS.workspaceChanged;
     const usageWarnings = raw.usageWarnings === "off" ? "off" : DEFAULT_SETTINGS.usageWarnings;
-    const errorReportsAsked = raw.errorReportsAsked === true;
     return {
       clock,
       newThreads,
@@ -124,7 +121,6 @@ export function loadSettings(stateDir: string): Settings {
       workspaceChanged,
       usageWarnings,
       ...(resumePrompt && { resumePrompt }),
-      ...(errorReportsAsked && { errorReportsAsked }),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

@@ -507,7 +507,7 @@ The full picture, with what Rewake never does, what each place runs and stores, 
 
 ### Error reports
 
-Off by default. `install` asks once, in a terminal, with a default of No; it's never turned on by a non-interactive install (no terminal, or CI). Change it any time: `agent-rewake errors on`, `agent-rewake errors off`, or `agent-rewake errors status`. `doctor` also shows whether it's on.
+Off by default, and nothing turns it on but you: `install` doesn't ask about it. Turn it on or off any time with `agent-rewake errors on` or `agent-rewake errors off`; `agent-rewake errors status` and `doctor` show whether it's on.
 
 **Sent, when it's on:** the kind of error and a one-line message produced by Rewake's own code (not yours), a scrubbed stack trace (file names only, no folders), which part of Rewake it happened in, the place it ran (Zed, Claude Code, Codex, …), Rewake's version, your OS and Node.js version. Example payload (the `tags.place` and timestamp vary):
 
