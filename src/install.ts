@@ -807,7 +807,7 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
     if (note) out(`\n${note}\n`);
   }
   if (plan.changes.length === 0) {
-    if (!opts.uninstall) out(nextSteps(note !== undefined));
+    if (!opts.uninstall) out(nextSteps());
     return 0;
   }
   if (opts.dryRun) {
@@ -844,7 +844,7 @@ export async function runInstall(opts: RunInstallOptions): Promise<number> {
   out(
     opts.uninstall
       ? `Rewake is out of Zed. Your threads are untouched, and your scheduled messages are kept; \`${rewake("doctor")}\` shows where.\n`
-      : nextSteps(note !== undefined),
+      : nextSteps(),
   );
   return 0;
 }
@@ -873,28 +873,12 @@ export function reloadAgent(p: NodeJS.Platform = platform()): string {
   return `choose "Reload Agent" in the Agent Panel's menu in each open thread (Zed 1.18 or newer), or ${quitZed(p)} and open it again`;
 }
 
-/** What to do next. `reachShown`: the specific "works only in Zed" line was shown already. */
-function nextSteps(reachShown = false): string {
+/** What to do next, in two lines (owner, 2026-10-14: no message longer than two lines). */
+function nextSteps(): string {
   return [
     "",
-    `Now ${quitZed()} and open it again.`,
-    `Then open Zed's Agent Panel (${agentPanelKey()}) and open or start a thread with one of these agents.`,
-    "Zed starts Rewake when you open a thread with the agent, not when Zed itself starts.",
-    `\`${rewake("doctor")}\` shows whether it has started.`,
-    "",
-    'In the thread, the "Rewake" menu under the message box (next to the model picker) schedules messages.',
-    "When the agent hits a usage limit, Rewake asks you in the thread with Yes/No buttons.",
-    `All threads: command palette, task: spawn, then "${TASK_LABEL}".`,
-    "",
-    ...(reachShown
-      ? []
-      : [
-          "Rewake works in Zed's Agent Panel, with external agents such as Claude Agent, Codex and Gemini CLI.",
-          "It can't reach Zed's own agent or the Claude desktop app.",
-          `For Claude Code, Codex and other agents in a terminal, install them, then run \`${rewake("install")}\` and pick them.`,
-          "",
-        ]),
-    `Agent Rewake is open source: ${REPO_URL}. If it saves you time, a star there helps others find it.`,
+    `Now ${quitZed()} and open it again, then start a thread with one of these agents in the Agent Panel (${agentPanelKey()}).`,
+    `\`${rewake("doctor")}\` shows when Rewake is working. If it saves you time, a star helps others find it: ${REPO_URL}`,
     "",
   ].join("\n");
 }

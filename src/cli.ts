@@ -1022,13 +1022,16 @@ export function summaryText(
       // The plan above said each file is backed up next to itself: the summary keeps to the next step.
       .filter((l) => l && !l.startsWith("Backup:"));
     const done = said.findIndex((l) => l.startsWith("Done"));
+    // At most two lines after "Done." (owner, 2026-10-14): the next step, and a warning if there is one.
     const next =
       c === 0
         ? done >= 0
           ? said
               .slice(done)
+              .map((l) => l.replace(/^Done\.?\s*/, ""))
+              .filter(Boolean)
+              .slice(0, 2)
               .join(" ")
-              .replace(/^Done\.?\s*/, "")
           : (said.at(-1) ?? "")
         : (said.at(-1) ?? "");
     const state = c === 0 ? "done" : "not changed";

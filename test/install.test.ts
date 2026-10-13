@@ -306,7 +306,7 @@ describe("agent-rewake install", () => {
     const yes = await run({ yes: false, interactive: true, ask: async () => true });
     expect(yes.code).toBe(0);
     expect(yes.output).toContain("Backup:");
-    expect(yes.output).toContain('"Rewake" menu');
+    expect(yes.output).toContain("open it again, then start a thread");
     expect(json("settings.json").agent_servers["claude-acp"].type).toBe("custom");
   });
 
@@ -340,16 +340,16 @@ describe("agent-rewake install", () => {
     );
   });
 
-  it("says where Rewake works once: the next steps leave out the general line after the specific one", async () => {
+  it("ends with two lines of next steps: restart Zed and start a thread, then how to check", async () => {
     writeFileSync(file("settings.json"), SETTINGS);
-    const agents = [
-      { id: "codex" as const, name: "Codex", version: "0.160.1", surfaces: ["terminal"] },
-    ];
-    const specific = await run({ agents });
-    expect(specific.output).toContain("It isn't set up for Codex used on its own");
-    expect(specific.output).not.toContain("It can't reach Zed's own agent");
-    writeFileSync(file("settings.json"), SETTINGS);
-    expect((await run({})).output).toContain("It can't reach Zed's own agent");
+    const out = (await run({})).output;
+    const tail = out.slice(out.lastIndexOf("Done."));
+    const lines = tail
+      .split("\n")
+      .filter((l) => l.trim() && !l.startsWith("Done.") && !l.trim().startsWith("Backup:"));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/open it again, then start a thread/);
+    expect(lines[1]).toContain("doctor");
   });
 });
 
