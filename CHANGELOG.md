@@ -4,6 +4,8 @@ All notable changes to Agent Rewake are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-14
+
 ### Changed
 
 - **Installing for Gemini CLI asks nothing more after Rewake's own question, and trusts no folder.** Gemini CLI asked to trust the folder you ran `install` from (answering yes trusted it for Gemini; from your home folder, all of it), then showed its own warning about hooks. Rewake now links its extension with Gemini's `--consent` once you've said yes to Rewake's question, which says it adds hooks Gemini runs by itself, and without trusting any folder; Gemini's output shows only if the link fails. `install --only gemini-cli --yes` now also works without a terminal.
