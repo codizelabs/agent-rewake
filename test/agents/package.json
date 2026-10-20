@@ -3,11 +3,11 @@
   "private": true,
   "description": "Agent CLIs pinned for Rewake's contract tests (plan \u00a710.2 L2). Never shipped.",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.292",
-    "@github/copilot": "1.0.93",
-    "@google/gemini-cli": "0.63.0",
-    "@openai/codex": "0.160.1",
-    "@qwen-code/qwen-code": "0.25.0",
-    "@xai-official/grok": "1.0.46"
+    "@anthropic-ai/claude-code": "2.1.302",
+    "@github/copilot": "1.0.98",
+    "@google/gemini-cli": "0.64.0",
+    "@openai/codex": "0.163.0",
+    "@qwen-code/qwen-code": "0.25.2",
+    "@xai-official/grok": "1.0.62"
   }
 }
