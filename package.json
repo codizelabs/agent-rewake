@@ -69,14 +69,14 @@
     "@agentclientprotocol/claude-agent-acp": "0.85.1"
   },
   "devDependencies": {
-    "@agentclientprotocol/sdk": "1.7.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.286",
+    "@agentclientprotocol/sdk": "1.8.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.296",
     "@biomejs/biome": "2.5.15",
     "@types/node": "^26",
     "esbuild": "0.28.2",
     "jsonc-parser": "3.3.1",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.4"
   },
   "author": "KASHAN HAIDER (https://github.com/SMKH-PRO)"
 }
