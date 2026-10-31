@@ -8,11 +8,11 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "@astrojs/starlight": "0.42.5",
+    "@astrojs/starlight": "0.42.6",
     "@fontsource-variable/fraunces": "5.3.0",
     "@fontsource/ibm-plex-mono": "5.3.0",
     "@fontsource/ibm-plex-sans": "5.3.0",
-    "astro": "7.3.5"
+    "astro": "7.3.8"
   },
   "overrides": {
     "postcss-selector-parser": "^7.1.6"
