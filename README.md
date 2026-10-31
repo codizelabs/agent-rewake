@@ -164,7 +164,7 @@ Agent Rewake is free and open source. If it saves you time, you can [support it 
 
 ## License
 
-[Apache-2.0](LICENSE) © KASHAN HAIDER · [Codize Labs](https://github.com/codizelabs)
+[Apache-2.0](LICENSE) © cto-syed · [Codize Labs](https://github.com/codizelabs)
 
 <p align="center">
   <a href="https://github.com/codizelabs">
